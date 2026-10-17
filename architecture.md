@@ -19,29 +19,30 @@ flowchart TB
 
     subgraph Firebase["Firebase & GCP Backend (classroom-agent-511917)"]
         Auth["Firebase Auth (Google OAuth + Classroom/Drive Scopes)"]
-        Firestore[("Cloud Firestore\nassignments / submissions / messages")]
+        Firestore[("Cloud Firestore Sidecar\nassignments (rubric) / evaluations / messages")]
         Storage[("Cloud Storage\nUploaded Rubrics & Mark Schemes")]
         subgraph Functions["Cloud Functions (\\functions - Express + TypeScript)"]
             SSE["POST /api/chat (SSE Stream)"]
-            ClassroomAPI["/api/classroom/* (Sync, Preview, Grade, Return)"]
+            ClassroomAPI["/api/classroom/* (Live Workspace, Preview, Grade, Return)"]
             AgentLoop["Gemini 2.5/3 Flash Loop\n(Preserves thought_signature)"]
         end
     end
 
     subgraph External["Google Workspace & AI APIs"]
-        GClassroom["Google Classroom API v1"]
+        GClassroom["Google Classroom API v1 (Live Source of Truth)"]
         GDrive["Google Drive API v3"]
         Gemini["Google GenAI API (@google/genai)"]
     end
 
     Client -->|Sign-In + OAuth Scopes| Auth
-    ZoneA & ZoneC & ChatPanel <-->|Real-time onSnapshot| Firestore
+    ZoneA & ZoneC & ChatPanel <-->|Real-time onSnapshot (Sidecar)| Firestore
     ChatPanel -->|Upload Rubric File| Storage
     ChatPanel -->|POST /api/chat + Bearer & OAuth Token| SSE
-    ZoneA & ZoneB & ZoneC -->|REST Calls + OAuth Token| ClassroomAPI
+    ZoneA & ZoneB & ZoneC -->|Live REST Reads & Grade Write-Back| ClassroomAPI
     SSE --> AgentLoop
     AgentLoop <-->|Function Calling| Gemini
-    AgentLoop -->|Execute Grading Tools| GClassroom & GDrive & Firestore
+    AgentLoop -->|Live Reads & Grade Write-Back| GClassroom & GDrive
+    AgentLoop -->|Write Rubric & Evaluations Sidecar| Firestore
     ClassroomAPI <--> GClassroom & GDrive & Firestore
 ```
 
@@ -98,7 +99,11 @@ classroom-agent/
 │           └── gradingTools.ts   # Tool declarations & executors (evaluate_and_grade_submission, etc.)
 ├── scripts/
 │   └── run_tests.js              # Sequential test runner (`node scripts/run_tests.js <name> local 1`)
+├── TESTING.md                    # E2E & Live Google Classroom test setup & OAuth refresh token guide
 └── tests/
+    ├── helpers/
+    │   ├── testSeeder.ts         # Local Firestore Emulator fixture seeder & teardown
+    │   └── classroomSandboxSeeder.ts # Live Google Classroom Teacher + Student fixture seeder & teardown
     └── e2e/                      # Playwright E2E tests (`methodname_initialstate_expectedbehaviour_test`)
 ```
 
@@ -120,9 +125,13 @@ classroom-agent/
      - `Authorization: Bearer <firebaseIdToken>`
      - `X-Google-Access-Token: <googleOAuthAccessToken>`
    - **Fail-Fast Validation**: The backend middleware rejects any request missing either token with `401 Unauthorized` immediately.
-3. **Real-Time UI Updates**:
-   - When the agent executes `set_assignment_rubric`, `evaluate_and_grade_submission`, or `return_student_submissions` inside Cloud Functions, it writes directly to Google Classroom/Drive **and** updates `assignments/{assignmentId}` and `submissions/{studentId}` in Firestore.
-   - The frontend's `onSnapshot` listeners immediately reflect the new grade, rubric breakdown, and comments in Zones A and C while the SSE `ToolCallBadge` updates in the 30% pane.
+3. **Live Google Classroom Reads + Firestore Sidecar Architecture (Option 2)**:
+   - **Google Classroom API (Live Source of Truth)**: Courses, coursework metadata, student rosters, submission turn-in states, Drive attachments, and grades (`draftGrade`, `assignedGrade`) are always fetched live from Google Classroom (`GET /api/classroom/courses/:courseId/coursework/:courseWorkId/workspace`) — zero duplicate roster or attachment copies are stored in Firestore.
+   - **Cloud Firestore (AI Sidecar Only)**: Stores strictly what the Google Classroom API does not support natively, keyed by `{courseId}_{courseWorkId}`:
+     - `assignments/{assignmentId}` $\rightarrow$ `{ rubric, updatedAt }`
+     - `assignments/{assignmentId}/evaluations/{studentId}` $\rightarrow$ `{ studentId, submissionId, rubricBreakdown, overallFeedback, comments, draftGrade, assignedGrade, classroomSyncStatus, updatedAt }`
+     - `assignments/{assignmentId}/messages/{messageId}` $\rightarrow$ Agent Co-Pilot chat history and `toolCalls` audit trail.
+   - When the agent executes `set_assignment_rubric`, `evaluate_and_grade_submission`, or `return_student_submissions`, it patches grades directly to Google Classroom API **and** updates the Firestore sidecar (`assignments/{assignmentId}` and `evaluations/{studentId}`), which triggers the frontend's `onSnapshot` listeners in `<100ms` to merge live Classroom data with real-time AI evaluations.
 
 ---
 

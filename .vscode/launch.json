@@ -1,0 +1,36 @@
+{
+  "version": "0.2.0",
+  "configurations": [
+    {
+      "name": "Frontend",
+      "type": "node-terminal",
+      "request": "launch",
+      "command": "npm run dev",
+      "cwd": "${workspaceFolder}"
+    },
+    {
+      "name": "Firebase Emulators",
+      "type": "node-terminal",
+      "request": "launch",
+      "command": "firebase emulators:start",
+      "cwd": "${workspaceFolder}"
+    },
+    {
+      "name": "Functions",
+      "type": "node-terminal",
+      "request": "launch",
+      "command": "npm run build:watch",
+      "cwd": "${workspaceFolder}/functions"
+    }
+  ],
+  "compounds": [
+    {
+      "name": "Launch All Backend",
+      "configurations": [
+        "Backend: Firebase Emulators (Auth, Firestore, Functions, Storage)",
+        "Backend: Watch Functions Build (TypeScript)"
+      ],
+      "stopAll": true
+    }
+  ]
+}

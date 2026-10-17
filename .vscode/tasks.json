@@ -1,0 +1,87 @@
+{
+  "version": "2.0.0",
+  "tasks": [
+    {
+      "label": "Frontend: Vite Dev",
+      "type": "shell",
+      "command": "npm run dev",
+      "isBackground": true,
+      "problemMatcher": {
+        "owner": "typescript",
+        "pattern": {
+          "regexp": "^$"
+        },
+        "background": {
+          "activeOnStart": true,
+          "beginsPattern": ".*VITE.*ready.*",
+          "endsPattern": ".*Local:.*http.*"
+        }
+      },
+      "presentation": {
+        "group": "frontend",
+        "reveal": "always"
+      }
+    },
+    {
+      "label": "Backend: Firebase Emulators",
+      "type": "shell",
+      "command": "firebase emulators:start",
+      "isBackground": true,
+      "problemMatcher": {
+        "owner": "typescript",
+        "pattern": {
+          "regexp": "^$"
+        },
+        "background": {
+          "activeOnStart": true,
+          "beginsPattern": ".*Starting emulators.*",
+          "endsPattern": ".*All emulators ready.*"
+        }
+      },
+      "presentation": {
+        "group": "backend",
+        "reveal": "always"
+      }
+    },
+    {
+      "label": "Backend: Watch Functions Build",
+      "type": "shell",
+      "command": "npm run build:watch",
+      "options": {
+        "cwd": "${workspaceFolder}/functions"
+      },
+      "isBackground": true,
+      "problemMatcher": "$tsc-watch",
+      "presentation": {
+        "group": "backend",
+        "reveal": "always"
+      }
+    },
+    {
+      "label": "Backend: Build Functions (Single Run)",
+      "type": "shell",
+      "command": "npm run build",
+      "options": {
+        "cwd": "${workspaceFolder}/functions"
+      },
+      "problemMatcher": "$tsc",
+      "group": {
+        "kind": "build",
+        "isDefault": true
+      }
+    },
+    {
+      "label": "Backend: All Services (Emulators + Functions Watch)",
+      "dependsOn": [
+        "Backend: Watch Functions Build",
+        "Backend: Firebase Emulators"
+      ],
+      "dependsOrder": "parallel",
+      "problemMatcher": [],
+      "presentation": {
+        "group": "backend",
+        "reveal": "always"
+      }
+    }
+  ]
+}

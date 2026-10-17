@@ -4,10 +4,10 @@ import { AuthenticatedRequest, requireAuth } from '../middleware/auth';
 import {
   listTeacherCourses,
   listCourseWork,
-  getCourseWork,
   cloneCourseWorkUnderApp,
-  listCourseStudents,
   listCourseWorkSubmissions,
+  fetchLiveWorkspaceFromClassroom,
+  parseAssignmentId,
   patchSubmissionGrade,
   returnSubmission,
 } from '../services/classroomClient';
@@ -15,7 +15,7 @@ import { extractDriveFile } from '../services/driveExtractor';
 
 export const classroomRouter = Router();
 
-// 1. List Courses
+// 1. List Courses (Live from Google Classroom API)
 classroomRouter.get('/courses', requireAuth, async (req: AuthenticatedRequest, res: Response): Promise<void> => {
   try {
     const courses = await listTeacherCourses(req.googleAccessToken!);
@@ -25,7 +25,7 @@ classroomRouter.get('/courses', requireAuth, async (req: AuthenticatedRequest, r
   }
 });
 
-// 2. List Coursework for Course
+// 2. List Coursework for Course (Live from Google Classroom API)
 classroomRouter.get('/courses/:courseId/coursework', requireAuth, async (req: AuthenticatedRequest, res: Response): Promise<void> => {
   const { courseId } = req.params;
   try {
@@ -54,7 +54,29 @@ classroomRouter.post('/courses/:courseId/coursework/clone', requireAuth, async (
   }
 });
 
-// 4. Sync Assignment, Roster, and Submissions to Firestore
+// 4. Live Workspace Read (Option 2: Live Google Classroom Course + CourseWork + Roster + Submissions)
+classroomRouter.get(
+  '/courses/:courseId/coursework/:courseWorkId/workspace',
+  requireAuth,
+  async (req: AuthenticatedRequest, res: Response): Promise<void> => {
+    const { courseId, courseWorkId } = req.params;
+
+    if (!courseId || !courseWorkId) {
+      res.status(400).json({ error: 'courseId and courseWorkId are required. Fail-fast enabled.' });
+      return;
+    }
+
+    try {
+      const workspace = await fetchLiveWorkspaceFromClassroom(req.googleAccessToken!, courseId, courseWorkId);
+      res.json(workspace);
+    } catch (err: any) {
+      console.error('Live workspace fetch error:', err);
+      res.status(500).json({ error: `Failed to fetch live workspace from Google Classroom: ${err.message}` });
+    }
+  }
+);
+
+// 5. Verify / Open Assignment Workspace (Zero duplicate Firestore roster/submission storage)
 classroomRouter.post('/sync-assignment', requireAuth, async (req: AuthenticatedRequest, res: Response): Promise<void> => {
   const { courseId, courseWorkId } = req.body;
 
@@ -63,173 +85,22 @@ classroomRouter.post('/sync-assignment', requireAuth, async (req: AuthenticatedR
     return;
   }
 
-  const token = req.googleAccessToken!;
-  const db = admin.firestore();
-
   try {
-    // 1. Fetch coursework metadata
-    const coursework = await getCourseWork(token, courseId, courseWorkId);
-    const assignmentId = `${courseId}_${courseWorkId}`;
-
-    // 2. Fetch course details to get course name
-    const courses = await listTeacherCourses(token);
-    const courseObj = courses.find((c) => c.id === courseId);
-    const courseName = courseObj?.name || 'Classroom Course';
-
-    // 3. Fetch enrolled students
-    const students = await listCourseStudents(token, courseId);
-    const studentMap = new Map<string, { name: string; email?: string | null; photoUrl?: string | null }>();
-    for (const st of students) {
-      if (st.userId) {
-        studentMap.set(st.userId, {
-          name: st.profile?.name?.fullName || 'Student',
-          email: st.profile?.emailAddress,
-          photoUrl: st.profile?.photoUrl,
-        });
-      }
-    }
-
-    // 4. Fetch submissions
-    const rawSubmissions = await listCourseWorkSubmissions(token, courseId, courseWorkId);
-
-    // 5. Upsert Assignment Document
-    const assignRef = db.collection('assignments').doc(assignmentId);
-    const existingAssignSnap = await assignRef.get();
-    const existingData = existingAssignSnap.exists ? existingAssignSnap.data() : null;
-
-    let turnedInCount = 0;
-    let draftGradedCount = 0;
-    let returnedCount = 0;
-
-    const batch = db.batch();
-
-    for (const sub of rawSubmissions) {
-      const studentId = sub.userId || sub.id!;
-      const profile = studentMap.get(studentId) || { name: 'Student' };
-
-      const isTurnedIn = sub.state === 'TURNED_IN';
-      const isReturned = sub.state === 'RETURNED';
-      const hasDraft = sub.draftGrade !== undefined;
-
-      if (isTurnedIn) turnedInCount++;
-      if (hasDraft && !isReturned) draftGradedCount++;
-      if (isReturned) returnedCount++;
-
-      // Process attachments
-      const attachments: any[] = [];
-      const driveFiles = sub.assignmentSubmission?.attachments || [];
-      for (const att of driveFiles) {
-        if (att.driveFile) {
-          const file = att.driveFile;
-          let fileType = 'PDF';
-          const title = file.title || 'Attachment';
-
-          if (title.endsWith('.doc') || title.endsWith('.docx') || file.alternateLink?.includes('document')) {
-            fileType = 'GOOGLE_DOC';
-          } else if (title.endsWith('.ppt') || title.endsWith('.pptx') || file.alternateLink?.includes('presentation')) {
-            fileType = 'GOOGLE_SLIDES';
-          } else if (title.endsWith('.xls') || title.endsWith('.xlsx') || file.alternateLink?.includes('spreadsheets')) {
-            fileType = 'GOOGLE_SHEETS';
-          } else if (
-            title.endsWith('.py') ||
-            title.endsWith('.js') ||
-            title.endsWith('.ts') ||
-            title.endsWith('.java') ||
-            title.endsWith('.cpp') ||
-            title.endsWith('.html') ||
-            title.endsWith('.css')
-          ) {
-            fileType = 'CODE';
-          } else if (title.endsWith('.png') || title.endsWith('.jpg') || title.endsWith('.jpeg')) {
-            fileType = 'IMAGE';
-          }
-
-          attachments.push({
-            id: file.id || `file_${Math.random().toString(36).substring(2, 7)}`,
-            title,
-            type: fileType,
-            driveFileId: file.id,
-            alternateLink: file.alternateLink,
-            thumbnailUrl: file.thumbnailUrl,
-          });
-        } else if (att.link) {
-          attachments.push({
-            id: `link_${Math.random().toString(36).substring(2, 7)}`,
-            title: att.link.title || att.link.url || 'Link',
-            type: 'LINK',
-            alternateLink: att.link.url,
-          });
-        }
-      }
-
-      if (sub.shortAnswerSubmission) {
-        attachments.push({
-          id: `sa_${sub.id}`,
-          title: 'Short Answer Response',
-          type: 'SHORT_ANSWER',
-          shortAnswer: sub.shortAnswerSubmission.answer || '',
-        });
-      }
-
-      const subDocRef = assignRef.collection('submissions').doc(studentId);
-      const subPayload = {
-        studentId,
-        submissionId: sub.id || studentId,
-        studentName: profile.name,
-        studentEmail: profile.email || null,
-        studentAvatarUrl: profile.photoUrl || null,
-        state: sub.state || 'CREATED',
-        late: sub.late || false,
-        attachments,
-        draftGrade: sub.draftGrade,
-        assignedGrade: sub.assignedGrade,
-        rubricBreakdown: [],
-        overallFeedback: '',
-        comments: [],
-        classroomSyncStatus: isReturned ? 'RETURNED' : hasDraft ? 'SYNCED_DRAFT' : 'UNSAVED',
-        updatedAt: new Date().toISOString(),
-      };
-
-      batch.set(subDocRef, subPayload, { merge: true });
-    }
-
-    const assignmentPayload = {
-      courseId,
-      courseName,
-      courseWorkId,
-      title: coursework.title || 'Classroom Assignment',
-      description: coursework.description || '',
-      maxPoints: coursework.maxPoints || 100,
-      dueDate: coursework.dueDate ? `${coursework.dueDate.year}-${coursework.dueDate.month}-${coursework.dueDate.day}` : null,
-      state: coursework.state || 'PUBLISHED',
-      apiWriteBackEligible: coursework.associatedWithDeveloper || false,
-      rubric: existingData?.rubric || null,
-      submissionStats: {
-        total: rawSubmissions.length,
-        turnedIn: turnedInCount,
-        draftGraded: draftGradedCount,
-        returned: returnedCount,
-        missing: Math.max(0, rawSubmissions.length - turnedInCount - returnedCount),
-      },
-      createdAt: existingData?.createdAt || new Date().toISOString(),
-      updatedAt: new Date().toISOString(),
-    };
-
-    batch.set(assignRef, assignmentPayload, { merge: true });
-    await batch.commit();
-
+    const workspace = await fetchLiveWorkspaceFromClassroom(req.googleAccessToken!, courseId, courseWorkId);
     res.json({
       success: true,
-      assignmentId,
-      submissionCount: rawSubmissions.length,
+      assignmentId: workspace.assignment.id,
+      submissionCount: workspace.submissions.length,
+      assignment: workspace.assignment,
+      submissions: workspace.submissions,
     });
   } catch (err: any) {
-    console.error('Sync assignment failure:', err);
-    res.status(500).json({ error: `Sync assignment failed: ${err.message}` });
+    console.error('Live assignment fetch failure:', err);
+    res.status(500).json({ error: `Failed to load live assignment from Classroom: ${err.message}` });
   }
 });
 
-// 5. Drive File Preview / Content
+// 6. Drive File Preview / Content
 classroomRouter.get('/drive-file/:fileId', requireAuth, async (req: AuthenticatedRequest, res: Response): Promise<void> => {
   const { fileId } = req.params;
   const exportType = (req.query.exportType as 'text' | 'preview' | 'raw') || 'preview';
@@ -248,89 +119,93 @@ classroomRouter.get('/drive-file/:fileId', requireAuth, async (req: Authenticate
   }
 });
 
-// 6. Manual Grade Endpoint
+// 7. Manual Grade Endpoint (Writes draftGrade to Google Classroom API + rubric/comments to Firestore Sidecar)
 classroomRouter.post(
   '/assignments/:assignmentId/submissions/:studentId/grade',
   requireAuth,
   async (req: AuthenticatedRequest, res: Response): Promise<void> => {
     const { assignmentId, studentId } = req.params;
-    const { draftGrade, rubricBreakdown, overallFeedback } = req.body;
+    const { draftGrade, rubricBreakdown, overallFeedback, submissionId: bodySubmissionId } = req.body;
 
     if (draftGrade === undefined) {
       res.status(400).json({ error: 'draftGrade is required. Fail-fast enabled.' });
       return;
     }
 
-    const db = admin.firestore();
-    const assignRef = db.collection('assignments').doc(assignmentId);
-    const assignSnap = await assignRef.get();
-    if (!assignSnap.exists) {
-      res.status(404).json({ error: 'Assignment not found.' });
-      return;
-    }
-    const assignData = assignSnap.data()!;
-
-    const subRef = assignRef.collection('submissions').doc(studentId);
-    const subSnap = await subRef.get();
-    if (!subSnap.exists) {
-      res.status(404).json({ error: 'Student submission not found.' });
-      return;
-    }
-    const subData = subSnap.data()!;
-
-    let syncStatus = 'SYNCED_DRAFT';
-    let syncError: string | undefined;
-
     try {
-      await patchSubmissionGrade(
-        req.googleAccessToken!,
-        assignData.courseId,
-        assignData.courseWorkId,
-        subData.submissionId,
-        draftGrade,
-        undefined
-      );
-    } catch (err: any) {
-      if (err.message && err.message.includes('403')) {
-        syncStatus = 'LOCAL_ONLY_PERMISSION_DENIED';
-        syncError = 'Google Classroom API draftGrade write-back requires coursework created by this app.';
-      } else {
-        syncStatus = 'ERROR';
-        syncError = err.message;
+      const { courseId, courseWorkId } = parseAssignmentId(assignmentId);
+      const token = req.googleAccessToken!;
+
+      let submissionId = bodySubmissionId;
+      if (!submissionId) {
+        const rawSubs = await listCourseWorkSubmissions(token, courseId, courseWorkId);
+        const matched = rawSubs.find((s) => s.userId === studentId || s.id === studentId);
+        if (!matched || !matched.id) {
+          res.status(404).json({ error: `Student submission for ${studentId} not found in Google Classroom.` });
+          return;
+        }
+        submissionId = matched.id;
       }
-    }
 
-    const comments = subData.comments || [];
-    if (overallFeedback) {
-      comments.push({
-        id: `comment_${Date.now()}`,
-        author: 'Teacher',
-        content: overallFeedback,
-        createdAt: new Date().toISOString(),
-        syncedToDriveOrClassroom: syncStatus === 'SYNCED_DRAFT',
+      let syncStatus = 'SYNCED_DRAFT';
+      let syncError: string | undefined;
+
+      try {
+        await patchSubmissionGrade(token, courseId, courseWorkId, submissionId, draftGrade, undefined);
+      } catch (err: any) {
+        if (err.message && err.message.includes('403')) {
+          syncStatus = 'LOCAL_ONLY_PERMISSION_DENIED';
+          syncError = 'Google Classroom API draftGrade write-back requires coursework created by this app.';
+        } else {
+          syncStatus = 'ERROR';
+          syncError = err.message;
+        }
+      }
+
+      const db = admin.firestore();
+      const evalRef = db.collection('assignments').doc(assignmentId).collection('evaluations').doc(studentId);
+      const evalSnap = await evalRef.get();
+      const existingEval = evalSnap.exists ? evalSnap.data() : null;
+
+      const comments = existingEval?.comments ? [...existingEval.comments] : [];
+      if (overallFeedback) {
+        comments.push({
+          id: `comment_${Date.now()}`,
+          author: 'Teacher',
+          content: overallFeedback,
+          createdAt: new Date().toISOString(),
+          syncedToDriveOrClassroom: syncStatus === 'SYNCED_DRAFT',
+        });
+      }
+
+      await evalRef.set(
+        {
+          studentId,
+          submissionId,
+          draftGrade,
+          rubricBreakdown: rubricBreakdown || [],
+          overallFeedback: overallFeedback || '',
+          comments,
+          classroomSyncStatus: syncStatus,
+          classroomSyncError: syncError || null,
+          updatedAt: new Date().toISOString(),
+        },
+        { merge: true }
+      );
+
+      res.json({
+        success: true,
+        draftGrade,
+        classroomSyncStatus: syncStatus,
+        classroomSyncError: syncError,
       });
+    } catch (err: any) {
+      res.status(500).json({ error: `Failed to save grade: ${err.message}` });
     }
-
-    await subRef.update({
-      draftGrade,
-      rubricBreakdown: rubricBreakdown || [],
-      overallFeedback: overallFeedback || '',
-      comments,
-      classroomSyncStatus: syncStatus,
-      classroomSyncError: syncError || null,
-      updatedAt: new Date().toISOString(),
-    });
-
-    res.json({
-      success: true,
-      draftGrade,
-      classroomSyncStatus: syncStatus,
-      classroomSyncError: syncError,
-    });
   }
 );
 
-// 7. Return Submissions Endpoint
+// 8. Return Submissions Endpoint (Promotes draftGrade -> assignedGrade + returns in Google Classroom API + updates Sidecar)
 classroomRouter.post(
   '/assignments/:assignmentId/return',
   requireAuth,
@@ -343,59 +218,79 @@ classroomRouter.post(
       return;
     }
 
-    const db = admin.firestore();
-    const assignRef = db.collection('assignments').doc(assignmentId);
-    const assignSnap = await assignRef.get();
-    if (!assignSnap.exists) {
-      res.status(404).json({ error: 'Assignment not found.' });
-      return;
-    }
-    const assignData = assignSnap.data()!;
+    try {
+      const { courseId, courseWorkId } = parseAssignmentId(assignmentId);
+      const token = req.googleAccessToken!;
+      const db = admin.firestore();
+      const assignRef = db.collection('assignments').doc(assignmentId);
 
-    const results: any[] = [];
+      // Fetch live submissions from Google Classroom
+      const { submissions: liveSubmissions } = await fetchLiveWorkspaceFromClassroom(token, courseId, courseWorkId);
+      const liveSubMap = new Map(liveSubmissions.map((s) => [s.studentId, s]));
 
-    for (const studentId of studentIds) {
-      const subRef = assignRef.collection('submissions').doc(studentId);
-      const subSnap = await subRef.get();
-      if (!subSnap.exists) continue;
-      const subData = subSnap.data()!;
+      const results: any[] = [];
 
-      const gradeToAssign = subData.draftGrade ?? subData.assignedGrade ?? 0;
+      for (const studentId of studentIds) {
+        const liveSub = liveSubMap.get(studentId);
+        if (!liveSub) {
+          results.push({ studentId, studentName: studentId, status: 'ERROR', error: 'Submission not found in Classroom' });
+          continue;
+        }
 
-      try {
-        await patchSubmissionGrade(
-          req.googleAccessToken!,
-          assignData.courseId,
-          assignData.courseWorkId,
-          subData.submissionId,
-          undefined,
-          gradeToAssign
-        );
+        const evalRef = assignRef.collection('evaluations').doc(studentId);
+        const evalSnap = await evalRef.get();
+        const evalData = evalSnap.exists ? evalSnap.data() : null;
 
-        await returnSubmission(
-          req.googleAccessToken!,
-          assignData.courseId,
-          assignData.courseWorkId,
-          subData.submissionId
-        );
+        const gradeToAssign =
+          evalData?.draftGrade ?? liveSub.draftGrade ?? evalData?.assignedGrade ?? liveSub.assignedGrade ?? 0;
 
-        await subRef.update({
-          state: 'RETURNED',
-          assignedGrade: gradeToAssign,
-          classroomSyncStatus: 'RETURNED',
-          updatedAt: new Date().toISOString(),
-        });
+        try {
+          await patchSubmissionGrade(
+            token,
+            courseId,
+            courseWorkId,
+            liveSub.submissionId,
+            undefined,
+            gradeToAssign
+          );
 
-        results.push({ studentId, studentName: subData.studentName, status: 'RETURNED', assignedGrade: gradeToAssign });
-      } catch (err: any) {
-        results.push({ studentId, studentName: subData.studentName, status: 'ERROR', error: err.message });
+          await returnSubmission(token, courseId, courseWorkId, liveSub.submissionId);
+
+          await evalRef.set(
+            {
+              studentId,
+              submissionId: liveSub.submissionId,
+              assignedGrade: gradeToAssign,
+              classroomSyncStatus: 'RETURNED',
+              classroomSyncError: null,
+              updatedAt: new Date().toISOString(),
+            },
+            { merge: true }
+          );
+
+          results.push({
+            studentId,
+            studentName: liveSub.studentName,
+            status: 'RETURNED',
+            assignedGrade: gradeToAssign,
+          });
+        } catch (err: any) {
+          results.push({
+            studentId,
+            studentName: liveSub.studentName,
+            status: 'ERROR',
+            error: err.message,
+          });
+        }
       }
-    }
 
-    res.json({
-      success: true,
-      returnedCount: results.filter((r) => r.status === 'RETURNED').length,
-      results,
-    });
+      res.json({
+        success: true,
+        returnedCount: results.filter((r) => r.status === 'RETURNED').length,
+        results,
+      });
+    } catch (err: any) {
+      res.status(500).json({ error: `Failed to return submissions: ${err.message}` });
+    }
   }
 );

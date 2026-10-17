@@ -1,5 +1,10 @@
 import * as admin from 'firebase-admin';
-import { patchSubmissionGrade, returnSubmission } from '../services/classroomClient';
+import {
+  fetchLiveWorkspaceFromClassroom,
+  parseAssignmentId,
+  patchSubmissionGrade,
+  returnSubmission,
+} from '../services/classroomClient';
 import { extractDriveFile } from '../services/driveExtractor';
 
 export interface ToolExecutionContext {
@@ -11,7 +16,8 @@ export interface ToolExecutionContext {
 export const gradingToolDeclarations = [
   {
     name: 'get_assignment_details',
-    description: 'Returns the current assignment description, maximum points, due date, active rubric criteria, and submission counts from Firestore.',
+    description:
+      'Returns the live assignment description, maximum points, due date, submission counts from Google Classroom, and active rubric criteria from the sidecar.',
     parameters: {
       type: 'object',
       properties: {},
@@ -20,7 +26,8 @@ export const gradingToolDeclarations = [
   },
   {
     name: 'set_assignment_rubric',
-    description: 'Configures or updates the grading rubric for this assignment. Saves structured criteria in Firestore and updates the marking panel.',
+    description:
+      'Configures or updates the grading rubric for this assignment. Saves structured criteria in the Firestore sidecar and updates the marking panel.',
     parameters: {
       type: 'object',
       properties: {
@@ -45,7 +52,8 @@ export const gradingToolDeclarations = [
   },
   {
     name: 'list_student_submissions',
-    description: 'Lists all students enrolled in this assignment along with their submission status, turn-in state, existing grades, and attachment names.',
+    description:
+      'Lists all students enrolled in this assignment live from Google Classroom along with their submission status, turn-in state, existing grades, and attachment names.',
     parameters: {
       type: 'object',
       properties: {
@@ -59,7 +67,8 @@ export const gradingToolDeclarations = [
   },
   {
     name: 'get_student_submission_content',
-    description: 'Retrieves and extracts the full content of a student\'s submission, including text from Google Docs/Slides/Sheets, code files, PDFs, or short answers.',
+    description:
+      "Retrieves and extracts the full live content of a student's submission from Google Classroom & Drive, including text from Google Docs/Slides/Sheets, code files, PDFs, or short answers.",
     parameters: {
       type: 'object',
       properties: {
@@ -70,7 +79,8 @@ export const gradingToolDeclarations = [
   },
   {
     name: 'evaluate_and_grade_submission',
-    description: 'Grades an individual student submission according to the rubric. Calculates draftGrade, saves feedback comments, syncs to Google Classroom, and updates Firestore. Call once per student.',
+    description:
+      'Grades an individual student submission according to the rubric. Patches draftGrade directly to Google Classroom API and saves rubric breakdown & feedback comments to the Firestore sidecar. Call once per student.',
     parameters: {
       type: 'object',
       properties: {
@@ -96,7 +106,8 @@ export const gradingToolDeclarations = [
   },
   {
     name: 'return_student_submissions',
-    description: 'Promotes draft grades to assigned grades and officially returns submissions to one or more students via Google Classroom.',
+    description:
+      'Promotes draft grades to assigned grades and officially returns submissions to one or more students via Google Classroom API.',
     parameters: {
       type: 'object',
       properties: {
@@ -117,16 +128,21 @@ export async function executeGradingTool(
   context: ToolExecutionContext
 ): Promise<any> {
   const { assignmentId, googleAccessToken } = context;
+  const { courseId, courseWorkId } = parseAssignmentId(assignmentId);
   const db = admin.firestore();
   const assignRef = db.collection('assignments').doc(assignmentId);
 
   switch (toolName) {
     case 'get_assignment_details': {
-      const snap = await assignRef.get();
-      if (!snap.exists) {
-        throw new Error(`Assignment ${assignmentId} does not exist in Firestore.`);
-      }
-      return snap.data();
+      const [{ assignment }, sidecarSnap] = await Promise.all([
+        fetchLiveWorkspaceFromClassroom(googleAccessToken, courseId, courseWorkId),
+        assignRef.get(),
+      ]);
+      const sidecarData = sidecarSnap.exists ? sidecarSnap.data() : null;
+      return {
+        ...assignment,
+        rubric: sidecarData?.rubric || null,
+      };
     }
 
     case 'set_assignment_rubric': {
@@ -143,10 +159,13 @@ export async function executeGradingTool(
         updatedAt: new Date().toISOString(),
       };
 
-      await assignRef.update({
-        rubric: rubricPayload,
-        updatedAt: new Date().toISOString(),
-      });
+      await assignRef.set(
+        {
+          rubric: rubricPayload,
+          updatedAt: new Date().toISOString(),
+        },
+        { merge: true }
+      );
 
       return {
         success: true,
@@ -157,10 +176,24 @@ export async function executeGradingTool(
 
     case 'list_student_submissions': {
       const { statusFilter = 'ALL' } = args;
-      const subsSnap = await assignRef.collection('submissions').get();
-      const allSubs = subsSnap.docs.map((d) => d.data());
+      const [{ submissions: liveSubs }, evalsSnap] = await Promise.all([
+        fetchLiveWorkspaceFromClassroom(googleAccessToken, courseId, courseWorkId),
+        assignRef.collection('evaluations').get(),
+      ]);
 
-      const filtered = allSubs.filter((sub: any) => {
+      const evalMap = new Map<string, any>();
+      evalsSnap.docs.forEach((d) => evalMap.set(d.id, d.data()));
+
+      const mergedSubs = liveSubs.map((sub) => {
+        const evalData = evalMap.get(sub.studentId);
+        return {
+          ...sub,
+          draftGrade: evalData?.draftGrade !== undefined ? evalData.draftGrade : sub.draftGrade,
+          assignedGrade: evalData?.assignedGrade !== undefined ? evalData.assignedGrade : sub.assignedGrade,
+        };
+      });
+
+      const filtered = mergedSubs.filter((sub: any) => {
         switch (statusFilter) {
           case 'TURNED_IN':
             return sub.state === 'TURNED_IN';
@@ -179,7 +212,7 @@ export async function executeGradingTool(
       });
 
       return {
-        totalCount: allSubs.length,
+        totalCount: mergedSubs.length,
         filteredCount: filtered.length,
         submissions: filtered.map((s: any) => ({
           studentId: s.studentId,
@@ -198,13 +231,12 @@ export async function executeGradingTool(
       const { studentId } = args;
       if (!studentId) throw new Error('studentId is required to retrieve submission content.');
 
-      const subRef = assignRef.collection('submissions').doc(studentId);
-      const subSnap = await subRef.get();
-      if (!subSnap.exists) {
-        throw new Error(`Student submission ${studentId} not found.`);
+      const { submissions } = await fetchLiveWorkspaceFromClassroom(googleAccessToken, courseId, courseWorkId);
+      const subData = submissions.find((s) => s.studentId === studentId || s.submissionId === studentId);
+      if (!subData) {
+        throw new Error(`Student submission ${studentId} not found in Google Classroom.`);
       }
 
-      const subData = subSnap.data()!;
       const attachments = subData.attachments || [];
       const extractedItems: any[] = [];
 
@@ -240,7 +272,7 @@ export async function executeGradingTool(
       }
 
       return {
-        studentId,
+        studentId: subData.studentId,
         studentName: subData.studentName,
         state: subData.state,
         late: subData.late,
@@ -253,14 +285,15 @@ export async function executeGradingTool(
       if (!studentId) throw new Error('studentId is required for evaluate_and_grade_submission.');
       if (draftGrade === undefined) throw new Error('draftGrade is required.');
 
-      const assignSnap = await assignRef.get();
-      if (!assignSnap.exists) throw new Error(`Assignment ${assignmentId} does not exist.`);
-      const assignData = assignSnap.data()!;
-
-      const subRef = assignRef.collection('submissions').doc(studentId);
-      const subSnap = await subRef.get();
-      if (!subSnap.exists) throw new Error(`Student ${studentId} submission does not exist.`);
-      const subData = subSnap.data()!;
+      const { assignment, submissions } = await fetchLiveWorkspaceFromClassroom(
+        googleAccessToken,
+        courseId,
+        courseWorkId
+      );
+      const liveSub = submissions.find((s) => s.studentId === studentId || s.submissionId === studentId);
+      if (!liveSub) {
+        throw new Error(`Student ${studentId} submission does not exist in Google Classroom.`);
+      }
 
       let syncStatus = 'SYNCED_DRAFT';
       let syncError: string | undefined;
@@ -269,50 +302,58 @@ export async function executeGradingTool(
       try {
         await patchSubmissionGrade(
           googleAccessToken,
-          assignData.courseId,
-          assignData.courseWorkId,
-          subData.submissionId,
+          courseId,
+          courseWorkId,
+          liveSub.submissionId,
           draftGrade,
           undefined
         );
       } catch (err: any) {
-        // If permission denied due to OAuth developer mismatch, handle fail-fast but allow local persistence
         if (err.message && err.message.includes('403')) {
           syncStatus = 'LOCAL_ONLY_PERMISSION_DENIED';
-          syncError = 'Google Classroom API draftGrade write-back requires coursework created by this app. Grade saved in Classroom Agent.';
+          syncError =
+            'Google Classroom API draftGrade write-back requires coursework created by this app. Grade saved in Classroom Agent sidecar.';
         } else {
           syncStatus = 'ERROR';
           syncError = err.message || 'Failed to patch grade in Google Classroom.';
         }
       }
 
-      // 2. Prepare submission comments
-      const existingComments = subData.comments || [];
+      // 2. Prepare submission comments & persist to Firestore Sidecar (evaluations/{studentId})
+      const evalRef = assignRef.collection('evaluations').doc(liveSub.studentId);
+      const evalSnap = await evalRef.get();
+      const existingEval = evalSnap.exists ? evalSnap.data() : null;
+      const existingComments = existingEval?.comments || [];
+
       const newComment = {
         id: `comment_${Date.now()}`,
         author: 'Agent',
-        content: `Evaluated by Classroom Agent:\nScore: ${draftGrade}/${assignData.maxPoints}\n\n${overallFeedback}`,
+        content: `Evaluated by Classroom Agent:\nScore: ${draftGrade}/${assignment.maxPoints}\n\n${overallFeedback}`,
         createdAt: new Date().toISOString(),
         syncedToDriveOrClassroom: syncStatus === 'SYNCED_DRAFT',
       };
 
-      // 3. Persist evaluation directly to Firestore
-      await subRef.update({
-        draftGrade,
-        rubricBreakdown: rubricScores || [],
-        overallFeedback,
-        comments: [...existingComments, newComment],
-        classroomSyncStatus: syncStatus,
-        classroomSyncError: syncError || null,
-        updatedAt: new Date().toISOString(),
-      });
+      await evalRef.set(
+        {
+          studentId: liveSub.studentId,
+          submissionId: liveSub.submissionId,
+          draftGrade,
+          rubricBreakdown: rubricScores || [],
+          overallFeedback,
+          comments: [...existingComments, newComment],
+          classroomSyncStatus: syncStatus,
+          classroomSyncError: syncError || null,
+          updatedAt: new Date().toISOString(),
+        },
+        { merge: true }
+      );
 
       return {
         success: true,
-        studentId,
-        studentName: subData.studentName,
+        studentId: liveSub.studentId,
+        studentName: liveSub.studentName,
         draftGrade,
-        maxPoints: assignData.maxPoints,
+        maxPoints: assignment.maxPoints,
         classroomSyncStatus: syncStatus,
         syncNotice: syncError,
       };
@@ -324,49 +365,66 @@ export async function executeGradingTool(
         throw new Error('studentIds array is required.');
       }
 
-      const assignSnap = await assignRef.get();
-      if (!assignSnap.exists) throw new Error(`Assignment ${assignmentId} does not exist.`);
-      const assignData = assignSnap.data()!;
+      const { submissions: liveSubmissions } = await fetchLiveWorkspaceFromClassroom(
+        googleAccessToken,
+        courseId,
+        courseWorkId
+      );
+      const liveSubMap = new Map(liveSubmissions.map((s) => [s.studentId, s]));
 
       const results: any[] = [];
 
       for (const studentId of studentIds) {
-        const subRef = assignRef.collection('submissions').doc(studentId);
-        const subSnap = await subRef.get();
-        if (!subSnap.exists) continue;
-        const subData = subSnap.data()!;
+        const liveSub = liveSubMap.get(studentId);
+        if (!liveSub) {
+          results.push({ studentId, studentName: studentId, status: 'ERROR', error: 'Submission not found in Classroom' });
+          continue;
+        }
 
-        const gradeToAssign = subData.draftGrade ?? subData.assignedGrade ?? 0;
+        const evalRef = assignRef.collection('evaluations').doc(studentId);
+        const evalSnap = await evalRef.get();
+        const evalData = evalSnap.exists ? evalSnap.data() : null;
+
+        const gradeToAssign =
+          evalData?.draftGrade ?? liveSub.draftGrade ?? evalData?.assignedGrade ?? liveSub.assignedGrade ?? 0;
 
         try {
-          // Patch assignedGrade
           await patchSubmissionGrade(
             googleAccessToken,
-            assignData.courseId,
-            assignData.courseWorkId,
-            subData.submissionId,
+            courseId,
+            courseWorkId,
+            liveSub.submissionId,
             undefined,
             gradeToAssign
           );
 
-          // Return submission on Classroom
-          await returnSubmission(
-            googleAccessToken,
-            assignData.courseId,
-            assignData.courseWorkId,
-            subData.submissionId
+          await returnSubmission(googleAccessToken, courseId, courseWorkId, liveSub.submissionId);
+
+          await evalRef.set(
+            {
+              studentId,
+              submissionId: liveSub.submissionId,
+              assignedGrade: gradeToAssign,
+              classroomSyncStatus: 'RETURNED',
+              classroomSyncError: null,
+              updatedAt: new Date().toISOString(),
+            },
+            { merge: true }
           );
 
-          await subRef.update({
-            state: 'RETURNED',
+          results.push({
+            studentId,
+            studentName: liveSub.studentName,
+            status: 'RETURNED',
             assignedGrade: gradeToAssign,
-            classroomSyncStatus: 'RETURNED',
-            updatedAt: new Date().toISOString(),
           });
-
-          results.push({ studentId, studentName: subData.studentName, status: 'RETURNED', assignedGrade: gradeToAssign });
         } catch (err: any) {
-          results.push({ studentId, studentName: subData.studentName, status: 'ERROR', error: err.message });
+          results.push({
+            studentId,
+            studentName: liveSub.studentName,
+            status: 'ERROR',
+            error: err.message,
+          });
         }
       }
 

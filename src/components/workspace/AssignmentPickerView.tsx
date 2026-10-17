@@ -5,7 +5,7 @@ import { useAuth } from '../../context/AuthContext';
 import { env } from '../../config/env';
 
 interface AssignmentPickerViewProps {
-  onOpenAssignment: (assignmentId: string) => void;
+  onOpenAssignment: (assignmentId: string, meta?: { courseName?: string; assignmentTitle?: string }) => void;
 }
 
 export const AssignmentPickerView: React.FC<AssignmentPickerViewProps> = ({ onOpenAssignment }) => {
@@ -18,7 +18,7 @@ export const AssignmentPickerView: React.FC<AssignmentPickerViewProps> = ({ onOp
   const [actionInProgress, setActionInProgress] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
-  // 1. Fetch Teacher's Active Courses
+  // 1. Fetch Teacher's Active Courses (Live from Google Classroom API)
   const fetchCourses = async () => {
     setLoadingCourses(true);
     setError(null);
@@ -50,7 +50,7 @@ export const AssignmentPickerView: React.FC<AssignmentPickerViewProps> = ({ onOp
     fetchCourses();
   }, []);
 
-  // 2. Fetch Coursework when Selected Course changes
+  // 2. Fetch Coursework when Selected Course changes (Live from Google Classroom API)
   useEffect(() => {
     if (!selectedCourseId) return;
 
@@ -81,39 +81,15 @@ export const AssignmentPickerView: React.FC<AssignmentPickerViewProps> = ({ onOp
     fetchCoursework();
   }, [selectedCourseId]);
 
-  // Sync and Open in Workspace
-  const handleSyncAndOpen = async (courseWorkId: string) => {
+  // Open Directly in Live Workspace (No duplicate Firestore sync step required)
+  const handleOpenLiveWorkspace = (cw: ClassroomCoursework) => {
     if (!selectedCourseId) return;
-    setActionInProgress(courseWorkId);
-    setError(null);
-
-    try {
-      const headers = await getAuthHeaders();
-      const res = await fetch(`${env.API_BASE_URL}/classroom/sync-assignment`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          ...headers,
-        },
-        body: JSON.stringify({
-          courseId: selectedCourseId,
-          courseWorkId,
-        }),
-      });
-
-      if (!res.ok) {
-        const errText = await res.text();
-        throw new Error(`Failed to sync assignment: ${errText}`);
-      }
-
-      const data = await res.json();
-      onOpenAssignment(data.assignmentId);
-    } catch (err: any) {
-      console.error('Sync assignment error:', err);
-      setError(err.message || 'Failed to sync assignment');
-    } finally {
-      setActionInProgress(null);
-    }
+    const selectedCourse = courses.find((c) => c.id === selectedCourseId);
+    const assignmentId = `${selectedCourseId}_${cw.id}`;
+    onOpenAssignment(assignmentId, {
+      courseName: selectedCourse?.name || 'Classroom Course',
+      assignmentTitle: cw.title,
+    });
   };
 
   // Clone Coursework for Full Write-Back Permissions
@@ -139,8 +115,12 @@ export const AssignmentPickerView: React.FC<AssignmentPickerViewProps> = ({ onOp
       }
 
       const data = await res.json();
-      // Automatically sync and open the newly cloned coursework
-      await handleSyncAndOpen(data.clonedCourseWork.id);
+      const cloned: ClassroomCoursework = data.clonedCourseWork;
+      const selectedCourse = courses.find((c) => c.id === selectedCourseId);
+      onOpenAssignment(`${selectedCourseId}_${cloned.id}`, {
+        courseName: selectedCourse?.name || 'Classroom Course',
+        assignmentTitle: cloned.title,
+      });
     } catch (err: any) {
       console.error('Clone coursework error:', err);
       setError(err.message || 'Failed to clone coursework');
@@ -162,7 +142,7 @@ export const AssignmentPickerView: React.FC<AssignmentPickerViewProps> = ({ onOp
             <span>Select Google Classroom Assignment</span>
           </h1>
           <p className="text-xs text-gray-400 mt-1">
-            Choose a course and select an assignment to open in the multi-tabbed grading workspace.
+            Choose a course and select an assignment to open live in the multi-tabbed grading workspace.
           </p>
         </div>
         <button
@@ -231,7 +211,7 @@ export const AssignmentPickerView: React.FC<AssignmentPickerViewProps> = ({ onOp
             <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
               {coursework.map((cw) => {
                 const isCloned = cw.associatedWithDeveloper;
-                const isWorking = actionInProgress === cw.id || actionInProgress === `clone-${cw.id}`;
+                const isWorking = actionInProgress === `clone-${cw.id}`;
 
                 return (
                   <div
@@ -293,21 +273,13 @@ export const AssignmentPickerView: React.FC<AssignmentPickerViewProps> = ({ onOp
                       )}
 
                       <button
-                        onClick={() => handleSyncAndOpen(cw.id)}
+                        data-testid={`open-assignment-${cw.id}`}
+                        onClick={() => handleOpenLiveWorkspace(cw)}
                         disabled={isWorking}
                         className="ml-auto flex items-center space-x-1.5 px-4 py-1.5 rounded bg-purple-600 hover:bg-purple-500 text-white font-medium text-xs transition-colors disabled:opacity-50"
                       >
-                        {isWorking ? (
-                          <>
-                            <Loader2 className="w-3.5 h-3.5 animate-spin" />
-                            <span>Syncing...</span>
-                          </>
-                        ) : (
-                          <>
-                            <span>Open in Workspace</span>
-                            <ArrowRight className="w-3.5 h-3.5" />
-                          </>
-                        )}
+                        <span>Open in Workspace</span>
+                        <ArrowRight className="w-3.5 h-3.5" />
                       </button>
                     </div>
                   </div>

@@ -1,6 +1,6 @@
 /**
  * Test Seeder Utility for E2E Tests
- * Populates and cleans up test fixtures strictly within the local Firebase Emulator.
+ * Populates and cleans up test Sidecar fixtures (rubrics & evaluations) strictly within the local Firebase Emulator.
  * Zero mock or dummy data in production.
  */
 
@@ -12,18 +12,8 @@ const BASE_URL = `http://${FIRESTORE_EMULATOR_HOST}:${FIRESTORE_EMULATOR_PORT}/v
 
 export async function seedTestAssignment(assignmentId: string, assignment: Record<string, any>) {
   const url = `${BASE_URL}/assignments/${assignmentId}`;
-  
-  // Format fields for Firestore REST API
+
   const fields: Record<string, any> = {
-    courseId: { stringValue: assignment.courseId },
-    courseName: { stringValue: assignment.courseName },
-    courseWorkId: { stringValue: assignment.courseWorkId },
-    title: { stringValue: assignment.title },
-    description: { stringValue: assignment.description || '' },
-    maxPoints: { integerValue: String(assignment.maxPoints || 100) },
-    state: { stringValue: assignment.state || 'PUBLISHED' },
-    apiWriteBackEligible: { booleanValue: assignment.apiWriteBackEligible ?? true },
-    createdAt: { stringValue: new Date().toISOString() },
     updatedAt: { stringValue: new Date().toISOString() },
   };
 
@@ -61,40 +51,22 @@ export async function seedTestAssignment(assignmentId: string, assignment: Recor
 
   if (!res.ok) {
     const text = await res.text();
-    throw new Error(`Failed to seed test assignment: ${text}`);
+    throw new Error(`Failed to seed test assignment sidecar: ${text}`);
   }
 }
 
-export async function seedTestSubmission(assignmentId: string, studentId: string, submission: Record<string, any>) {
-  const url = `${BASE_URL}/assignments/${assignmentId}/submissions/${studentId}`;
+export async function seedTestSubmission(assignmentId: string, studentId: string, evaluation: Record<string, any>) {
+  const url = `${BASE_URL}/assignments/${assignmentId}/evaluations/${studentId}`;
 
   const fields: Record<string, any> = {
     studentId: { stringValue: studentId },
-    submissionId: { stringValue: submission.submissionId || studentId },
-    studentName: { stringValue: submission.studentName },
-    state: { stringValue: submission.state || 'TURNED_IN' },
-    late: { booleanValue: submission.late || false },
-    overallFeedback: { stringValue: submission.overallFeedback || '' },
-    classroomSyncStatus: { stringValue: submission.classroomSyncStatus || 'UNSAVED' },
+    submissionId: { stringValue: evaluation.submissionId || studentId },
+    overallFeedback: { stringValue: evaluation.overallFeedback || '' },
+    classroomSyncStatus: { stringValue: evaluation.classroomSyncStatus || 'UNSAVED' },
     updatedAt: { stringValue: new Date().toISOString() },
-    attachments: {
-      arrayValue: {
-        values: (submission.attachments || []).map((att: any) => ({
-          mapValue: {
-            fields: {
-              id: { stringValue: att.id },
-              title: { stringValue: att.title },
-              type: { stringValue: att.type },
-              contentPreview: { stringValue: att.contentPreview || '' },
-              alternateLink: { stringValue: att.alternateLink || '' },
-            },
-          },
-        })),
-      },
-    },
     rubricBreakdown: {
       arrayValue: {
-        values: (submission.rubricBreakdown || []).map((b: any) => ({
+        values: (evaluation.rubricBreakdown || []).map((b: any) => ({
           mapValue: {
             fields: {
               criterionId: { stringValue: b.criterionId },
@@ -107,7 +79,7 @@ export async function seedTestSubmission(assignmentId: string, studentId: string
     },
     comments: {
       arrayValue: {
-        values: (submission.comments || []).map((c: any) => ({
+        values: (evaluation.comments || []).map((c: any) => ({
           mapValue: {
             fields: {
               id: { stringValue: c.id },
@@ -122,11 +94,11 @@ export async function seedTestSubmission(assignmentId: string, studentId: string
     },
   };
 
-  if (submission.draftGrade !== undefined) {
-    fields.draftGrade = { integerValue: String(submission.draftGrade) };
+  if (evaluation.draftGrade !== undefined) {
+    fields.draftGrade = { integerValue: String(evaluation.draftGrade) };
   }
-  if (submission.assignedGrade !== undefined) {
-    fields.assignedGrade = { integerValue: String(submission.assignedGrade) };
+  if (evaluation.assignedGrade !== undefined) {
+    fields.assignedGrade = { integerValue: String(evaluation.assignedGrade) };
   }
 
   const res = await fetch(url, {
@@ -137,21 +109,19 @@ export async function seedTestSubmission(assignmentId: string, studentId: string
 
   if (!res.ok) {
     const text = await res.text();
-    throw new Error(`Failed to seed test submission: ${text}`);
+    throw new Error(`Failed to seed test evaluation sidecar: ${text}`);
   }
 }
 
 export async function cleanupTestAssignment(assignmentId: string, studentIds: string[] = []) {
-  // Delete subcollection documents
   for (const sId of studentIds) {
     try {
-      await fetch(`${BASE_URL}/assignments/${assignmentId}/submissions/${sId}`, { method: 'DELETE' });
+      await fetch(`${BASE_URL}/assignments/${assignmentId}/evaluations/${sId}`, { method: 'DELETE' });
     } catch {
       // ignore
     }
   }
 
-  // Delete assignment document
   try {
     await fetch(`${BASE_URL}/assignments/${assignmentId}`, { method: 'DELETE' });
   } catch {

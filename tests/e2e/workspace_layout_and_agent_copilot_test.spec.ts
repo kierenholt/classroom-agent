@@ -61,10 +61,20 @@ test.describe('Classroom Agent - Workspace and Agent Co-Pilot Tests', () => {
   });
 
   test('mountWorkspace_authenticatedTeacherWithAssignment_rendersThreeZonesAndChatPane_test', async ({ page }) => {
-    // Inject mock session storage credentials into browser context to simulate authenticated state in emulator
-    await page.addInitScript(() => {
-      window.sessionStorage.setItem('classroom_agent_google_access_token', 'mock-test-google-token');
-    });
+    let token = '';
+    try {
+      const { getLiveTeacherAccessToken } = await import('../helpers/classroomSandboxSeeder');
+      token = await getLiveTeacherAccessToken();
+    } catch {
+      token = '';
+    }
+
+    // Inject session storage credentials into browser context
+    await page.addInitScript((t) => {
+      if (t) {
+        window.sessionStorage.setItem('classroom_agent_google_access_token', t);
+      }
+    }, token);
 
     await page.goto('/');
 

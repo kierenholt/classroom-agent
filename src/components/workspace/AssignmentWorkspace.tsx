@@ -1,7 +1,13 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import { doc, collection, onSnapshot } from 'firebase/firestore';
 import { db } from '../../config/firebase';
-import { AssignmentDoc, StudentSubmissionDoc, CriterionEvaluation } from '../../types/classroom';
+import {
+  AssignmentDoc,
+  AssignmentRubric,
+  StudentSubmissionDoc,
+  StudentEvaluationSidecarDoc,
+  CriterionEvaluation,
+} from '../../types/classroom';
 import { StudentRosterZone } from './StudentRosterZone';
 import { SubmissionPreviewZone } from './SubmissionPreviewZone';
 import { RubricMarkingZone } from './RubricMarkingZone';
@@ -12,16 +18,32 @@ interface AssignmentWorkspaceProps {
   assignmentId: string;
   selectedStudentId: string | null;
   onSelectStudent: (studentId: string | null) => void;
+  onAssignmentLoaded?: (meta: { courseName: string; assignmentTitle: string }) => void;
+}
+
+function parseAssignmentId(assignmentId: string): { courseId: string; courseWorkId: string } {
+  const idx = assignmentId.indexOf('_');
+  if (idx === -1) {
+    throw new Error(`Invalid assignmentId "${assignmentId}". Expected "{courseId}_{courseWorkId}".`);
+  }
+  return {
+    courseId: assignmentId.slice(0, idx),
+    courseWorkId: assignmentId.slice(idx + 1),
+  };
 }
 
 export const AssignmentWorkspace: React.FC<AssignmentWorkspaceProps> = ({
   assignmentId,
   selectedStudentId,
   onSelectStudent,
+  onAssignmentLoaded,
 }) => {
   const { getAuthHeaders } = useAuth();
-  const [assignment, setAssignment] = useState<AssignmentDoc | null>(null);
-  const [submissions, setSubmissions] = useState<StudentSubmissionDoc[]>([]);
+  const [liveAssignment, setLiveAssignment] = useState<AssignmentDoc | null>(null);
+  const [liveSubmissions, setLiveSubmissions] = useState<StudentSubmissionDoc[]>([]);
+  const [sidecarRubric, setSidecarRubric] = useState<AssignmentRubric | undefined>(undefined);
+  const [evaluationsMap, setEvaluationsMap] = useState<Record<string, StudentEvaluationSidecarDoc>>({});
+
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
@@ -29,80 +51,148 @@ export const AssignmentWorkspace: React.FC<AssignmentWorkspaceProps> = ({
   const [isSaving, setIsSaving] = useState(false);
   const [isReturning, setIsReturning] = useState(false);
 
-  // 1. Subscribe to Assignment Doc
+  // 1. Fetch Live Assignment + Roster + Submissions directly from Google Classroom API
+  const fetchLiveWorkspace = useCallback(
+    async (isBackgroundRefresh = false) => {
+      if (!assignmentId) return;
+      if (!isBackgroundRefresh) setLoading(true);
+      setError(null);
+
+      try {
+        const { courseId, courseWorkId } = parseAssignmentId(assignmentId);
+        const headers = await getAuthHeaders();
+        const res = await fetch(
+          `${env.API_BASE_URL}/classroom/courses/${encodeURIComponent(courseId)}/coursework/${encodeURIComponent(courseWorkId)}/workspace`,
+          { headers }
+        );
+
+        if (!res.ok) {
+          const errText = await res.text();
+          throw new Error(`Failed to load live Classroom workspace: ${errText}`);
+        }
+
+        const data = await res.json();
+        setLiveAssignment(data.assignment);
+        setLiveSubmissions(data.submissions || []);
+
+        if (data.assignment && onAssignmentLoaded) {
+          onAssignmentLoaded({
+            courseName: data.assignment.courseName,
+            assignmentTitle: data.assignment.title,
+          });
+        }
+      } catch (err: any) {
+        console.error('Error fetching live Classroom workspace:', err);
+        setError(err.message || 'Failed to load live Classroom workspace');
+      } finally {
+        setLoading(false);
+      }
+    },
+    [assignmentId, getAuthHeaders, onAssignmentLoaded]
+  );
+
+  useEffect(() => {
+    fetchLiveWorkspace(false);
+  }, [fetchLiveWorkspace]);
+
+  // 2. Subscribe to Firestore Sidecar (Rubric + Per-Student AI/Teacher Evaluations)
   useEffect(() => {
     if (!assignmentId) return;
+
+    // 2a. Assignment Sidecar Doc (stores rubric)
     const assignRef = doc(db, 'assignments', assignmentId);
     const unsubAssign = onSnapshot(
       assignRef,
       (snap) => {
         if (snap.exists()) {
-          setAssignment({ id: snap.id, ...snap.data() } as AssignmentDoc);
-        } else {
-          setError(`Assignment document ${assignmentId} does not exist in Firestore.`);
+          const data = snap.data();
+          setSidecarRubric(data.rubric || undefined);
         }
-        setLoading(false);
       },
       (err) => {
-        console.error('Error listening to assignment doc:', err);
-        setError(err.message);
-        setLoading(false);
+        console.error('Error listening to assignment sidecar doc:', err);
       }
     );
 
-    // 2. Subscribe to Submissions Collection
-    const subsRef = collection(db, 'assignments', assignmentId, 'submissions');
-    const unsubSubs = onSnapshot(
-      subsRef,
+    // 2b. Evaluations Sidecar Subcollection (stores rubricBreakdown, overallFeedback, comments, draftGrade, syncStatus)
+    const evalsRef = collection(db, 'assignments', assignmentId, 'evaluations');
+    const unsubEvals = onSnapshot(
+      evalsRef,
       (snap) => {
-        const list = snap.docs.map((d) => ({ ...d.data() } as StudentSubmissionDoc));
-        setSubmissions(list);
+        const map: Record<string, StudentEvaluationSidecarDoc> = {};
+        snap.docs.forEach((d) => {
+          map[d.id] = d.data() as StudentEvaluationSidecarDoc;
+        });
+        setEvaluationsMap(map);
       },
       (err) => {
-        console.error('Error listening to submissions collection:', err);
+        console.error('Error listening to evaluations sidecar collection:', err);
       }
     );
 
     return () => {
       unsubAssign();
-      unsubSubs();
+      unsubEvals();
     };
   }, [assignmentId]);
 
+  // 3. Merge Live Classroom Submissions with Real-Time Firestore Sidecar Evaluations
+  const mergedSubmissions: StudentSubmissionDoc[] = useMemo(() => {
+    return liveSubmissions.map((liveSub) => {
+      const sidecar = evaluationsMap[liveSub.studentId];
+      if (!sidecar) return liveSub;
+
+      const isReturned = sidecar.classroomSyncStatus === 'RETURNED' || liveSub.state === 'RETURNED';
+      return {
+        ...liveSub,
+        state: isReturned ? 'RETURNED' : liveSub.state,
+        draftGrade: sidecar.draftGrade !== undefined ? sidecar.draftGrade : liveSub.draftGrade,
+        assignedGrade: sidecar.assignedGrade !== undefined ? sidecar.assignedGrade : liveSub.assignedGrade,
+        rubricBreakdown: sidecar.rubricBreakdown || [],
+        overallFeedback: sidecar.overallFeedback || '',
+        comments: sidecar.comments || [],
+        classroomSyncStatus: sidecar.classroomSyncStatus || liveSub.classroomSyncStatus,
+        classroomSyncError: sidecar.classroomSyncError || liveSub.classroomSyncError,
+        updatedAt: sidecar.updatedAt || liveSub.updatedAt,
+      };
+    });
+  }, [liveSubmissions, evaluationsMap]);
+
+  // 4. Merge Live Assignment with Sidecar Rubric & Dynamic Submission Stats
+  const mergedAssignment: AssignmentDoc | null = useMemo(() => {
+    if (!liveAssignment) return null;
+    const turnedIn = mergedSubmissions.filter((s) => s.state === 'TURNED_IN').length;
+    const returned = mergedSubmissions.filter((s) => s.state === 'RETURNED').length;
+    const draftGraded = mergedSubmissions.filter((s) => s.draftGrade !== undefined && s.state !== 'RETURNED').length;
+
+    return {
+      ...liveAssignment,
+      rubric: sidecarRubric || liveAssignment.rubric,
+      submissionStats: {
+        total: mergedSubmissions.length,
+        turnedIn,
+        draftGraded,
+        returned,
+        missing: Math.max(0, mergedSubmissions.length - turnedIn - returned),
+      },
+    };
+  }, [liveAssignment, sidecarRubric, mergedSubmissions]);
+
   // Selected student submission
-  const activeSubmission = submissions.find((s) => s.studentId === selectedStudentId) || null;
+  const activeSubmission = mergedSubmissions.find((s) => s.studentId === selectedStudentId) || null;
 
   // Auto-select first student if none selected and submissions exist
   useEffect(() => {
-    if (!selectedStudentId && submissions.length > 0) {
-      onSelectStudent(submissions[0].studentId);
+    if (!selectedStudentId && mergedSubmissions.length > 0) {
+      onSelectStudent(mergedSubmissions[0].studentId);
     }
-  }, [submissions, selectedStudentId, onSelectStudent]);
+  }, [mergedSubmissions, selectedStudentId, onSelectStudent]);
 
+  // Refresh live roster & submissions from Google Classroom
   const handleSyncClassroom = async () => {
-    if (!assignment) return;
     setIsSyncing(true);
     try {
-      const headers = await getAuthHeaders();
-      const res = await fetch(`${env.API_BASE_URL}/classroom/sync-assignment`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          ...headers,
-        },
-        body: JSON.stringify({
-          courseId: assignment.courseId,
-          courseWorkId: assignment.courseWorkId,
-        }),
-      });
-
-      if (!res.ok) {
-        const errText = await res.text();
-        throw new Error(`Sync failed: ${errText}`);
-      }
-    } catch (err: any) {
-      console.error('Failed to sync from Classroom:', err);
-      alert(err.message || 'Sync from Classroom failed');
+      await fetchLiveWorkspace(true);
     } finally {
       setIsSyncing(false);
     }
@@ -118,7 +208,7 @@ export const AssignmentWorkspace: React.FC<AssignmentWorkspaceProps> = ({
     try {
       const headers = await getAuthHeaders();
       const res = await fetch(
-        `${env.API_BASE_URL}/assignments/${assignmentId}/submissions/${activeSubmission.studentId}/grade`,
+        `${env.API_BASE_URL}/classroom/assignments/${assignmentId}/submissions/${activeSubmission.studentId}/grade`,
         {
           method: 'POST',
           headers: {
@@ -126,6 +216,7 @@ export const AssignmentWorkspace: React.FC<AssignmentWorkspaceProps> = ({
             ...headers,
           },
           body: JSON.stringify({
+            submissionId: activeSubmission.submissionId,
             draftGrade,
             rubricBreakdown,
             overallFeedback,
@@ -158,7 +249,7 @@ export const AssignmentWorkspace: React.FC<AssignmentWorkspaceProps> = ({
       await handleSaveDraftGrade(assignedGrade, rubricBreakdown, overallFeedback);
 
       // Then return the submission
-      const res = await fetch(`${env.API_BASE_URL}/assignments/${assignmentId}/return`, {
+      const res = await fetch(`${env.API_BASE_URL}/classroom/assignments/${assignmentId}/return`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -182,13 +273,13 @@ export const AssignmentWorkspace: React.FC<AssignmentWorkspaceProps> = ({
   };
 
   const handleReturnAllDrafts = async () => {
-    const draftStudents = submissions.filter((s) => s.draftGrade !== undefined && s.state !== 'RETURNED');
+    const draftStudents = mergedSubmissions.filter((s) => s.draftGrade !== undefined && s.state !== 'RETURNED');
     if (draftStudents.length === 0) return;
 
     setIsReturning(true);
     try {
       const headers = await getAuthHeaders();
-      const res = await fetch(`${env.API_BASE_URL}/assignments/${assignmentId}/return`, {
+      const res = await fetch(`${env.API_BASE_URL}/classroom/assignments/${assignmentId}/return`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -214,17 +305,17 @@ export const AssignmentWorkspace: React.FC<AssignmentWorkspaceProps> = ({
   if (loading) {
     return (
       <div className="flex-1 h-full flex items-center justify-center bg-[#0d1117] text-gray-400">
-        Loading assignment workspace...
+        Loading live assignment workspace from Google Classroom...
       </div>
     );
   }
 
-  if (error || !assignment) {
+  if (error || !mergedAssignment) {
     return (
       <div className="flex-1 h-full flex items-center justify-center bg-[#0d1117] text-red-400 p-6">
         <div>
-          <p className="font-semibold text-base mb-1">Failed to load assignment workspace</p>
-          <p className="text-sm text-gray-400">{error || 'Assignment not found.'}</p>
+          <p className="font-semibold text-base mb-1">Failed to load live assignment workspace</p>
+          <p className="text-sm text-gray-400">{error || 'Assignment not found in Google Classroom.'}</p>
         </div>
       </div>
     );
@@ -234,8 +325,8 @@ export const AssignmentWorkspace: React.FC<AssignmentWorkspaceProps> = ({
     <div className="flex-1 h-full flex overflow-hidden">
       {/* Zone A: Student Roster (22%) */}
       <StudentRosterZone
-        assignment={assignment}
-        submissions={submissions}
+        assignment={mergedAssignment}
+        submissions={mergedSubmissions}
         selectedStudentId={selectedStudentId}
         onSelectStudent={(id) => onSelectStudent(id)}
         onSyncClassroom={handleSyncClassroom}
@@ -249,7 +340,7 @@ export const AssignmentWorkspace: React.FC<AssignmentWorkspaceProps> = ({
 
       {/* Zone C: Rubric Breakdown & Comments (30%) */}
       <RubricMarkingZone
-        assignment={assignment}
+        assignment={mergedAssignment}
         submission={activeSubmission}
         onSaveDraftGrade={handleSaveDraftGrade}
         onReturnSubmission={handleReturnSubmission}

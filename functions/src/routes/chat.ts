@@ -4,6 +4,7 @@ import { GoogleGenAI } from '@google/genai';
 import { AuthenticatedRequest, requireAuth } from '../middleware/auth';
 import { serverEnv } from '../config/env';
 import { gradingToolDeclarations, executeGradingTool, ToolExecutionContext } from '../tools/gradingTools';
+import { getCourse, getCourseWork, parseAssignmentId } from '../services/classroomClient';
 
 export const chatRouter = Router();
 
@@ -40,14 +41,17 @@ chatRouter.post('/', requireAuth, async (req: AuthenticatedRequest, res: Respons
   const assignmentRef = db.collection('assignments').doc(projectId);
 
   try {
-    // 1. Fetch assignment details for system grounding
-    const assignSnap = await assignmentRef.get();
-    if (!assignSnap.exists) {
-      throw new Error(`Assignment ${projectId} not found in Firestore.`);
-    }
-    const assignmentData = assignSnap.data()!;
+    // 1. Fetch live assignment details from Google Classroom API + optional rubric from Firestore Sidecar
+    const { courseId, courseWorkId } = parseAssignmentId(projectId);
+    const [course, coursework, sidecarSnap] = await Promise.all([
+      getCourse(req.googleAccessToken, courseId),
+      getCourseWork(req.googleAccessToken, courseId, courseWorkId),
+      assignmentRef.get(),
+    ]);
 
-    // 2. Fetch recent chat history
+    const sidecarData = sidecarSnap.exists ? sidecarSnap.data() : null;
+
+    // 2. Fetch recent chat history from Firestore Sidecar
     const msgsSnap = await assignmentRef
       .collection('messages')
       .orderBy('timestamp', 'asc')
@@ -58,12 +62,12 @@ chatRouter.post('/', requireAuth, async (req: AuthenticatedRequest, res: Respons
 
     // 3. Construct System Instruction
     const systemInstruction = `You are Classroom Agent, an expert AI grading co-pilot for Google Classroom.
-Assignment Context:
-- Course: "${assignmentData.courseName || 'Unknown Course'}"
-- Assignment Title: "${assignmentData.title}"
-- Max Points: ${assignmentData.maxPoints}
-- Description: "${assignmentData.description || 'No description provided'}"
-- Current Rubric Criteria: ${JSON.stringify(assignmentData.rubric?.criteria || [])}
+Assignment Context (Live from Google Classroom):
+- Course: "${course.name || 'Classroom Course'}"
+- Assignment Title: "${coursework.title || 'Classroom Assignment'}"
+- Max Points: ${coursework.maxPoints || 100}
+- Description: "${coursework.description || 'No description provided'}"
+- Current Rubric Criteria: ${JSON.stringify(sidecarData?.rubric?.criteria || [])}
 ${contextId ? `- Currently Focused Student: "${contextId}"` : ''}
 
 Operational Guidelines:
@@ -212,7 +216,7 @@ Operational Guidelines:
       }
     }
 
-    // 6. Persist completed turns in Firestore
+    // 6. Persist completed turns in Firestore Sidecar
     const messagesColl = assignmentRef.collection('messages');
     const timestamp = new Date().toISOString();
 

@@ -77,6 +77,19 @@ export interface SubmissionComment {
 export type SubmissionState = 'CREATED' | 'TURNED_IN' | 'RETURNED' | 'RECLAIMED_BY_STUDENT';
 export type ClassroomSyncStatus = 'SYNCED_DRAFT' | 'RETURNED' | 'LOCAL_ONLY_PERMISSION_DENIED' | 'ERROR' | 'UNSAVED';
 
+export interface StudentEvaluationSidecarDoc {
+  studentId: string;
+  submissionId?: string;
+  draftGrade?: number;
+  assignedGrade?: number;
+  rubricBreakdown: CriterionEvaluation[];
+  overallFeedback: string;
+  comments: SubmissionComment[];
+  classroomSyncStatus: ClassroomSyncStatus;
+  classroomSyncError?: string;
+  updatedAt: string;
+}
+
 export interface StudentSubmissionDoc {
   studentId: string;
   submissionId: string;

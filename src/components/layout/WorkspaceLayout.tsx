@@ -1,11 +1,8 @@
 import React, { useState } from 'react';
-import { doc, getDoc } from 'firebase/firestore';
-import { db } from '../../config/firebase';
 import { TopTabBar, TabItem } from './TopTabBar';
 import { AssignmentWorkspace } from '../workspace/AssignmentWorkspace';
 import { ChatPanel } from '../agent/ChatPanel';
 import { AssignmentPickerView } from '../workspace/AssignmentPickerView';
-import { AssignmentDoc } from '../../types/classroom';
 
 interface OpenAssignmentSession {
   assignmentId: string;
@@ -25,37 +22,39 @@ export const WorkspaceLayout: React.FC = () => {
     courseName: s.courseName,
   }));
 
-  const handleOpenAssignment = async (assignmentId: string) => {
-    // Check if session already open
+  const handleOpenAssignment = (
+    assignmentId: string,
+    meta?: { courseName?: string; assignmentTitle?: string }
+  ) => {
     const existingIndex = sessions.findIndex((s) => s.assignmentId === assignmentId);
     if (existingIndex !== -1) {
       setActiveTabId(assignmentId);
       return;
     }
 
-    // Fetch assignment doc to get metadata for tab bar
-    try {
-      const snap = await getDoc(doc(db, 'assignments', assignmentId));
-      let title = `Assignment ${assignmentId.slice(0, 6)}`;
-      let courseName = 'Classroom';
-      if (snap.exists()) {
-        const data = snap.data() as AssignmentDoc;
-        title = data.title || title;
-        courseName = data.courseName || courseName;
-      }
+    const newSession: OpenAssignmentSession = {
+      assignmentId,
+      courseName: meta?.courseName || 'Classroom',
+      assignmentTitle: meta?.assignmentTitle || `Assignment ${assignmentId.slice(0, 8)}`,
+      selectedStudentId: null,
+    };
 
-      const newSession: OpenAssignmentSession = {
-        assignmentId,
-        courseName,
-        assignmentTitle: title,
-        selectedStudentId: null,
-      };
+    setSessions((prev) => [...prev, newSession]);
+    setActiveTabId(assignmentId);
+  };
 
-      setSessions((prev) => [...prev, newSession]);
-      setActiveTabId(assignmentId);
-    } catch (err) {
-      console.error('Failed to open assignment session:', err);
-    }
+  const handleUpdateSessionMetadata = (
+    assignmentId: string,
+    meta: { courseName: string; assignmentTitle: string }
+  ) => {
+    setSessions((prev) =>
+      prev.map((s) =>
+        s.assignmentId === assignmentId &&
+        (s.courseName !== meta.courseName || s.assignmentTitle !== meta.assignmentTitle)
+          ? { ...s, courseName: meta.courseName, assignmentTitle: meta.assignmentTitle }
+          : s
+      )
+    );
   };
 
   const handleCloseTab = (tabId: string) => {
@@ -110,6 +109,7 @@ export const WorkspaceLayout: React.FC = () => {
                   assignmentId={session.assignmentId}
                   selectedStudentId={session.selectedStudentId}
                   onSelectStudent={(sId) => handleSelectStudentForAssignment(session.assignmentId, sId)}
+                  onAssignmentLoaded={(meta) => handleUpdateSessionMetadata(session.assignmentId, meta)}
                 />
               </div>
 
