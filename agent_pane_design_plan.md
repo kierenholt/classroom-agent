@@ -97,7 +97,7 @@ data: <JSON_STRING>
 
 ### 3.1 Thought Signatures & Gemini 3.x Rule
 > [!CRITICAL]
-> When using Gemini thinking models (e.g. `gemini-2.5-flash`, `gemini-3-flash`) with function calling, the model generates an opaque `thought_signature` on each `functionCall` part.
+> When using Gemini thinking models (e.g. `gemini-3.8-flash`, `gemini-flash-latest`) with function calling, the model generates an opaque `thought_signature` on each `functionCall` part.
 > In multi-turn tool loops, the preceding model `candidate.content` **must be preserved and echoed back intact** into the conversation history. Stripping or recreating the turn as a raw `{ functionCall: { name, args } }` object causes an API rejection: `400 INVALID_ARGUMENT: Function call is missing a thought_signature in functionCall parts`.
 
 ### 3.2 Reference Backend Implementation (Node.js / Express / Cloud Functions)
@@ -154,7 +154,7 @@ export function createChatHandler(toolsRegistry: Record<string, ToolExecutor>, t
         turnCount++;
 
         const response = await ai.models.generateContent({
-          model: 'gemini-2.5-flash',
+          model: 'gemini-3.8-flash',
           contents,
           config: {
             tools: [{ functionDeclarations: toolDeclarations }],

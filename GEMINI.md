@@ -40,7 +40,7 @@ Classroom Agent is an AI-native grading and feedback workstation for Google Clas
 - [src/components/agent/api.ts](file:///home/kieren/Documents/code/classroom-agent/src/components/agent/api.ts): Chunk-resilient SSE stream consumer with fail-fast auth token verification.
 
 ### Cloud Functions Backend (`/functions`)
-- [functions/src/config/env.ts](file:///home/kieren/Documents/code/classroom-agent/functions/src/config/env.ts): Fail-fast server environment validator.
+- [functions/src/config/env.ts](file:///home/kieren/Documents/code/classroom-agent/functions/src/config/env.ts): Fail-fast server environment validator enforcing mandatory parameters (`GCP_PROJECT_ID`, `GEMINI_API_KEY`, `GEMINI_MODEL=gemini-3.8-flash`).
 - [functions/src/middleware/auth.ts](file:///home/kieren/Documents/code/classroom-agent/functions/src/middleware/auth.ts): Express middleware verifying Firebase ID token and `X-Google-Access-Token`.
 - [functions/src/services/classroomClient.ts](file:///home/kieren/Documents/code/classroom-agent/functions/src/services/classroomClient.ts): Google Classroom v1 REST and Drive v3 client wrappers (`fetchLiveWorkspaceFromClassroom`, `parseAssignmentId`, `patchSubmissionGrade`, `returnSubmission`).
 - [functions/src/services/driveExtractor.ts](file:///home/kieren/Documents/code/classroom-agent/functions/src/services/driveExtractor.ts): Document and submission extractor for Docs, Slides, Sheets, Code, and binary assets.
@@ -48,7 +48,7 @@ Classroom Agent is an AI-native grading and feedback workstation for Google Clas
 - [functions/src/routes/chat.ts](file:///home/kieren/Documents/code/classroom-agent/functions/src/routes/chat.ts): `POST /api/chat` SSE endpoint grounded with live Classroom coursework metadata and Sidecar rubric/history, with `thought_signature` preservation.
 - [functions/src/routes/classroom.ts](file:///home/kieren/Documents/code/classroom-agent/functions/src/routes/classroom.ts): REST endpoints for live courses, coursework, live workspace (`GET /courses/:courseId/coursework/:courseWorkId/workspace`), clone, drive preview, manual grade, and return.
 - [functions/src/routes/upload.ts](file:///home/kieren/Documents/code/classroom-agent/functions/src/routes/upload.ts): Multipart upload for rubric attachments to Cloud Storage.
-- [functions/src/index.ts](file:///home/kieren/Documents/code/classroom-agent/functions/src/index.ts): Express application exported as 2nd Gen Cloud Function `api`.
+- [functions/src/index.ts](file:///home/kieren/Documents/code/classroom-agent/functions/src/index.ts): Express application exported as 2nd Gen Cloud Function `api` deployed to `europe-west2` with both `/` and `/api/` route mounting.
 
 ### Developer Environment & Process Launchers
 - [.vscode/launch.json](file:///home/kieren/Documents/code/classroom-agent/.vscode/launch.json): VS Code debug and service launch configurations for Frontend (Vite), Backend Emulators (Auth, Firestore, Functions, Storage), Functions TypeScript Watcher, "Launch All Backend (Emulators + Functions Watch)", and full stack compound launcher.

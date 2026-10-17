@@ -39,7 +39,7 @@ Educators can open multiple Google Classroom assignments as persistent tabs, ins
 | **Frontend SPA** | React 18+, Vite, TypeScript, Tailwind CSS, `lucide-react` | 70/30 split layout, tab manager, 3-zone assignment view, multi-format submission previewer, SSE stream consumer |
 | **Authentication** | Firebase Auth (Google OAuth 2.0 Provider) | Teacher sign-in and OAuth 2.0 access/refresh token acquisition for Google Classroom & Google Drive scopes |
 | **Backend API** | Firebase Cloud Functions (`\functions`, Node.js + Express + TypeScript) | `/chat` SSE streaming endpoint, Google Classroom/Drive proxy & sync endpoints, multimodal file extraction, direct Firestore mutations |
-| **LLM Engine** | `@google/genai` (`gemini-2.5-flash` / `gemini-3-flash`) | Multi-turn function-calling loop with verbatim `candidate.content` (`thought_signature`) preservation |
+| **LLM Engine** | `@google/genai` (`gemini-3.8-flash` / `gemini-flash-latest`) | Multi-turn function-calling loop with verbatim `candidate.content` (`thought_signature`) preservation |
 | **Database & Storage** | Cloud Firestore & Firebase Cloud Storage | Real-time state persistence for synced assignments, rubrics, student submission evaluations, and chat histories; Cloud Storage for uploaded mark schemes |
 
 ### 3.1 Required Google OAuth 2.0 Scopes
@@ -207,7 +207,7 @@ Follows the exact visual tokens, component structure (`ChatPanel.tsx`, `ToolCall
 
 ### 5.1 Agent Loop Configuration (`POST /api/chat`)
 
-- Uses `@google/genai` with `gemini-2.5-flash` (or `gemini-3-flash`).
+- Uses `@google/genai` with `gemini-3.8-flash` (or `gemini-flash-latest`).
 - **Thought Signature Rule**: Every model turn `candidate.content` is pushed verbatim into `contents` before appending `{ role: 'tool', parts: responseParts }`.
 - **Multi-Turn Iteration Limit**: `MAX_TURNS = 40` to support class-sized sequential or batched per-student `evaluate_and_grade_submission` tool calls within a single user request.
 - **System Instruction**: Injects the current assignment metadata (Course Name, Assignment Title, Description, `maxPoints`, active Rubric JSON, and currently selected `studentId`) into the system prompt so the agent has immediate grounding.

@@ -21,14 +21,21 @@ const app = express();
 app.use(cors({ origin: true }));
 app.use(express.json());
 
-// Routes
+// Routes (mounted on both /api/* and /* for emulator and direct Cloud Function support)
 app.use('/api/chat', chatRouter);
+app.use('/chat', chatRouter);
 app.use('/api/classroom', classroomRouter);
+app.use('/classroom', classroomRouter);
 app.use('/api/upload', uploadRouter);
+app.use('/upload', uploadRouter);
 app.use('/api/assignments', classroomRouter);
+app.use('/assignments', classroomRouter);
 
 // Root health check endpoint
 app.get('/api/health', (_req, res) => {
+  res.json({ status: 'healthy', timestamp: new Date().toISOString() });
+});
+app.get('/health', (_req, res) => {
   res.json({ status: 'healthy', timestamp: new Date().toISOString() });
 });
 
