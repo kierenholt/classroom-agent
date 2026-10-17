@@ -1,5 +1,12 @@
 import React, { createContext, useContext, useEffect, useState } from 'react';
-import { User, onAuthStateChanged, signInWithPopup, signOut, GoogleAuthProvider } from 'firebase/auth';
+import {
+  User,
+  onAuthStateChanged,
+  signInWithPopup,
+  signInWithCredential,
+  signOut,
+  GoogleAuthProvider,
+} from 'firebase/auth';
 import { auth, googleAuthProvider } from '../config/firebase';
 
 interface AuthContextType {
@@ -23,13 +30,39 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   });
 
   useEffect(() => {
-    const unsubscribe = onAuthStateChanged(auth, (currentUser) => {
-      setUser(currentUser);
-      setLoading(false);
-      if (!currentUser) {
-        sessionStorage.removeItem(GOOGLE_TOKEN_STORAGE_KEY);
-        setGoogleAccessToken(null);
+    let attemptedTokenSignIn = false;
+
+    const unsubscribe = onAuthStateChanged(auth, async (currentUser) => {
+      if (currentUser) {
+        setUser(currentUser);
+        const storedToken = sessionStorage.getItem(GOOGLE_TOKEN_STORAGE_KEY);
+        if (storedToken) {
+          setGoogleAccessToken(storedToken);
+        }
+        setLoading(false);
+        return;
       }
+
+      const storedToken = sessionStorage.getItem(GOOGLE_TOKEN_STORAGE_KEY);
+      if (storedToken && !attemptedTokenSignIn) {
+        attemptedTokenSignIn = true;
+        try {
+          const storedIdToken = sessionStorage.getItem('classroom_agent_google_id_token');
+          const credential = GoogleAuthProvider.credential(storedIdToken, storedToken);
+          const result = await signInWithCredential(auth, credential);
+          setUser(result.user);
+          setGoogleAccessToken(storedToken);
+          setLoading(false);
+          return;
+        } catch (err) {
+          console.error('Failed to restore session from Google OAuth token:', err);
+          sessionStorage.removeItem(GOOGLE_TOKEN_STORAGE_KEY);
+          setGoogleAccessToken(null);
+        }
+      }
+
+      setUser(null);
+      setLoading(false);
     });
     return () => unsubscribe();
   }, []);
@@ -57,10 +90,11 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   };
 
   const getAuthHeaders = async (): Promise<{ Authorization: string; 'X-Google-Access-Token': string }> => {
-    if (!user) {
+    const activeUser = user || auth.currentUser;
+    if (!activeUser) {
       throw new Error('[Auth Failure] Unauthenticated request: Teacher user is not signed in.');
     }
-    const idToken = await user.getIdToken();
+    const idToken = await activeUser.getIdToken();
     const gToken = googleAccessToken || sessionStorage.getItem(GOOGLE_TOKEN_STORAGE_KEY);
     if (!gToken) {
       throw new Error('[Auth Failure] Missing Google OAuth access token. Please re-authenticate.');

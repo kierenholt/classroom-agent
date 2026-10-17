@@ -11,7 +11,7 @@ Classroom Agent is an AI-native grading and feedback workstation for Google Clas
 ## GCP & Firebase Project Configuration
 - **Project ID**: `classroom-agent-511917` (Project Number: `82833838117`)
 - **Firebase Web App ID**: `1:82833838117:web:6646420fa24876a1112fcc` (`classroom-agent-web`)
-- **Cloud Firestore**: `(default)` Native database in `nam5` with real-time updates enabled (AI Sidecar for rubrics, evaluations, and agent messages)
+- **Cloud Firestore**: `(default)` Native database in `europe-west2` with real-time updates enabled (AI Sidecar for rubrics, evaluations, and agent messages)
 - **Authentication**: Firebase Auth with Google Sign-In provider (`Classroom Agent`)
 
 ## Key Architecture & Configuration Files
@@ -56,11 +56,36 @@ Classroom Agent is an AI-native grading and feedback workstation for Google Clas
 
 ### Testing & Verification
 - [TESTING.md](file:///home/kieren/Documents/code/classroom-agent/TESTING.md): Full E2E & Live Google Classroom testing guide (Teacher & Student OAuth refresh token setup, scopes, and automated create/submit/turn-in/teardown lifecycle).
-- [scripts/run_tests.js](file:///home/kieren/Documents/code/classroom-agent/scripts/run_tests.js): Sequential Playwright test runner (`node scripts/run_tests.js <name> local 1`).
+- [scripts/run_tests.js](file:///home/kieren/Documents/code/classroom-agent/scripts/run_tests.js): Sequential Playwright test runner invoked via `npm test -- <test-name-or-file> local 1`.
 - [playwright.config.ts](file:///home/kieren/Documents/code/classroom-agent/playwright.config.ts): Playwright test configuration targeting `http://127.0.0.1:5173`.
 - [tests/helpers/testSeeder.ts](file:///home/kieren/Documents/code/classroom-agent/tests/helpers/testSeeder.ts): Emulator fixture seeder and teardown utility (zero mock data in production).
-- [tests/helpers/classroomSandboxSeeder.ts](file:///home/kieren/Documents/code/classroom-agent/tests/helpers/classroomSandboxSeeder.ts): Live Google Classroom & Drive API fixture seeder (teacher coursework creation, student auto-enrollment via `enrollmentCode`, student Drive file upload, attachment, turn-in, and teardown).
+- [tests/helpers/classroomSandboxSeeder.ts](file:///home/kieren/Documents/code/classroom-agent/tests/helpers/classroomSandboxSeeder.ts): Live Google Classroom & Drive API batch fixture seeder (`setupLiveClassroomBatchFixture` & `teardownLiveClassroomBatchFixture`) with in-memory OAuth token caching, fast-path student enrollment memoization, and parallel CourseWork creation + Drive file upload.
 - [tests/e2e/workspace_layout_and_agent_copilot_test.spec.ts](file:///home/kieren/Documents/code/classroom-agent/tests/e2e/workspace_layout_and_agent_copilot_test.spec.ts): E2E test suite verifying workspace layout and agent co-pilot against emulator fixtures.
-- [tests/e2e/live_classroom_assignment_lifecycle_test.spec.ts](file:///home/kieren/Documents/code/classroom-agent/tests/e2e/live_classroom_assignment_lifecycle_test.spec.ts): E2E test suite verifying the full live Teacher + Student Google Classroom create, submit, turn-in, test, and teardown lifecycle.
+- [tests/e2e/live_classroom_assignment_lifecycle_test.spec.ts](file:///home/kieren/Documents/code/classroom-agent/tests/e2e/live_classroom_assignment_lifecycle_test.spec.ts): E2E test suite using suite-level `test.beforeAll` / `test.afterAll` batch setup/teardown against live Google Classroom & Drive APIs.
 
+## Project Rules
+- **Run Tests via NPM Commands**: Always use `npm` commands (`npm test`, `npm run test:e2e`, `npm run test:emulator`, `npm run test:live`) to run tests rather than invoking `node` or `npx playwright` directly. Run tests sequentially (`--workers=1`), one test suite or filtered test at a time.
+- **Run Tests Outside the Sandbox (`BypassSandbox: true`)**: All test commands MUST be executed outside the sandbox (`BypassSandbox: true`) so Playwright and the test seeders can access local server ports (`127.0.0.1:5173`, `127.0.0.1:8080`, `127.0.0.1:5001`), browser binaries, and live Google Classroom/Drive APIs.
 
+## NPM Commands Reference
+
+### Root Workspace ([package.json](file:///home/kieren/Documents/code/classroom-agent/package.json))
+| Command | Description |
+| :--- | :--- |
+| `npm run dev` | Starts the Vite frontend development server (`http://127.0.0.1:5173`). |
+| `npm run build` | Type-checks (`tsc`) and builds the production Vite frontend bundle. |
+| `npm run preview` | Locally previews the production frontend build. |
+| `npm test -- <filter> local 1` | Runs Playwright tests sequentially via [scripts/run_tests.js](file:///home/kieren/Documents/code/classroom-agent/scripts/run_tests.js) with an optional test name or file filter. |
+| `npm run test:e2e` | Runs all Playwright E2E test suites sequentially (`playwright test --workers=1`). Pass `-- -g "<test-name>"` to filter by test name. |
+| `npm run test:emulator` | Runs the local Firebase Emulator Sidecar E2E suite ([workspace_layout_and_agent_copilot_test.spec.ts](file:///home/kieren/Documents/code/classroom-agent/tests/e2e/workspace_layout_and_agent_copilot_test.spec.ts)) sequentially. |
+| `npm run test:live` | Runs the Live Google Classroom & Drive Sandbox E2E suite ([live_classroom_assignment_lifecycle_test.spec.ts](file:///home/kieren/Documents/code/classroom-agent/tests/e2e/live_classroom_assignment_lifecycle_test.spec.ts)) sequentially. |
+
+### Cloud Functions Backend ([functions/package.json](file:///home/kieren/Documents/code/classroom-agent/functions/package.json))
+| Command (run from `/functions`) | Description |
+| :--- | :--- |
+| `npm run build` | Compiles Cloud Functions TypeScript source (`functions/src`) to `functions/lib`. Must be run after editing any file in `/functions`. |
+| `npm run build:watch` | Watches and incrementally compiles Cloud Functions TypeScript source. |
+| `npm run serve` | Builds functions and starts the Firebase Functions emulator (`127.0.0.1:5001`). |
+| `npm run shell` | Builds functions and launches the interactive Firebase Functions shell. |
+| `npm run deploy` | Deploys Cloud Functions (`firebase deploy --only functions`). |
+| `npm run logs` | Streams or fetches Firebase Cloud Functions logs. |

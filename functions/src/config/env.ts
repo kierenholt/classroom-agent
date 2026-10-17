@@ -16,5 +16,5 @@ function requireEnv(key: string): string {
 export const serverEnv = {
   GCP_PROJECT_ID: process.env.GCP_PROJECT_ID || process.env.GCLOUD_PROJECT || requireEnv('GCP_PROJECT_ID'),
   GEMINI_API_KEY: requireEnv('GEMINI_API_KEY'),
-  GEMINI_MODEL: process.env.GEMINI_MODEL || 'gemini-2.5-flash',
+  GEMINI_MODEL: requireEnv('GEMINI_MODEL'),
 };

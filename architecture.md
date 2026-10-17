@@ -142,7 +142,7 @@ classroom-agent/
 - **Project ID**: `classroom-agent-511917`
 - **Project Number**: `82833838117`
 - **Firebase Web App**: `classroom-agent-web` (`1:82833838117:web:6646420fa24876a1112fcc`)
-- **Cloud Firestore**: `(default)` Native database in `nam5` with real-time updates enabled
+- **Cloud Firestore**: `(default)` Native database in `europe-west2` with real-time updates enabled
 - **Firebase Auth**: Google Sign-In provider enabled (`Classroom Agent`)
 - **Local Emulator Ports**:
   - Auth: `9099`

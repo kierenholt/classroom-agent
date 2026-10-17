@@ -10,6 +10,12 @@ const PROJECT_ID = process.env.VITE_FIREBASE_PROJECT_ID || 'classroom-agent-5119
 
 const BASE_URL = `http://${FIRESTORE_EMULATOR_HOST}:${FIRESTORE_EMULATOR_PORT}/v1/projects/${PROJECT_ID}/databases/(default)/documents`;
 
+// In the Firebase Firestore Emulator, `Bearer owner` grants admin bypass of security rules for test seeding/cleanup
+const EMULATOR_ADMIN_HEADERS = {
+  'Content-Type': 'application/json',
+  Authorization: 'Bearer owner',
+};
+
 export async function seedTestAssignment(assignmentId: string, assignment: Record<string, any>) {
   const url = `${BASE_URL}/assignments/${assignmentId}`;
 
@@ -45,7 +51,7 @@ export async function seedTestAssignment(assignmentId: string, assignment: Recor
 
   const res = await fetch(url, {
     method: 'PATCH',
-    headers: { 'Content-Type': 'application/json' },
+    headers: EMULATOR_ADMIN_HEADERS,
     body: JSON.stringify({ fields }),
   });
 
@@ -103,7 +109,7 @@ export async function seedTestSubmission(assignmentId: string, studentId: string
 
   const res = await fetch(url, {
     method: 'PATCH',
-    headers: { 'Content-Type': 'application/json' },
+    headers: EMULATOR_ADMIN_HEADERS,
     body: JSON.stringify({ fields }),
   });
 
@@ -116,14 +122,20 @@ export async function seedTestSubmission(assignmentId: string, studentId: string
 export async function cleanupTestAssignment(assignmentId: string, studentIds: string[] = []) {
   for (const sId of studentIds) {
     try {
-      await fetch(`${BASE_URL}/assignments/${assignmentId}/evaluations/${sId}`, { method: 'DELETE' });
+      await fetch(`${BASE_URL}/assignments/${assignmentId}/evaluations/${sId}`, {
+        method: 'DELETE',
+        headers: EMULATOR_ADMIN_HEADERS,
+      });
     } catch {
       // ignore
     }
   }
 
   try {
-    await fetch(`${BASE_URL}/assignments/${assignmentId}`, { method: 'DELETE' });
+    await fetch(`${BASE_URL}/assignments/${assignmentId}`, {
+      method: 'DELETE',
+      headers: EMULATOR_ADMIN_HEADERS,
+    });
   } catch {
     // ignore
   }

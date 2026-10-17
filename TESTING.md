@@ -6,10 +6,20 @@ This document details the E2E testing architecture, credential configuration, an
 
 ## 1. Core Testing Rules & Conventions
 
-1. **Sequential Execution**:
-   All Playwright E2E tests are executed one at a time (sequentially, `workers = 1`) via [scripts/run_tests.js](file:///home/kieren/Documents/code/classroom-agent/scripts/run_tests.js):
+1. **Sequential Execution via NPM Commands (Outside of Sandbox)**:
+   All Playwright E2E tests must be executed via `npm` commands one at a time (sequentially, `workers = 1`) and **outside of the sandbox (`BypassSandbox: true`)** so Playwright and the test seeders can reach localhost ports (`127.0.0.1:5173`, `127.0.0.1:8080`, `127.0.0.1:5001`), browser binaries, and live Google Classroom/Drive APIs:
    ```bash
-   node scripts/run_tests.js <test-name-or-file> local 1
+   # Run a specific test file or filter via the sequential test runner:
+   npm test -- <test-name-or-file> local 1
+
+   # Run the local Firebase Emulator Sidecar E2E suite:
+   npm run test:emulator
+
+   # Run the Live Google Classroom & Drive Sandbox E2E suite:
+   npm run test:live
+
+   # Run all E2E tests sequentially:
+   npm run test:e2e
    ```
 2. **Test Naming Convention**:
    Every test must follow:
@@ -28,16 +38,21 @@ This document details the E2E testing architecture, credential configuration, an
 
 ## 2. Two-Tier E2E Testing Architecture
 
-### Tier 1: Local Firebase Emulator Suite
+### Tier 1: Local Firebase Emulator Sidecar Suite
 - **Helper**: [tests/helpers/testSeeder.ts](file:///home/kieren/Documents/code/classroom-agent/tests/helpers/testSeeder.ts)
 - **Spec**: [tests/e2e/workspace_layout_and_agent_copilot_test.spec.ts](file:///home/kieren/Documents/code/classroom-agent/tests/e2e/workspace_layout_and_agent_copilot_test.spec.ts)
 - **Lifecycle**:
-  - `beforeEach`: Seeds `assignments/{assignmentId}` and `submissions/{studentId}` directly into the local Firestore Emulator (`127.0.0.1:8080`).
-  - `afterEach`: Deletes all seeded documents from the Firestore Emulator.
+  - `beforeEach`: Seeds Sidecar `assignments/{assignmentId}` (rubric) and `evaluations/{studentId}` (rubric breakdown & comments) directly into the local Firestore Emulator (`127.0.0.1:8080`).
+  - `afterEach`: Deletes all seeded Sidecar documents from the Firestore Emulator.
 
-### Tier 2: Live Google Classroom & Drive Sandbox Suite
-- **Helper**: [tests/helpers/classroomSandboxSeeder.ts](file:///home/kieren/Documents/code/classroom-agent/tests/helpers/classroomSandboxSeeder.ts)
+### Tier 2: Live Google Classroom & Drive Sandbox Suite (Batch Setup / Teardown)
+- **Helper**: [tests/helpers/classroomSandboxSeeder.ts](file:///home/kieren/Documents/code/classroom-agent/tests/helpers/classroomSandboxSeeder.ts) (`setupLiveClassroomBatchFixture` & `teardownLiveClassroomBatchFixture`)
 - **Spec**: [tests/e2e/live_classroom_assignment_lifecycle_test.spec.ts](file:///home/kieren/Documents/code/classroom-agent/tests/e2e/live_classroom_assignment_lifecycle_test.spec.ts)
+- **API Call Optimizations**:
+  1. **In-Memory Token Caching**: Teacher and Student OAuth access tokens are refreshed once in parallel and cached in memory for their 1-hour lifetime (saving 6–8 OAuth round-trips per test).
+  2. **Fast-Path Enrollment Check + Memoization**: `ensureTestStudentEnrolled` checks `GET /courses/{courseId}/students/me` (1 call) and caches the student profile in memory (`0` calls on subsequent checks), only falling back to `enrollmentCode` lookup if the student has never joined the course.
+  3. **Parallel CourseWork Creation + Drive Upload**: Creating the assignment in Classroom and uploading the student's attachment to Google Drive have no dependency on each other and execute concurrently via `Promise.all`.
+  4. **Suite-Level Batch Setup (`test.beforeAll`) & Teardown (`test.afterAll`)**: A single live Classroom assignment and turned-in student submission are seeded **once per test suite**, shared across all tests in the batch (with a `<10ms` local Firestore Sidecar cleanup in `test.afterEach`), and deleted in parallel in `test.afterAll`.
 - **Lifecycle**:
   ```mermaid
   sequenceDiagram
@@ -46,23 +61,33 @@ This document details the E2E testing architecture, credential configuration, an
       participant OAuth as Google OAuth2 Token API
       participant GC as Google Classroom API v1
       participant Drive as Google Drive API v3
+      participant FS as Local Firestore Sidecar
 
-      Note over Test,Drive: test.beforeEach() — Setup
-      Test->>OAuth: Exchange Teacher & Student Refresh Tokens for Access Tokens
-      Test->>GC: GET /v1/courses/{courseId} (Teacher fetches enrollmentCode)
-      Test->>GC: POST /v1/courses/{courseId}/students (Student joins course via enrollmentCode)
-      Test->>GC: POST /v1/courses/{courseId}/courseWork (Teacher creates assignment)
+      Note over Test,Drive: test.beforeAll() — Parallel Batch Setup (Runs ONCE per suite)
+      par Warm Cached Tokens
+          Test->>OAuth: Refresh Teacher Access Token (cached 1h)
+          Test->>OAuth: Refresh Student Access Token (cached 1h)
+      end
+      par Parallel Enrollment Check + CourseWork Creation + Drive Upload
+          Test->>GC: GET /v1/courses/{courseId}/students/me (Fast-path check, memoized)
+          Test->>GC: POST /v1/courses/{courseId}/courseWork (Teacher creates assignment)
+          Test->>Drive: POST /upload/drive/v3/files (Student uploads sample code/doc file)
+      end
       Test->>GC: GET .../studentSubmissions?userId=me (Student locates submissionId)
-      Test->>Drive: POST /upload/drive/v3/files (Student uploads sample code/doc file)
       Test->>GC: POST .../studentSubmissions/{id}:modifyAttachments (Student attaches Drive file)
       Test->>GC: POST .../studentSubmissions/{id}:turnIn (Student turns in assignment)
 
-      Note over Test,Drive: Test Execution
-      Test->>Test: Run UI / API assertions against live assignment & submission
+      Note over Test,FS: Per-Test Execution & Lightweight Sidecar Reset
+      loop For Each Test in Batch
+          Test->>Test: Run UI / API assertions against shared live assignment
+          Test->>FS: test.afterEach() — Reset local Firestore Sidecar (0 Classroom API calls)
+      end
 
-      Note over Test,Drive: test.afterEach() — Teardown
-      Test->>GC: DELETE /v1/courses/{courseId}/courseWork/{courseWorkId} (Teacher deletes coursework)
-      Test->>Drive: DELETE /drive/v3/files/{driveFileId} (Student deletes temporary Drive file)
+      Note over Test,Drive: test.afterAll() — Parallel Batch Teardown (Runs ONCE per suite)
+      par Parallel Cleanup
+          Test->>GC: DELETE /v1/courses/{courseId}/courseWork/{courseWorkId}
+          Test->>Drive: DELETE /drive/v3/files/{driveFileId}
+      end
   ```
 
 ---

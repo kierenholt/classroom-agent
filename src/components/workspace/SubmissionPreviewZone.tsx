@@ -1,6 +1,7 @@
-import React, { useState } from 'react';
-import { ExternalLink, FileText, Image as ImageIcon, Link as LinkIcon, FileCode, Eye } from 'lucide-react';
+import React, { useState, useEffect } from 'react';
+import { ExternalLink, FileText, Image as ImageIcon, Link as LinkIcon, FileCode, Eye, Loader2 } from 'lucide-react';
 import { StudentSubmissionDoc, SubmissionAttachment } from '../../types/classroom';
+import { useAuth } from '../../context/AuthContext';
 import { env } from '../../config/env';
 
 interface SubmissionPreviewZoneProps {
@@ -8,8 +9,56 @@ interface SubmissionPreviewZoneProps {
 }
 
 export const SubmissionPreviewZone: React.FC<SubmissionPreviewZoneProps> = ({ submission }) => {
+  const { getAuthHeaders } = useAuth();
   const [activeAttachmentIndex, setActiveAttachmentIndex] = useState(0);
   const [viewMode, setViewMode] = useState<'rendered' | 'raw'>('rendered');
+  const [fetchedTextMap, setFetchedTextMap] = useState<Record<string, string>>({});
+  const [loadingDriveFile, setLoadingDriveFile] = useState(false);
+
+  const attachments = submission?.attachments || [];
+  const currentAttachment: SubmissionAttachment | undefined =
+    attachments[activeAttachmentIndex] || attachments[0];
+
+  // Reset active attachment index when student changes
+  useEffect(() => {
+    setActiveAttachmentIndex(0);
+    setViewMode('rendered');
+  }, [submission?.studentId]);
+
+  // Fetch live text content from Google Drive when a CODE/TEXT attachment has a driveFileId
+  useEffect(() => {
+    if (!currentAttachment || !currentAttachment.driveFileId) return;
+    if (currentAttachment.contentPreview || fetchedTextMap[currentAttachment.driveFileId] !== undefined) return;
+    if (currentAttachment.type !== 'CODE' && currentAttachment.type !== 'TEXT') return;
+
+    let cancelled = false;
+    const loadDriveText = async () => {
+      setLoadingDriveFile(true);
+      try {
+        const headers = await getAuthHeaders();
+        const res = await fetch(
+          `${env.API_BASE_URL}/classroom/drive-file/${encodeURIComponent(currentAttachment.driveFileId!)}?exportType=text`,
+          { headers }
+        );
+        if (res.ok && !cancelled) {
+          const text = await res.text();
+          setFetchedTextMap((prev) => ({
+            ...prev,
+            [currentAttachment.driveFileId!]: text,
+          }));
+        }
+      } catch (err) {
+        console.error('Failed to fetch Drive text preview:', err);
+      } finally {
+        if (!cancelled) setLoadingDriveFile(false);
+      }
+    };
+
+    loadDriveText();
+    return () => {
+      cancelled = true;
+    };
+  }, [currentAttachment, fetchedTextMap, getAuthHeaders]);
 
   if (!submission) {
     return (
@@ -22,9 +71,6 @@ export const SubmissionPreviewZone: React.FC<SubmissionPreviewZoneProps> = ({ su
       </div>
     );
   }
-
-  const attachments = submission.attachments || [];
-  const currentAttachment: SubmissionAttachment | undefined = attachments[activeAttachmentIndex] || attachments[0];
 
   const getAttachmentIcon = (type: string) => {
     switch (type) {
@@ -46,6 +92,10 @@ export const SubmissionPreviewZone: React.FC<SubmissionPreviewZoneProps> = ({ su
         return <FileText className="w-3.5 h-3.5 text-gray-400" />;
     }
   };
+
+  const resolvedTextContent =
+    currentAttachment?.contentPreview ||
+    (currentAttachment?.driveFileId ? fetchedTextMap[currentAttachment.driveFileId] : undefined);
 
   return (
     <div
@@ -87,7 +137,7 @@ export const SubmissionPreviewZone: React.FC<SubmissionPreviewZoneProps> = ({ su
 
         {/* View mode toggle & external link */}
         <div className="flex items-center space-x-2">
-          {currentAttachment && currentAttachment.contentPreview && (
+          {currentAttachment && resolvedTextContent && (
             <button
               onClick={() => setViewMode((m) => (m === 'rendered' ? 'raw' : 'rendered'))}
               className="flex items-center space-x-1 px-2 py-0.5 rounded text-[11px] bg-[#21262d] hover:bg-[#30363d] text-gray-300 transition-colors"
@@ -124,7 +174,12 @@ export const SubmissionPreviewZone: React.FC<SubmissionPreviewZoneProps> = ({ su
           <div className="h-full flex items-center justify-center text-gray-500">
             No attachment selected.
           </div>
-        ) : viewMode === 'raw' && currentAttachment.contentPreview ? (
+        ) : loadingDriveFile ? (
+          <div className="h-full flex items-center justify-center space-x-2 text-gray-400">
+            <Loader2 className="w-4 h-4 animate-spin text-purple-400" />
+            <span>Loading attachment from Google Drive...</span>
+          </div>
+        ) : viewMode === 'raw' && resolvedTextContent ? (
           /* Extracted text view (what the LLM reads) */
           <div className="h-full flex flex-col">
             <div className="text-[10px] text-purple-400 uppercase tracking-wider font-semibold mb-2">
@@ -134,19 +189,19 @@ export const SubmissionPreviewZone: React.FC<SubmissionPreviewZoneProps> = ({ su
               data-testid="preview-text-content"
               className="flex-1 bg-[#161b22] border border-[#30363d] rounded p-3 text-xs text-gray-200 font-mono whitespace-pre-wrap overflow-auto select-text"
             >
-              {currentAttachment.contentPreview}
+              {resolvedTextContent}
             </pre>
           </div>
         ) : (
           /* Rendered format based on attachment type */
-          renderAttachmentContent(currentAttachment)
+          renderAttachmentContent(currentAttachment, resolvedTextContent)
         )}
       </div>
     </div>
   );
 };
 
-function renderAttachmentContent(att: SubmissionAttachment) {
+function renderAttachmentContent(att: SubmissionAttachment, resolvedTextContent?: string) {
   switch (att.type) {
     case 'PDF':
     case 'GOOGLE_DOC':
@@ -167,7 +222,7 @@ function renderAttachmentContent(att: SubmissionAttachment) {
       }
       return (
         <div data-testid="preview-text-content" className="p-4 bg-[#161b22] rounded border border-[#30363d] text-gray-300 font-mono select-text whitespace-pre-wrap">
-          {att.contentPreview || 'No preview available for this document.'}
+          {resolvedTextContent || 'No preview available for this document.'}
         </div>
       );
 
@@ -177,7 +232,7 @@ function renderAttachmentContent(att: SubmissionAttachment) {
           data-testid="preview-code-block"
           className="h-full bg-[#161b22] border border-[#30363d] rounded p-4 text-xs font-mono text-emerald-300 overflow-auto select-text whitespace-pre"
         >
-          <code>{att.contentPreview || '// No code content available'}</code>
+          <code>{resolvedTextContent || '// No code content available'}</code>
         </pre>
       );
 
@@ -210,10 +265,10 @@ function renderAttachmentContent(att: SubmissionAttachment) {
             <span>{att.alternateLink}</span>
             <ExternalLink className="w-3 h-3 shrink-0" />
           </a>
-          {att.contentPreview && (
+          {resolvedTextContent && (
             <div className="mt-4 p-3 bg-[#0d1117] rounded border border-gray-800 text-gray-400 text-xs">
               <span className="font-semibold text-gray-300">Page Content Preview:</span>
-              <p className="mt-1 whitespace-pre-wrap">{att.contentPreview}</p>
+              <p className="mt-1 whitespace-pre-wrap">{resolvedTextContent}</p>
             </div>
           )}
         </div>
@@ -227,7 +282,7 @@ function renderAttachmentContent(att: SubmissionAttachment) {
           data-testid="preview-text-content"
           className="h-full bg-[#161b22] border border-[#30363d] rounded p-4 text-gray-200 select-text whitespace-pre-wrap font-sans text-sm leading-relaxed overflow-auto"
         >
-          {att.shortAnswer || att.contentPreview || 'No text content available.'}
+          {att.shortAnswer || resolvedTextContent || 'No text content available.'}
         </div>
       );
   }
