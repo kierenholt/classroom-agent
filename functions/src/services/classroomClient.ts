@@ -188,6 +188,16 @@ export async function listCourseWorkSubmissions(
   return submissions;
 }
 
+function sanitizeGooglePhotoUrl(url?: string | null): string | undefined {
+  if (!url || typeof url !== 'string') return undefined;
+  const trimmed = url.trim();
+  if (!trimmed) return undefined;
+  if (trimmed.startsWith('//')) {
+    return `https:${trimmed}`;
+  }
+  return trimmed;
+}
+
 /**
  * Maps a raw Google Classroom StudentSubmission + Student profile into our structured live submission format.
  */
@@ -267,7 +277,7 @@ export function mapLiveClassroomSubmission(
     submissionId: sub.id || studentId,
     studentName: profile?.name || `Student ${studentId.slice(0, 6)}`,
     studentEmail: profile?.email || undefined,
-    studentAvatarUrl: profile?.photoUrl || undefined,
+    studentAvatarUrl: sanitizeGooglePhotoUrl(profile?.photoUrl),
     state: (sub.state || 'CREATED') as 'CREATED' | 'TURNED_IN' | 'RETURNED' | 'RECLAIMED_BY_STUDENT',
     late: sub.late || false,
     attachments,
@@ -359,7 +369,7 @@ export async function fetchLiveWorkspaceFromClassroom(
       studentMap.set(st.userId, {
         name: st.profile?.name?.fullName || `Student ${st.userId.slice(0, 6)}`,
         email: st.profile?.emailAddress,
-        photoUrl: st.profile?.photoUrl,
+        photoUrl: sanitizeGooglePhotoUrl(st.profile?.photoUrl),
       });
     }
   }
@@ -386,6 +396,7 @@ export async function fetchLiveWorkspaceFromClassroom(
       : undefined,
     state: (coursework.state || 'PUBLISHED') as 'PUBLISHED' | 'DRAFT',
     apiWriteBackEligible: coursework.associatedWithDeveloper || false,
+    alternateLink: coursework.alternateLink || course.alternateLink || (courseId && courseWorkId ? `https://classroom.google.com/c/${courseId}/a/${courseWorkId}` : undefined),
     ...(classroomRubric ? { rubric: classroomRubric } : {}),
     submissionStats: {
       total: submissions.length,

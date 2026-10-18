@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { RefreshCw, Send, Save, CheckCircle2, Clock, User } from 'lucide-react';
+import { RefreshCw, Send, Save, CheckCircle2, Clock, User, ExternalLink } from 'lucide-react';
 import { AssignmentDoc, StudentSubmissionDoc, CriterionEvaluation } from '../../types/classroom';
 
 interface StudentEffectiveEdit {
@@ -27,6 +27,79 @@ interface StudentRosterZoneProps {
 }
 
 type FilterStatus = 'ALL' | 'TURNED_IN' | 'UNMARKED' | 'DRAFT' | 'RETURNED' | 'MISSING';
+
+const AVATAR_BG_COLORS = [
+  'bg-emerald-700 text-emerald-100',
+  'bg-blue-700 text-blue-100',
+  'bg-purple-700 text-purple-100',
+  'bg-amber-700 text-amber-100',
+  'bg-rose-700 text-rose-100',
+  'bg-indigo-700 text-indigo-100',
+  'bg-teal-700 text-teal-100',
+  'bg-cyan-700 text-cyan-100',
+];
+
+function getAvatarColor(key: string): string {
+  let hash = 0;
+  for (let i = 0; i < key.length; i++) {
+    hash = (hash << 5) - hash + key.charCodeAt(i);
+    hash |= 0;
+  }
+  const idx = Math.abs(hash) % AVATAR_BG_COLORS.length;
+  return AVATAR_BG_COLORS[idx];
+}
+
+function getInitials(name: string): string {
+  if (!name) return '';
+  const parts = name.trim().split(/\s+/).filter(Boolean);
+  if (parts.length === 0) return '';
+  if (parts.length === 1) return parts[0].slice(0, 2).toUpperCase();
+  return (parts[0][0] + parts[parts.length - 1][0]).toUpperCase();
+}
+
+export const StudentAvatar: React.FC<{
+  avatarUrl?: string;
+  name: string;
+  studentId: string;
+}> = ({ avatarUrl, name, studentId }) => {
+  const [imageError, setImageError] = useState(false);
+  const initials = getInitials(name);
+  const colorClass = getAvatarColor(studentId || name);
+
+  if (avatarUrl && !imageError) {
+    return (
+      <img
+        src={avatarUrl}
+        alt={name}
+        data-testid={`student-avatar-${studentId}`}
+        onError={() => setImageError(true)}
+        className="w-5 h-5 rounded-full shrink-0 border border-gray-700 object-cover"
+        referrerPolicy="no-referrer"
+      />
+    );
+  }
+
+  if (initials) {
+    return (
+      <div
+        data-testid={`student-avatar-${studentId}`}
+        className={`w-5 h-5 rounded-full flex items-center justify-center shrink-0 text-[9px] font-semibold select-none border border-gray-700/60 ${colorClass}`}
+        title={name}
+      >
+        {initials}
+      </div>
+    );
+  }
+
+  return (
+    <div
+      data-testid={`student-avatar-${studentId}`}
+      className="w-5 h-5 rounded-full bg-gray-700 flex items-center justify-center shrink-0 text-gray-300"
+    >
+      <User className="w-3 h-3" />
+    </div>
+  );
+};
 
 export const StudentRosterZone: React.FC<StudentRosterZoneProps> = ({
   assignment,
@@ -64,6 +137,14 @@ export const StudentRosterZone: React.FC<StudentRosterZoneProps> = ({
     }
   });
 
+  const classroomUrl =
+    assignment.alternateLink ||
+    (assignment.courseId && assignment.courseWorkId
+      ? `https://classroom.google.com/c/${assignment.courseId}/a/${assignment.courseWorkId}`
+      : assignment.courseId
+        ? `https://classroom.google.com/c/${assignment.courseId}`
+        : 'https://classroom.google.com');
+
   return (
     <div className="w-[22%] h-full flex flex-col border-r border-[#30363d] bg-[#161b22] text-xs select-none">
       {/* Assignment Header Summary */}
@@ -72,20 +153,40 @@ export const StudentRosterZone: React.FC<StudentRosterZoneProps> = ({
           <span className="text-[10px] font-semibold uppercase tracking-wider text-purple-400 truncate max-w-[70%]">
             {assignment.courseName}
           </span>
-          <button
-            data-testid="sync-classroom-button"
-            onClick={onSyncClassroom}
-            disabled={isSyncing}
-            title="Refresh from Classroom"
-            className="p-1 rounded text-gray-400 hover:text-white hover:bg-[#21262d] transition-colors disabled:opacity-50"
-          >
-            <RefreshCw className={`w-3.5 h-3.5 ${isSyncing ? 'animate-spin text-blue-400' : ''}`} />
-          </button>
+          <div className="flex items-center space-x-1">
+            <a
+              href={classroomUrl}
+              target="_blank"
+              rel="noopener noreferrer"
+              data-testid="open-classroom-link"
+              title="Open in Google Classroom"
+              className="p-1 rounded text-gray-400 hover:text-white hover:bg-[#21262d] transition-colors"
+            >
+              <ExternalLink className="w-3.5 h-3.5" />
+            </a>
+            <button
+              data-testid="sync-classroom-button"
+              onClick={onSyncClassroom}
+              disabled={isSyncing}
+              title="Refresh from Classroom"
+              className="p-1 rounded text-gray-400 hover:text-white hover:bg-[#21262d] transition-colors disabled:opacity-50"
+            >
+              <RefreshCw className={`w-3.5 h-3.5 ${isSyncing ? 'animate-spin text-blue-400' : ''}`} />
+            </button>
+          </div>
         </div>
 
         <div className="flex items-baseline justify-between">
           <h2 className="text-sm font-bold text-gray-100 truncate mr-2" title={assignment.title}>
-            {assignment.title}
+            <a
+              href={classroomUrl}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="hover:underline hover:text-purple-300 transition-colors"
+              title={`Open "${assignment.title}" in Google Classroom`}
+            >
+              {assignment.title}
+            </a>
           </h2>
           <span className="text-gray-400 font-mono text-[11px] shrink-0">
             {assignment.maxPoints} pts
@@ -163,7 +264,10 @@ export const StudentRosterZone: React.FC<StudentRosterZoneProps> = ({
               <div
                 key={sub.studentId}
                 data-testid={`student-row-${sub.studentId}`}
-                onClick={() => onSelectStudent(sub.studentId)}
+                onClick={() => {
+                  onSelectStudent(sub.studentId);
+                  onToggleCheckStudent(sub.studentId);
+                }}
                 className={`p-2.5 flex flex-col space-y-1.5 cursor-pointer transition-colors ${
                   isSelected
                     ? 'bg-[#1f242c] border-l-2 border-purple-500'
@@ -176,22 +280,19 @@ export const StudentRosterZone: React.FC<StudentRosterZoneProps> = ({
                     type="checkbox"
                     data-testid={`student-checkbox-${sub.studentId}`}
                     checked={isChecked}
-                    onClick={(e) => e.stopPropagation()}
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      onSelectStudent(sub.studentId);
+                    }}
                     onChange={() => onToggleCheckStudent(sub.studentId)}
                     className="w-3.5 h-3.5 rounded border-[#30363d] bg-[#0d1117] text-purple-600 focus:ring-0 cursor-pointer shrink-0"
                   />
 
-                  {sub.studentAvatarUrl ? (
-                    <img
-                      src={sub.studentAvatarUrl}
-                      alt={sub.studentName}
-                      className="w-5 h-5 rounded-full shrink-0 border border-gray-700"
-                    />
-                  ) : (
-                    <div className="w-5 h-5 rounded-full bg-gray-700 flex items-center justify-center shrink-0 text-gray-300">
-                      <User className="w-3 h-3" />
-                    </div>
-                  )}
+                  <StudentAvatar
+                    avatarUrl={sub.studentAvatarUrl}
+                    name={sub.studentName}
+                    studentId={sub.studentId}
+                  />
 
                   <div className="font-medium text-gray-200 truncate flex items-center space-x-1 min-w-0">
                     <span className="truncate">{sub.studentName}</span>

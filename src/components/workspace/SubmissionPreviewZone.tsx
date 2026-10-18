@@ -414,11 +414,14 @@ function renderAttachmentContent(
     case 'GOOGLE_SLIDES':
     case 'GOOGLE_SHEETS':
       if (resolvedPreviewUrl) {
+        const pdfSrc = resolvedPreviewUrl.includes('#')
+          ? resolvedPreviewUrl
+          : `${resolvedPreviewUrl}#toolbar=0&navpanes=0`;
         return (
           <div className="h-full w-full flex flex-col">
             <iframe
               data-testid="preview-pdf-frame"
-              src={resolvedPreviewUrl}
+              src={pdfSrc}
               title={att.title}
               className="w-full flex-1 rounded border border-[#30363d] bg-white"
             />

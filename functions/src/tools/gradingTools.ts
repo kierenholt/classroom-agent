@@ -80,14 +80,14 @@ export const gradingToolDeclarations = [
   {
     name: 'evaluate_and_grade_submission',
     description:
-      'Grades an individual student submission according to the rubric. Writes the grade directly to Google Classroom API and saves the rubric breakdown to the Firestore sidecar. Explains comprehensive critique and rationale directly in the co-pilot chat for the teacher. Call once per student.',
+      'Grades an individual student submission. Writes the grade directly to Google Classroom API and saves the evaluation breakdown to the Firestore sidecar. Explains comprehensive critique and rationale directly in the co-pilot chat for the teacher. Call once per student.',
     parameters: {
       type: 'object',
       properties: {
         studentId: { type: 'string', description: 'Unique identifier of the student being graded' },
         rubricScores: {
           type: 'array',
-          description: 'Breakdown of scores and comments for each criterion in the rubric',
+          description: 'Breakdown of scores and comments for each criterion in the rubric (pass empty array [] if rubric evaluation is disabled)',
           items: {
             type: 'object',
             properties: {
@@ -101,7 +101,7 @@ export const gradingToolDeclarations = [
         draftGrade: { type: 'number', description: 'Total grade out of assignment maxPoints to assign to the student' },
         overallFeedback: { type: 'string', description: 'Comprehensive constructive feedback for the teacher to review in chat' },
       },
-      required: ['studentId', 'rubricScores', 'draftGrade', 'overallFeedback'],
+      required: ['studentId', 'draftGrade', 'overallFeedback'],
     },
   },
   {

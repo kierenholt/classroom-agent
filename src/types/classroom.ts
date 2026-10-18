@@ -31,6 +31,7 @@ export interface AssignmentDoc {
   dueDate?: string;
   state: 'PUBLISHED' | 'DRAFT';
   apiWriteBackEligible: boolean;
+  alternateLink?: string;
   rubric?: AssignmentRubric;
   submissionStats: SubmissionStats;
   createdAt: string;

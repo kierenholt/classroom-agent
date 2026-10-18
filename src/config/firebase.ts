@@ -23,6 +23,7 @@ export const googleAuthProvider = new GoogleAuthProvider();
 googleAuthProvider.addScope('https://www.googleapis.com/auth/classroom.courses.readonly');
 googleAuthProvider.addScope('https://www.googleapis.com/auth/classroom.coursework.students');
 googleAuthProvider.addScope('https://www.googleapis.com/auth/classroom.rosters.readonly');
+googleAuthProvider.addScope('https://www.googleapis.com/auth/classroom.profile.photos');
 googleAuthProvider.addScope('https://www.googleapis.com/auth/classroom.student-submissions.students.readonly');
 googleAuthProvider.addScope('https://www.googleapis.com/auth/drive.readonly');
 googleAuthProvider.addScope('https://www.googleapis.com/auth/drive.file');

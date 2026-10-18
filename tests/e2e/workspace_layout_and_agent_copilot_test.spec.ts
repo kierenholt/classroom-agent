@@ -386,8 +386,9 @@ test.describe('Classroom Agent - Workspace and Agent Co-Pilot Tests', () => {
     const extractedTextBtn = page.locator('[data-testid="toggle-extracted-text-button"]');
     await expect(extractedTextBtn).toBeHidden();
 
-    // Open Settings modal via gear icon in TopTabBar, enable Extracted Text toggle, and verify button appears
-    await page.locator('[data-testid="open-settings-button"]').click();
+    // Open Settings modal via User Account menu, enable Extracted Text toggle, and verify button appears
+    await page.locator('[data-testid="user-account-button"]').click();
+    await page.locator('[data-testid="user-menu-settings-button"]').click();
     const settingsModal = page.locator('[data-testid="settings-modal"]');
     await expect(settingsModal).toBeVisible();
     const settingSwitch = page.locator('[data-testid="toggle-extracted-text-setting"]');
@@ -400,7 +401,8 @@ test.describe('Classroom Agent - Workspace and Agent Co-Pilot Tests', () => {
     await expect(extractedTextBtn).toBeVisible({ timeout: 15000 });
 
     // Turn setting back off and verify button is hidden again
-    await page.locator('[data-testid="open-settings-button"]').click();
+    await page.locator('[data-testid="user-account-button"]').click();
+    await page.locator('[data-testid="user-menu-settings-button"]').click();
     await expect(settingsModal).toBeVisible();
     await settingSwitch.click();
     await expect(settingSwitch).toHaveAttribute('aria-checked', 'false');
@@ -412,7 +414,8 @@ test.describe('Classroom Agent - Workspace and Agent Co-Pilot Tests', () => {
     await expect(rubricBreakdownList).toBeVisible();
 
     // Open Settings modal, verify rubric pane setting defaults to true, toggle it off, and verify rubric pane hides
-    await page.locator('[data-testid="open-settings-button"]').click();
+    await page.locator('[data-testid="user-account-button"]').click();
+    await page.locator('[data-testid="user-menu-settings-button"]').click();
     await expect(settingsModal).toBeVisible();
     const rubricSettingSwitch = page.locator('[data-testid="toggle-rubric-pane-setting"]');
     await expect(rubricSettingSwitch).toHaveAttribute('aria-checked', 'true');
@@ -424,7 +427,8 @@ test.describe('Classroom Agent - Workspace and Agent Co-Pilot Tests', () => {
     await expect(rubricBreakdownList).toBeHidden();
 
     // Re-open Settings modal, toggle rubric pane setting back on, and verify rubric pane appears again
-    await page.locator('[data-testid="open-settings-button"]').click();
+    await page.locator('[data-testid="user-account-button"]').click();
+    await page.locator('[data-testid="user-menu-settings-button"]').click();
     await expect(settingsModal).toBeVisible();
     await rubricSettingSwitch.click();
     await expect(rubricSettingSwitch).toHaveAttribute('aria-checked', 'true');
@@ -484,6 +488,368 @@ test.describe('Classroom Agent - Workspace and Agent Co-Pilot Tests', () => {
     // Click outside to dismiss popup
     await page.locator('[data-testid="assignment-tab-bar"]').click({ position: { x: 50, y: 10 } });
     await expect(userMenu).toBeHidden();
+  });
+
+  test('clickStudentListItem_anywhereOnRow_togglesCheckboxAndSelectsStudent_test', async ({ page }) => {
+    let googleToken = '';
+    let customToken = '';
+    try {
+      const { getLiveTeacherAccessToken, getLiveTestTeacherCustomToken } = await import('../helpers/classroomSandboxSeeder');
+      [googleToken, customToken] = await Promise.all([
+        getLiveTeacherAccessToken(),
+        getLiveTestTeacherCustomToken(),
+      ]);
+    } catch {
+      googleToken = '';
+      customToken = '';
+    }
+
+    await page.addInitScript(
+      ({ gToken, cToken }) => {
+        if (gToken) {
+          window.sessionStorage.setItem('classroom_agent_google_access_token', gToken);
+        }
+        if (cToken) {
+          window.sessionStorage.setItem('classroom_agent_custom_token', cToken);
+        }
+      },
+      { gToken: googleToken, cToken: customToken }
+    );
+
+    await page.goto('/');
+
+    const newAssignmentTabBtn = page.locator('[data-testid="new-assignment-tab-button"]');
+    await expect(newAssignmentTabBtn).toBeVisible({ timeout: 15000 });
+    await newAssignmentTabBtn.click();
+    await expect(page.locator('[data-testid="assignment-picker-modal"]')).toBeVisible({ timeout: 15000 });
+
+    const courseButtons = page.locator('[data-testid^="course-select-"]');
+    await expect(courseButtons.first()).toBeVisible({ timeout: 15000 });
+    const courseCount = await courseButtons.count();
+    let opened = false;
+    for (let i = 0; i < courseCount; i++) {
+      await courseButtons.nth(i).click();
+      await expect(page.locator('[data-testid="assignment-picker-section"]')).toBeVisible({ timeout: 5000 });
+      const assignmentCard = page.locator('[data-testid^="assignment-card-"]').first();
+      try {
+        await expect(assignmentCard).toBeVisible({ timeout: 5000 });
+        await assignmentCard.click();
+        const okBtn = page.locator('[data-testid="assignment-picker-ok-button"]');
+        await expect(okBtn).toBeEnabled();
+        await okBtn.click();
+        opened = true;
+        break;
+      } catch {
+        // Continue to check next course
+      }
+    }
+    expect(opened).toBe(true);
+    await expect(page.locator('[data-testid="assignment-picker-modal"]')).toBeHidden();
+
+    // Wait for the workspace roster to load
+    await expect(page.locator('[data-testid="student-roster-list"]')).toBeVisible({ timeout: 15000 });
+
+    const firstStudentRow = page.locator('[data-testid^="student-row-"]').first();
+    await expect(firstStudentRow).toBeVisible({ timeout: 10000 });
+    const studentCheckbox = firstStudentRow.locator('input[type="checkbox"]');
+
+    // Initially, the student checkbox is unchecked
+    await expect(studentCheckbox).not.toBeChecked();
+
+    // 1. Click anywhere on the student row (e.g. on the row container) -> toggles checkbox to checked
+    await firstStudentRow.click();
+    await expect(studentCheckbox).toBeChecked();
+    await expect(page.locator('[data-testid="save-draft-grade-button"]')).toBeVisible();
+
+    // 2. Click the row again -> toggles checkbox to unchecked
+    await firstStudentRow.click();
+    await expect(studentCheckbox).not.toBeChecked();
+    await expect(page.locator('[data-testid="save-draft-grade-button"]')).toBeHidden();
+
+    // 3. Click directly on the checkbox -> toggles checkbox to checked
+    await studentCheckbox.click();
+    await expect(studentCheckbox).toBeChecked();
+    await expect(page.locator('[data-testid="save-draft-grade-button"]')).toBeVisible();
+
+    // 4. Click directly on the checkbox again -> toggles checkbox to unchecked
+    await studentCheckbox.click();
+    await expect(studentCheckbox).not.toBeChecked();
+    await expect(page.locator('[data-testid="save-draft-grade-button"]')).toBeHidden();
+  });
+
+  test('openClassroomLink_workspaceMounted_rendersGoogleClassroomLinksWithValidUrl_test', async ({ page }) => {
+    let googleToken = '';
+    let customToken = '';
+    try {
+      const { getLiveTeacherAccessToken, getLiveTestTeacherCustomToken } = await import('../helpers/classroomSandboxSeeder');
+      [googleToken, customToken] = await Promise.all([
+        getLiveTeacherAccessToken(),
+        getLiveTestTeacherCustomToken(),
+      ]);
+    } catch {
+      googleToken = '';
+      customToken = '';
+    }
+
+    await page.addInitScript(
+      ({ gToken, cToken }) => {
+        if (gToken) {
+          window.sessionStorage.setItem('classroom_agent_google_access_token', gToken);
+        }
+        if (cToken) {
+          window.sessionStorage.setItem('classroom_agent_custom_token', cToken);
+        }
+      },
+      { gToken: googleToken, cToken: customToken }
+    );
+
+    await page.goto('/');
+
+    const newAssignmentTabBtn = page.locator('[data-testid="new-assignment-tab-button"]');
+    await expect(newAssignmentTabBtn).toBeVisible({ timeout: 15000 });
+    await newAssignmentTabBtn.click();
+    await expect(page.locator('[data-testid="assignment-picker-modal"]')).toBeVisible({ timeout: 15000 });
+
+    const courseButtons = page.locator('[data-testid^="course-select-"]');
+    await expect(courseButtons.first()).toBeVisible({ timeout: 15000 });
+    const courseCount = await courseButtons.count();
+    let opened = false;
+    for (let i = 0; i < courseCount; i++) {
+      await courseButtons.nth(i).click();
+      await expect(page.locator('[data-testid="assignment-picker-section"]')).toBeVisible({ timeout: 5000 });
+      const assignmentCard = page.locator('[data-testid^="assignment-card-"]').first();
+      try {
+        await expect(assignmentCard).toBeVisible({ timeout: 5000 });
+        await assignmentCard.click();
+        const okBtn = page.locator('[data-testid="assignment-picker-ok-button"]');
+        await expect(okBtn).toBeEnabled();
+        await okBtn.click();
+        opened = true;
+        break;
+      } catch {
+        // Continue to check next course
+      }
+    }
+    expect(opened).toBe(true);
+    await expect(page.locator('[data-testid="assignment-picker-modal"]')).toBeHidden();
+
+    // Wait for the workspace roster to load
+    await expect(page.locator('[data-testid="student-roster-list"]')).toBeVisible({ timeout: 15000 });
+
+    // Verify Google Classroom link button
+    const classroomLink = page.locator('[data-testid="open-classroom-link"]');
+    await expect(classroomLink).toBeVisible();
+    await expect(classroomLink).toHaveAttribute('target', '_blank');
+    await expect(classroomLink).toHaveAttribute('rel', 'noopener noreferrer');
+    const href = await classroomLink.getAttribute('href');
+    expect(href).toMatch(/classroom\.google\.com/);
+  });
+
+  test('studentAvatar_studentWithInitialsAndAvatarUrl_rendersGoogleAvatarWithInitialsFallback_test', async ({ page }) => {
+    let googleToken = '';
+    let customToken = '';
+    try {
+      const { getLiveTeacherAccessToken, getLiveTestTeacherCustomToken } = await import('../helpers/classroomSandboxSeeder');
+      [googleToken, customToken] = await Promise.all([
+        getLiveTeacherAccessToken(),
+        getLiveTestTeacherCustomToken(),
+      ]);
+    } catch {
+      googleToken = '';
+      customToken = '';
+    }
+
+    await page.addInitScript(
+      ({ gToken, cToken }) => {
+        if (gToken) {
+          window.sessionStorage.setItem('classroom_agent_google_access_token', gToken);
+        }
+        if (cToken) {
+          window.sessionStorage.setItem('classroom_agent_custom_token', cToken);
+        }
+      },
+      { gToken: googleToken, cToken: customToken }
+    );
+
+    await page.goto('/');
+
+    const newAssignmentTabBtn = page.locator('[data-testid="new-assignment-tab-button"]');
+    await expect(newAssignmentTabBtn).toBeVisible({ timeout: 15000 });
+    await newAssignmentTabBtn.click();
+    await expect(page.locator('[data-testid="assignment-picker-modal"]')).toBeVisible({ timeout: 15000 });
+
+    const courseButtons = page.locator('[data-testid^="course-select-"]');
+    await expect(courseButtons.first()).toBeVisible({ timeout: 15000 });
+    const courseCount = await courseButtons.count();
+    let opened = false;
+    for (let i = 0; i < courseCount; i++) {
+      await courseButtons.nth(i).click();
+      await expect(page.locator('[data-testid="assignment-picker-section"]')).toBeVisible({ timeout: 5000 });
+      const assignmentCard = page.locator('[data-testid^="assignment-card-"]').first();
+      try {
+        await expect(assignmentCard).toBeVisible({ timeout: 5000 });
+        await assignmentCard.click();
+        const okBtn = page.locator('[data-testid="assignment-picker-ok-button"]');
+        await expect(okBtn).toBeEnabled();
+        await okBtn.click();
+        opened = true;
+        break;
+      } catch {
+        // Continue to check next course
+      }
+    }
+    expect(opened).toBe(true);
+    await expect(page.locator('[data-testid="assignment-picker-modal"]')).toBeHidden();
+
+    // Wait for the workspace roster to load
+    await expect(page.locator('[data-testid="student-roster-list"]')).toBeVisible({ timeout: 15000 });
+
+    const firstStudentRow = page.locator('[data-testid^="student-row-"]').first();
+    await expect(firstStudentRow).toBeVisible({ timeout: 10000 });
+
+    // Locate the student avatar element
+    const avatar = firstStudentRow.locator('[data-testid^="student-avatar-"]');
+    await expect(avatar).toBeVisible();
+
+    // Verify it is either an <img> tag with a Google avatar or a <div> with uppercase initials / fallback icon
+    const tagName = await avatar.evaluate((el) => el.tagName.toLowerCase());
+    if (tagName === 'img') {
+      const src = await avatar.getAttribute('src');
+      expect(src).toBeTruthy();
+      expect(src).toMatch(/^https?:\/\//);
+    } else {
+      expect(tagName).toBe('div');
+      const text = await avatar.textContent();
+      if (text && text.trim().length > 0) {
+        expect(text.trim()).toMatch(/^[A-Z]{1,2}$/);
+      } else {
+        await expect(avatar.locator('svg')).toBeVisible();
+      }
+    }
+  });
+
+  test('configureFeedbackOptions_settingsModalOpened_updatesAndPersistsFeedbackPreferences_test', async ({
+    page,
+  }) => {
+    let googleToken = '';
+    let customToken = '';
+    try {
+      const { getLiveTeacherAccessToken, getLiveTestTeacherCustomToken } = await import(
+        '../helpers/classroomSandboxSeeder'
+      );
+      [googleToken, customToken] = await Promise.all([
+        getLiveTeacherAccessToken(),
+        getLiveTestTeacherCustomToken(),
+      ]);
+    } catch {
+      googleToken = '';
+      customToken = '';
+    }
+
+    await page.addInitScript(
+      ({ gToken, cToken }) => {
+        if (gToken) {
+          window.sessionStorage.setItem('classroom_agent_google_access_token', gToken);
+        }
+        if (cToken) {
+          window.sessionStorage.setItem('classroom_agent_custom_token', cToken);
+        }
+      },
+      { gToken: googleToken, cToken: customToken }
+    );
+
+    await page.goto('/');
+
+    // Open Settings Modal from TopTabBar user menu
+    const userAccountBtn = page.locator('[data-testid="user-account-button"]');
+    await expect(userAccountBtn).toBeVisible({ timeout: 15000 });
+    await userAccountBtn.click();
+    const userMenuSettingsBtn = page.locator('[data-testid="user-menu-settings-button"]');
+    await expect(userMenuSettingsBtn).toBeVisible();
+    await userMenuSettingsBtn.click();
+
+    const settingsModal = page.locator('[data-testid="settings-modal"]');
+    await expect(settingsModal).toBeVisible();
+    await expect(page.locator('[data-testid="feedback-options-section"]')).toBeVisible();
+
+    const toneSelect = page.locator('[data-testid="feedback-tone-select"]');
+    const detailSelect = page.locator('[data-testid="feedback-detail-level-select"]');
+    const useRubricSwitch = page.locator('[data-testid="toggle-use-rubric-feedback-setting"]');
+    const nextStepsSwitch = page.locator('[data-testid="toggle-provide-next-steps-setting"]');
+    const showScoresSwitch = page.locator('[data-testid="toggle-show-scores-setting"]');
+    const customInstructionsInput = page.locator('[data-testid="custom-agent-instructions-input"]');
+
+    // Verify default values
+    await expect(toneSelect).toHaveValue('encouraging');
+    await expect(detailSelect).toHaveValue('standard');
+    await expect(useRubricSwitch).toHaveAttribute('aria-checked', 'true');
+    await expect(nextStepsSwitch).toHaveAttribute('aria-checked', 'true');
+    await expect(showScoresSwitch).toHaveAttribute('aria-checked', 'true');
+    await expect(customInstructionsInput).toHaveValue('');
+
+    // Update each feedback option
+    await toneSelect.selectOption('formal');
+    await expect(toneSelect).toHaveValue('formal');
+
+    await detailSelect.selectOption('comprehensive');
+    await expect(detailSelect).toHaveValue('comprehensive');
+
+    await useRubricSwitch.click();
+    await expect(useRubricSwitch).toHaveAttribute('aria-checked', 'false');
+
+    await nextStepsSwitch.click();
+    await expect(nextStepsSwitch).toHaveAttribute('aria-checked', 'false');
+
+    await showScoresSwitch.click();
+    await expect(showScoresSwitch).toHaveAttribute('aria-checked', 'false');
+
+    const customInstructionText = 'Deduct 5 points for missing docstrings and write in British English.';
+    await customInstructionsInput.fill(customInstructionText);
+    await expect(customInstructionsInput).toHaveValue(customInstructionText);
+
+    // Verify localStorage persistence
+    const storedPrefs = await page.evaluate(() => ({
+      tone: window.localStorage.getItem('classroom_agent_feedback_tone'),
+      detail: window.localStorage.getItem('classroom_agent_feedback_detail_level'),
+      useRubric: window.localStorage.getItem('classroom_agent_feedback_use_rubric'),
+      nextSteps: window.localStorage.getItem('classroom_agent_feedback_provide_next_steps'),
+      showScores: window.localStorage.getItem('classroom_agent_feedback_show_scores'),
+      customInstructions: window.localStorage.getItem('classroom_agent_custom_agent_instructions'),
+    }));
+
+    expect(storedPrefs).toEqual({
+      tone: 'formal',
+      detail: 'comprehensive',
+      useRubric: 'false',
+      nextSteps: 'false',
+      showScores: 'false',
+      customInstructions: customInstructionText,
+    });
+
+    // Close modal and re-open to verify state persists
+    await page.locator('[data-testid="done-settings-button"]').click();
+    await expect(settingsModal).toBeHidden();
+
+    await userAccountBtn.click();
+    await expect(userMenuSettingsBtn).toBeVisible();
+    await userMenuSettingsBtn.click();
+    await expect(settingsModal).toBeVisible();
+    await expect(toneSelect).toHaveValue('formal');
+    await expect(detailSelect).toHaveValue('comprehensive');
+    await expect(useRubricSwitch).toHaveAttribute('aria-checked', 'false');
+    await expect(nextStepsSwitch).toHaveAttribute('aria-checked', 'false');
+    await expect(showScoresSwitch).toHaveAttribute('aria-checked', 'false');
+    await expect(customInstructionsInput).toHaveValue(customInstructionText);
+
+    // Clean up localStorage back to defaults
+    await page.evaluate(() => {
+      window.localStorage.removeItem('classroom_agent_feedback_tone');
+      window.localStorage.removeItem('classroom_agent_feedback_detail_level');
+      window.localStorage.removeItem('classroom_agent_feedback_use_rubric');
+      window.localStorage.removeItem('classroom_agent_feedback_provide_next_steps');
+      window.localStorage.removeItem('classroom_agent_feedback_show_scores');
+      window.localStorage.removeItem('classroom_agent_custom_agent_instructions');
+    });
   });
 });
 

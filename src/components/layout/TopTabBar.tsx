@@ -131,20 +131,8 @@ export const TopTabBar: React.FC<TopTabBarProps> = ({
         </div>
       </div>
 
-      {/* Right: Settings, Authenticated User Info & Dropdown Menu */}
+      {/* Right: Authenticated User Info & Dropdown Menu */}
       <div className="flex items-center space-x-2 shrink-0 text-xs" ref={menuRef}>
-        {onOpenSettings && (
-          <button
-            type="button"
-            data-testid="open-settings-button"
-            onClick={onOpenSettings}
-            className="p-1.5 rounded text-gray-400 hover:text-gray-200 hover:bg-[#21262d] transition-colors cursor-pointer"
-            title="Workspace Settings"
-          >
-            <Settings className="w-3.5 h-3.5" />
-          </button>
-        )}
-
         {user && (
           <div className="relative">
             <button

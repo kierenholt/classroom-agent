@@ -7,6 +7,7 @@ import { MarkdownRenderer } from './MarkdownRenderer';
 import { sendChatMessage } from './api';
 import { PersistedChatMessage, ToolCallItem } from '../../types/classroom';
 import { useAuth } from '../../context/AuthContext';
+import { useSettings } from '../../context/SettingsContext';
 import { env } from '../../config/env';
 
 interface ChatPanelProps {
@@ -28,6 +29,7 @@ export const ChatPanel: React.FC<ChatPanelProps> = ({
   ],
 }) => {
   const { getAuthHeaders } = useAuth();
+  const { feedbackSettings } = useSettings();
   const [persistedMessages, setPersistedMessages] = useState<PersistedChatMessage[]>([]);
   const [messages, setMessages] = useState<PersistedChatMessage[]>([]);
   const [inputText, setInputText] = useState('');
@@ -162,6 +164,7 @@ export const ChatPanel: React.FC<ChatPanelProps> = ({
         message: prompt,
         contextId: selectedStudentId || undefined,
         fileAttachment: filePayload,
+        feedbackSettings,
         authHeaders,
         callbacks: {
           onToolCallStart: (tool) => {
