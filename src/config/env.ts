@@ -13,7 +13,9 @@ function requireEnv(key: string, value: string | undefined): string {
 
 export const env = {
   PORT: Number(requireEnv('VITE_PORT', import.meta.env.VITE_PORT)),
-  API_BASE_URL: requireEnv('VITE_API_BASE_URL', import.meta.env.VITE_API_BASE_URL),
+  API_BASE_URL: requireEnv('VITE_API_BASE_URL', import.meta.env.VITE_API_BASE_URL)
+    .replace(/\/+$/, '')
+    .replace(/\/api\/api$/, '/api'),
   
   FIREBASE_API_KEY: requireEnv('VITE_FIREBASE_API_KEY', import.meta.env.VITE_FIREBASE_API_KEY),
   FIREBASE_AUTH_DOMAIN: requireEnv('VITE_FIREBASE_AUTH_DOMAIN', import.meta.env.VITE_FIREBASE_AUTH_DOMAIN),

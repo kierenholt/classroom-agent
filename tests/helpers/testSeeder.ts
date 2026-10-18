@@ -131,6 +131,27 @@ export async function cleanupTestAssignment(assignmentId: string, studentIds: st
     }
   }
 
+  // Also clean up any persisted chat messages in assignments/{assignmentId}/messages
+  try {
+    const msgsRes = await fetch(`${BASE_URL}/assignments/${assignmentId}/messages`, {
+      headers: EMULATOR_ADMIN_HEADERS,
+    });
+    if (msgsRes.ok) {
+      const msgsData = await msgsRes.json();
+      const docs: any[] = msgsData.documents || [];
+      await Promise.all(
+        docs.map((doc) =>
+          fetch(`http://${FIRESTORE_EMULATOR_HOST}:${FIRESTORE_EMULATOR_PORT}/v1/${doc.name}`, {
+            method: 'DELETE',
+            headers: EMULATOR_ADMIN_HEADERS,
+          }).catch(() => {})
+        )
+      );
+    }
+  } catch {
+    // ignore
+  }
+
   try {
     await fetch(`${BASE_URL}/assignments/${assignmentId}`, {
       method: 'DELETE',

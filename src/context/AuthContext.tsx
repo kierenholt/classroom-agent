@@ -1,4 +1,4 @@
-import React, { createContext, useContext, useEffect, useState } from 'react';
+import React, { createContext, useCallback, useContext, useEffect, useState } from 'react';
 import {
   User,
   onAuthStateChanged,
@@ -89,7 +89,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     await signOut(auth);
   };
 
-  const getAuthHeaders = async (): Promise<{ Authorization: string; 'X-Google-Access-Token': string }> => {
+  const getAuthHeaders = useCallback(async (): Promise<{ Authorization: string; 'X-Google-Access-Token': string }> => {
     const activeUser = user || auth.currentUser;
     if (!activeUser) {
       throw new Error('[Auth Failure] Unauthenticated request: Teacher user is not signed in.');
@@ -103,7 +103,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       Authorization: `Bearer ${idToken}`,
       'X-Google-Access-Token': gToken,
     };
-  };
+  }, [user, googleAccessToken]);
 
   return (
     <AuthContext.Provider

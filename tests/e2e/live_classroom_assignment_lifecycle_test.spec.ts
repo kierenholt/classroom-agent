@@ -1,4 +1,5 @@
-import { test, expect, Page } from '@playwright/test';
+import { test, expect } from '../helpers/logHelper';
+import { type Page } from '@playwright/test';
 import {
   setupLiveClassroomBatchFixture,
   teardownLiveClassroomBatchFixture,
@@ -14,6 +15,13 @@ test.setTimeout(120000);
  * navigate to '/', select the test course, and open the batch assignment in the 70/30 workspace.
  */
 async function openBatchAssignmentInWorkspace(page: Page, fixture: LiveBatchFixture) {
+  page.on('response', async (res) => {
+    if (res.url().includes(':5001') && res.status() >= 400) {
+      const body = await res.text().catch(() => '');
+      console.log(`[Browser 5001 Error Response] ${res.status()} ${res.url()} -> ${body}`);
+    }
+  });
+
   await page.addInitScript((token) => {
     window.sessionStorage.setItem('classroom_agent_google_access_token', token);
     window.sessionStorage.setItem(
@@ -168,8 +176,9 @@ test.describe('Classroom Agent MVP — 7 Core User Stories (Live Classroom Batch
     await chatSendBtn.click();
 
     // Assert ToolCallBadge appears in 30% Agent Pane for set_assignment_rubric
-    const chatWindow = page.locator('[data-testid="chat-window"]');
-    await expect(chatWindow).toContainText('set_assignment_rubric', { timeout: 60000 });
+    await expect(
+      page.locator('[data-testid="tool-call-badge"]', { hasText: 'Tool: set_assignment_rubric' })
+    ).toBeVisible({ timeout: 60000 });
 
     // Assert Zone C automatically updates via Firestore Sidecar onSnapshot to render the rubric criteria
     const rubricList = page.locator('[data-testid="rubric-breakdown-list"]');
@@ -212,12 +221,13 @@ test.describe('Classroom Agent MVP — 7 Core User Stories (Live Classroom Batch
     await chatSendBtn.click();
 
     // Verify tool call badge for evaluate_and_grade_submission appears in the 30% pane
-    const chatWindow = page.locator('[data-testid="chat-window"]');
-    await expect(chatWindow).toContainText('evaluate_and_grade_submission', { timeout: 90000 });
+    await expect(
+      page.locator('[data-testid="tool-call-badge"]', { hasText: 'Tool: evaluate_and_grade_submission' })
+    ).toBeVisible({ timeout: 90000 });
 
     // Verify Zone C updates in real time with draft grade, synced status, and Agent comment
     await expect(page.locator('[data-testid="classroom-sync-status"]')).toContainText('Draft Saved', {
-      timeout: 90000,
+      timeout: 30000,
     });
     const totalGradeInput = page.locator('[data-testid="total-grade-input"]');
     await expect(totalGradeInput).not.toHaveValue('', { timeout: 30000 });

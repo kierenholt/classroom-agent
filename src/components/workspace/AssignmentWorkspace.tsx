@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo, useCallback } from 'react';
+import React, { useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import { doc, collection, onSnapshot } from 'firebase/firestore';
 import { db } from '../../config/firebase';
 import {
@@ -51,6 +51,9 @@ export const AssignmentWorkspace: React.FC<AssignmentWorkspaceProps> = ({
   const [isSaving, setIsSaving] = useState(false);
   const [isReturning, setIsReturning] = useState(false);
 
+  const onAssignmentLoadedRef = useRef(onAssignmentLoaded);
+  onAssignmentLoadedRef.current = onAssignmentLoaded;
+
   // 1. Fetch Live Assignment + Roster + Submissions directly from Google Classroom API
   const fetchLiveWorkspace = useCallback(
     async (isBackgroundRefresh = false) => {
@@ -75,8 +78,8 @@ export const AssignmentWorkspace: React.FC<AssignmentWorkspaceProps> = ({
         setLiveAssignment(data.assignment);
         setLiveSubmissions(data.submissions || []);
 
-        if (data.assignment && onAssignmentLoaded) {
-          onAssignmentLoaded({
+        if (data.assignment && onAssignmentLoadedRef.current) {
+          onAssignmentLoadedRef.current({
             courseName: data.assignment.courseName,
             assignmentTitle: data.assignment.title,
           });
@@ -88,7 +91,7 @@ export const AssignmentWorkspace: React.FC<AssignmentWorkspaceProps> = ({
         setLoading(false);
       }
     },
-    [assignmentId, getAuthHeaders, onAssignmentLoaded]
+    [assignmentId, getAuthHeaders]
   );
 
   useEffect(() => {

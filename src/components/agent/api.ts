@@ -26,7 +26,7 @@ export async function sendChatMessage(options: ChatRequestOptions): Promise<void
     throw new Error('[Auth Failure] Cannot send chat message without valid Authorization and Google Access tokens.');
   }
 
-  const response = await fetch(`${apiBaseUrl}/api/chat`, {
+  const response = await fetch(`${apiBaseUrl}/chat`, {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',

@@ -1,7 +1,29 @@
+import { Readable } from 'stream';
+import { google } from 'googleapis';
 import * as dotenv from 'dotenv';
 import * as path from 'path';
 
 dotenv.config({ path: path.resolve(process.cwd(), '.env.local') });
+
+// Provide Node 20's built-in fetch to gaxios (gaxios 6.x only checks window.fetch and otherwise falls back to node-fetch 2.7.0)
+const node20FetchImplementation = (input: any, init?: any) =>
+  globalThis.fetch(input, {
+    ...init,
+    ...(init?.body ? { duplex: 'half' } : {}),
+  } as RequestInit);
+
+google.options({
+  fetchImplementation: node20FetchImplementation as any,
+});
+
+function createConfiguredOAuth2Client() {
+  const oauth2Client = new google.auth.OAuth2(clientId, clientSecret);
+  oauth2Client.transporter.defaults = {
+    ...oauth2Client.transporter.defaults,
+    fetchImplementation: node20FetchImplementation as any,
+  };
+  return oauth2Client;
+}
 
 function requireTestEnv(key: string): string {
   const val = process.env[key];
@@ -30,34 +52,28 @@ let cachedStudentToken: CachedToken | null = null;
 const enrolledStudentCache = new Map<string, { userId: string; fullName: string }>();
 
 async function exchangeRefreshToken(refreshToken: string, roleLabel: string): Promise<CachedToken> {
-  const params = new URLSearchParams({
-    client_id: clientId,
-    client_secret: clientSecret,
-    refresh_token: refreshToken,
-    grant_type: 'refresh_token',
-  });
+  const oauth2Client = createConfiguredOAuth2Client();
+  oauth2Client.setCredentials({ refresh_token: refreshToken });
 
-  const response = await fetch('https://oauth2.googleapis.com/token', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-    body: params.toString(),
-  });
-
-  if (!response.ok) {
-    const errorText = await response.text();
-    throw new Error(`[Classroom Sandbox Seeder] Failed to refresh ${roleLabel} Google Access Token: ${errorText}`);
-  }
-
-  const data = await response.json();
-  if (!data.access_token) {
+  const { token, res } = await oauth2Client.getAccessToken();
+  if (!token) {
     throw new Error(`[Classroom Sandbox Seeder] No access_token returned for ${roleLabel}.`);
   }
 
-  const expiresInSec = Number(data.expires_in) || 3599;
+  const expiresInSec = Number(res?.data?.expires_in) || 3599;
   return {
-    accessToken: data.access_token,
+    accessToken: token,
     // Refresh 2 minutes before actual expiry
     expiresAtMs: Date.now() + (expiresInSec - 120) * 1000,
+  };
+}
+
+function getAuthenticatedClients(accessToken: string) {
+  const auth = createConfiguredOAuth2Client();
+  auth.setCredentials({ access_token: accessToken });
+  return {
+    classroom: google.classroom({ version: 'v1', auth }),
+    drive: google.drive({ version: 'v3', auth }),
   };
 }
 
@@ -86,8 +102,8 @@ export async function getLiveStudentAccessToken(): Promise<string> {
 /**
  * Fast-path student enrollment verification:
  * - Returns immediately from in-memory cache if already verified in this process (0 API calls).
- * - Checks `GET /courses/:id/students/me` first (1 API call when already enrolled).
- * - Handles 409 ALREADY_EXISTS idempotently if enrollment POST is called.
+ * - Checks `classroom.courses.students.get({ courseId, userId: 'me' })` first (1 API call when already enrolled).
+ * - Handles 409 ALREADY_EXISTS idempotently if enrollment create is called.
  */
 export async function ensureTestStudentEnrolled(courseId: string): Promise<{ userId: string; fullName: string }> {
   const cached = enrolledStudentCache.get(courseId);
@@ -96,67 +112,53 @@ export async function ensureTestStudentEnrolled(courseId: string): Promise<{ use
   }
 
   const studentToken = await getLiveStudentAccessToken();
+  const { classroom: studentClassroom } = getAuthenticatedClients(studentToken);
 
   // Fast-path: check if student is already enrolled (1 GET call)
-  const meRes = await fetch(`https://classroom.googleapis.com/v1/courses/${courseId}/students/me`, {
-    headers: { Authorization: `Bearer ${studentToken}` },
-  });
-
-  if (meRes.ok) {
-    const meData = await meRes.json();
-    const result = {
-      userId: meData.userId,
-      fullName: meData.profile?.name?.fullName || 'Student',
-    };
-    enrolledStudentCache.set(courseId, result);
-    return result;
+  try {
+    const meRes = await studentClassroom.courses.students.get({
+      courseId,
+      userId: 'me',
+    });
+    if (meRes.data && meRes.data.userId) {
+      const result = {
+        userId: meRes.data.userId,
+        fullName: meRes.data.profile?.name?.fullName || 'Student',
+      };
+      enrolledStudentCache.set(courseId, result);
+      return result;
+    }
+  } catch {
+    // Student not yet enrolled or 404; proceed to slow-path
   }
 
   // Slow-path: fetch course enrollmentCode as teacher and join course
   const teacherToken = await getLiveTeacherAccessToken();
-  const courseRes = await fetch(`https://classroom.googleapis.com/v1/courses/${courseId}`, {
-    headers: { Authorization: `Bearer ${teacherToken}` },
-  });
-  if (!courseRes.ok) {
-    throw new Error(`[Classroom Sandbox Seeder] Failed to fetch course ${courseId}: ${await courseRes.text()}`);
-  }
-  const courseData = await courseRes.json();
-  const enrollmentCode = courseData.enrollmentCode;
+  const { classroom: teacherClassroom } = getAuthenticatedClients(teacherToken);
+
+  const courseRes = await teacherClassroom.courses.get({ id: courseId });
+  const enrollmentCode = courseRes.data.enrollmentCode;
   if (!enrollmentCode) {
     throw new Error(`[Classroom Sandbox Seeder] Course ${courseId} does not have an active enrollmentCode.`);
   }
 
-  const enrollRes = await fetch(
-    `https://classroom.googleapis.com/v1/courses/${courseId}/students?enrollmentCode=${encodeURIComponent(enrollmentCode)}`,
-    {
-      method: 'POST',
-      headers: {
-        Authorization: `Bearer ${studentToken}`,
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({ userId: 'me' }),
-    }
-  );
-
-  if (enrollRes.ok) {
-    const enrolled = await enrollRes.json();
+  try {
+    const enrollRes = await studentClassroom.courses.students.create({
+      courseId,
+      enrollmentCode,
+      requestBody: { userId: 'me' },
+    });
     const result = {
-      userId: enrolled.userId,
-      fullName: enrolled.profile?.name?.fullName || 'Student',
+      userId: enrollRes.data.userId!,
+      fullName: enrollRes.data.profile?.name?.fullName || 'Student',
     };
     enrolledStudentCache.set(courseId, result);
     return result;
-  }
-
-  if (enrollRes.status === 409) {
-    // Student is already enrolled; read roster as teacher to get student's userId & name
-    const studentsRes = await fetch(`https://classroom.googleapis.com/v1/courses/${courseId}/students`, {
-      headers: { Authorization: `Bearer ${teacherToken}` },
-    });
-    if (studentsRes.ok) {
-      const studentsData = await studentsRes.json();
-      const firstStudent = studentsData.students?.[0];
-      if (firstStudent) {
+  } catch (err: any) {
+    if (err?.code === 409 || err?.response?.status === 409) {
+      const studentsRes = await teacherClassroom.courses.students.list({ courseId });
+      const firstStudent = studentsRes.data.students?.[0];
+      if (firstStudent && firstStudent.userId) {
         const result = {
           userId: firstStudent.userId,
           fullName: firstStudent.profile?.name?.fullName || 'Student',
@@ -165,9 +167,8 @@ export async function ensureTestStudentEnrolled(courseId: string): Promise<{ use
         return result;
       }
     }
+    throw new Error(`[Classroom Sandbox Seeder] Failed to enroll student: ${err.message}`);
   }
-
-  throw new Error(`[Classroom Sandbox Seeder] Failed to enroll student: ${await enrollRes.text()}`);
 }
 
 export interface LiveCourseWorkParams {
@@ -193,35 +194,27 @@ export async function createLiveClassroomAssignmentFixture(
   params: LiveCourseWorkParams
 ): Promise<LiveCourseWorkResult> {
   const token = await getLiveTeacherAccessToken();
+  const { classroom } = getAuthenticatedClients(token);
 
-  const response = await fetch(`https://classroom.googleapis.com/v1/courses/${courseId}/courseWork`, {
-    method: 'POST',
-    headers: {
-      Authorization: `Bearer ${token}`,
-      'Content-Type': 'application/json',
-    },
-    body: JSON.stringify({
+  const res = await classroom.courses.courseWork.create({
+    courseId,
+    requestBody: {
       title: params.title,
       description: params.description || 'Automated E2E Test Assignment',
       state: 'PUBLISHED',
       workType: 'ASSIGNMENT',
       maxPoints: params.maxPoints ?? 100,
-    }),
+    },
   });
 
-  if (!response.ok) {
-    const errorText = await response.text();
-    throw new Error(`[Classroom Sandbox Seeder] Failed to create coursework: ${errorText}`);
-  }
-
-  const data = await response.json();
+  const data = res.data;
   return {
-    id: data.id,
-    title: data.title,
-    courseId: data.courseId,
-    state: data.state,
-    maxPoints: data.maxPoints,
-    alternateLink: data.alternateLink,
+    id: data.id!,
+    title: data.title!,
+    courseId: data.courseId!,
+    state: data.state!,
+    maxPoints: data.maxPoints ?? undefined,
+    alternateLink: data.alternateLink ?? undefined,
   };
 }
 
@@ -235,35 +228,24 @@ export async function uploadStudentDriveFile(attachment: {
   content: string;
 }): Promise<string> {
   const studentToken = await getLiveStudentAccessToken();
-  const boundary = `-------ClassroomAgentBoundary${Date.now()}`;
-  const metadata = {
-    name: attachment.filename,
-    mimeType: attachment.mimeType,
-  };
+  const { drive } = getAuthenticatedClients(studentToken);
 
-  const multipartBody =
-    `--${boundary}\r\n` +
-    `Content-Type: application/json; charset=UTF-8\r\n\r\n` +
-    `${JSON.stringify(metadata)}\r\n` +
-    `--${boundary}\r\n` +
-    `Content-Type: ${attachment.mimeType}\r\n\r\n` +
-    `${attachment.content}\r\n` +
-    `--${boundary}--`;
-
-  const driveRes = await fetch('https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart', {
-    method: 'POST',
-    headers: {
-      Authorization: `Bearer ${studentToken}`,
-      'Content-Type': `multipart/related; boundary=${boundary}`,
+  const res = await drive.files.create({
+    requestBody: {
+      name: attachment.filename,
+      mimeType: attachment.mimeType,
     },
-    body: multipartBody,
+    media: {
+      mimeType: attachment.mimeType,
+      body: Readable.from([attachment.content]),
+    },
+    fields: 'id',
   });
 
-  if (!driveRes.ok) {
-    throw new Error(`[Classroom Sandbox Seeder] Failed to upload student file to Drive: ${await driveRes.text()}`);
+  if (!res.data.id) {
+    throw new Error('[Classroom Sandbox Seeder] Drive file upload succeeded but no file ID was returned.');
   }
-  const driveFile = await driveRes.json();
-  return driveFile.id as string;
+  return res.data.id;
 }
 
 /**
@@ -281,26 +263,22 @@ export async function submitAndTurnInAsTestStudent(
   }
 ): Promise<{ submissionId: string; studentId: string; driveFileId: string }> {
   const studentToken = await getLiveStudentAccessToken();
+  const { classroom } = getAuthenticatedClients(studentToken);
 
   // Run submission lookup and Drive upload (if not pre-uploaded) in parallel
   const [listSubRes, driveFileId] = await Promise.all([
-    fetch(
-      `https://classroom.googleapis.com/v1/courses/${courseId}/courseWork/${courseWorkId}/studentSubmissions?userId=me`,
-      {
-        headers: { Authorization: `Bearer ${studentToken}` },
-      }
-    ),
+    classroom.courses.courseWork.studentSubmissions.list({
+      courseId,
+      courseWorkId,
+      userId: 'me',
+    }),
     attachment.existingDriveFileId
       ? Promise.resolve(attachment.existingDriveFileId)
       : uploadStudentDriveFile(attachment),
   ]);
 
-  if (!listSubRes.ok) {
-    throw new Error(`[Classroom Sandbox Seeder] Failed to list student submission: ${await listSubRes.text()}`);
-  }
-  const listSubData = await listSubRes.json();
-  const submission = listSubData.studentSubmissions?.[0];
-  if (!submission || !submission.id) {
+  const submission = listSubRes.data.studentSubmissions?.[0];
+  if (!submission || !submission.id || !submission.userId) {
     throw new Error(`[Classroom Sandbox Seeder] No student submission found for courseWork ${courseWorkId}.`);
   }
 
@@ -308,44 +286,26 @@ export async function submitAndTurnInAsTestStudent(
   const studentId: string = submission.userId;
 
   // Attach the Drive file to the Classroom submission
-  const attachRes = await fetch(
-    `https://classroom.googleapis.com/v1/courses/${courseId}/courseWork/${courseWorkId}/studentSubmissions/${submissionId}:modifyAttachments`,
-    {
-      method: 'POST',
-      headers: {
-        Authorization: `Bearer ${studentToken}`,
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({
-        addAttachments: [
-          {
-            driveFile: { id: driveFileId },
-          },
-        ],
-      }),
-    }
-  );
-
-  if (!attachRes.ok) {
-    throw new Error(`[Classroom Sandbox Seeder] Failed to attach Drive file to submission: ${await attachRes.text()}`);
-  }
+  await classroom.courses.courseWork.studentSubmissions.modifyAttachments({
+    courseId,
+    courseWorkId,
+    id: submissionId,
+    requestBody: {
+      addAttachments: [
+        {
+          driveFile: { id: driveFileId },
+        },
+      ],
+    },
+  });
 
   // Turn in the submission
-  const turnInRes = await fetch(
-    `https://classroom.googleapis.com/v1/courses/${courseId}/courseWork/${courseWorkId}/studentSubmissions/${submissionId}:turnIn`,
-    {
-      method: 'POST',
-      headers: {
-        Authorization: `Bearer ${studentToken}`,
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({}),
-    }
-  );
-
-  if (!turnInRes.ok) {
-    throw new Error(`[Classroom Sandbox Seeder] Failed to turn in student submission: ${await turnInRes.text()}`);
-  }
+  await classroom.courses.courseWork.studentSubmissions.turnIn({
+    courseId,
+    courseWorkId,
+    id: submissionId,
+    requestBody: {},
+  });
 
   return { submissionId, studentId, driveFileId };
 }
@@ -367,12 +327,9 @@ export interface LiveBatchFixture {
 export async function sweepOrphanedTestAssignments(courseId: string): Promise<void> {
   try {
     const token = await getLiveTeacherAccessToken();
-    const res = await fetch(`https://classroom.googleapis.com/v1/courses/${courseId}/courseWork`, {
-      headers: { Authorization: `Bearer ${token}` },
-    });
-    if (!res.ok) return;
-    const data = await res.json();
-    const courseWorkList: any[] = data.courseWork || [];
+    const { classroom } = getAuthenticatedClients(token);
+    const res = await classroom.courses.courseWork.list({ courseId });
+    const courseWorkList = res.data.courseWork || [];
     const orphans = courseWorkList.filter(
       (cw) =>
         typeof cw.title === 'string' &&
@@ -380,7 +337,7 @@ export async function sweepOrphanedTestAssignments(courseId: string): Promise<vo
     );
     if (orphans.length > 0) {
       await Promise.all(
-        orphans.map((cw) => deleteLiveClassroomAssignmentFixture(courseId, cw.id))
+        orphans.map((cw) => (cw.id ? deleteLiveClassroomAssignmentFixture(courseId, cw.id) : Promise.resolve()))
       );
     }
   } catch {
@@ -455,18 +412,14 @@ export async function teardownLiveClassroomBatchFixture(fixture: LiveBatchFixtur
   if (!fixture) return;
   try {
     const studentToken = await getLiveStudentAccessToken();
+    const { classroom } = getAuthenticatedClients(studentToken);
     // Reclaim submission before deleting so Google Classroom transfers Drive file ownership back to the student
-    await fetch(
-      `https://classroom.googleapis.com/v1/courses/${fixture.courseId}/courseWork/${fixture.courseWork.id}/studentSubmissions/${fixture.submissionId}:reclaim`,
-      {
-        method: 'POST',
-        headers: {
-          Authorization: `Bearer ${studentToken}`,
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({}),
-      }
-    );
+    await classroom.courses.courseWork.studentSubmissions.reclaim({
+      courseId: fixture.courseId,
+      courseWorkId: fixture.courseWork.id,
+      id: fixture.submissionId,
+      requestBody: {},
+    });
   } catch {
     // Ignore if already returned/reclaimed
   }
@@ -482,12 +435,14 @@ export async function teardownLiveClassroomBatchFixture(fixture: LiveBatchFixtur
  */
 export async function deleteStudentDriveFile(driveFileId: string): Promise<void> {
   const studentToken = await getLiveStudentAccessToken();
-  const response = await fetch(`https://www.googleapis.com/drive/v3/files/${driveFileId}`, {
-    method: 'DELETE',
-    headers: { Authorization: `Bearer ${studentToken}` },
-  });
-  if (!response.ok && response.status !== 404 && response.status !== 403) {
-    console.warn(`[Classroom Sandbox Seeder] Warning deleting student Drive file ${driveFileId}: ${await response.text()}`);
+  const { drive } = getAuthenticatedClients(studentToken);
+  try {
+    await drive.files.delete({ fileId: driveFileId });
+  } catch (err: any) {
+    const status = err?.code || err?.response?.status;
+    if (status !== 404 && status !== 403) {
+      console.warn(`[Classroom Sandbox Seeder] Warning deleting student Drive file ${driveFileId}: ${err.message}`);
+    }
   }
 }
 
@@ -499,16 +454,13 @@ export async function deleteLiveClassroomAssignmentFixture(
   courseWorkId: string
 ): Promise<void> {
   const token = await getLiveTeacherAccessToken();
-
-  const response = await fetch(`https://classroom.googleapis.com/v1/courses/${courseId}/courseWork/${courseWorkId}`, {
-    method: 'DELETE',
-    headers: {
-      Authorization: `Bearer ${token}`,
-    },
-  });
-
-  if (!response.ok) {
-    const errorText = await response.text();
-    console.warn(`[Classroom Sandbox Seeder] Warning deleting courseWork ${courseWorkId}: ${errorText}`);
+  const { classroom } = getAuthenticatedClients(token);
+  try {
+    await classroom.courses.courseWork.delete({
+      courseId,
+      id: courseWorkId,
+    });
+  } catch (err: any) {
+    console.warn(`[Classroom Sandbox Seeder] Warning deleting courseWork ${courseWorkId}: ${err.message}`);
   }
 }

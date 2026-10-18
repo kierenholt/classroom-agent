@@ -5,6 +5,7 @@ import { AuthenticatedRequest, requireAuth } from '../middleware/auth';
 import { serverEnv } from '../config/env';
 import { gradingToolDeclarations, executeGradingTool, ToolExecutionContext } from '../tools/gradingTools';
 import { getCourse, getCourseWork, parseAssignmentId } from '../services/classroomClient';
+import { logger } from '../services/logger';
 
 export const chatRouter = Router();
 
@@ -161,6 +162,7 @@ Operational Guidelines:
 
           // Telemetry start event
           sendEvent('tool_call_start', { id: toolId, name: toolName, args: toolArgs });
+          logger.info(`Agent invoking tool: ${toolName}`, (req as any).executionId, { toolName, toolArgs });
 
           let resultOutput: any;
           let success = true;
@@ -182,6 +184,7 @@ Operational Guidelines:
             result: resultOutput,
             error: errorMessage,
           });
+          logger.info(`Tool ${toolName} finished (${success ? 'SUCCESS' : 'ERROR'})`, (req as any).executionId, { toolName, success, error: errorMessage });
 
           executedToolCalls.push({
             id: toolId,
@@ -194,14 +197,15 @@ Operational Guidelines:
 
           responseParts.push({
             functionResponse: {
+              ...(call.id ? { id: call.id } : {}),
               name: toolName,
               response: resultOutput,
             },
           });
         }
 
-        // Supply tool responses back to conversation
-        contents.push({ role: 'tool', parts: responseParts });
+        // Supply tool responses back to conversation using 'user' role required by Gemini API
+        contents.push({ role: 'user', parts: responseParts });
       } else {
         // No function calls: extract final text and stream tokens
         isTurnFinished = true;
@@ -239,7 +243,7 @@ Operational Guidelines:
     sendEvent('done', {});
     res.end();
   } catch (err: any) {
-    console.error('Chat loop error:', err);
+    logger.error(`Chat loop error: ${err.message}`, (req as any).executionId, { error: err.message, stack: err.stack });
     sendEvent('error', { message: err.message || 'Internal agent error occurred.' });
     res.end();
   }

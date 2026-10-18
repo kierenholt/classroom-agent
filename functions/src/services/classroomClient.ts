@@ -1,14 +1,32 @@
 import { google, classroom_v1, drive_v3 } from 'googleapis';
 
-const CLASSROOM_BASE_URL = 'https://classroom.googleapis.com/v1';
+// Provide Node 20's built-in fetch to gaxios (gaxios 6.x only checks window.fetch and otherwise falls back to node-fetch 2.7.0)
+const node20FetchImplementation = (input: any, init?: any) =>
+  globalThis.fetch(input, {
+    ...init,
+    ...(init?.body ? { duplex: 'half' } : {}),
+  } as RequestInit);
+
+google.options({
+  fetchImplementation: node20FetchImplementation as any,
+});
 
 export function getOAuth2Client(accessToken: string) {
   if (!accessToken || accessToken.trim() === '') {
     throw new Error('[Classroom Client] Missing Google OAuth access token. Fail-fast enabled.');
   }
   const auth = new google.auth.OAuth2();
+  auth.transporter.defaults = {
+    ...auth.transporter.defaults,
+    fetchImplementation: node20FetchImplementation as any,
+  };
   auth.setCredentials({ access_token: accessToken });
   return auth;
+}
+
+export function getClassroomClient(accessToken: string): classroom_v1.Classroom {
+  const auth = getOAuth2Client(accessToken);
+  return google.classroom({ version: 'v1', auth });
 }
 
 export function getDriveClient(accessToken: string): drive_v3.Drive {
@@ -29,37 +47,16 @@ export function parseAssignmentId(assignmentId: string): { courseId: string; cou
   return { courseId, courseWorkId };
 }
 
-async function classroomFetch<T>(accessToken: string, endpoint: string, init?: RequestInit): Promise<T> {
-  if (!accessToken || accessToken.trim() === '') {
-    throw new Error('[Classroom Client] Missing Google OAuth access token. Fail-fast enabled.');
-  }
-  const res = await fetch(`${CLASSROOM_BASE_URL}${endpoint}`, {
-    ...init,
-    headers: {
-      Authorization: `Bearer ${accessToken}`,
-      'Content-Type': 'application/json',
-      ...(init?.headers || {}),
-    },
-  });
-
-  if (!res.ok) {
-    const errText = await res.text();
-    throw new Error(`Classroom API HTTP ${res.status}: ${errText}`);
-  }
-
-  const text = await res.text();
-  return text ? (JSON.parse(text) as T) : ({} as T);
-}
-
 /**
  * List active courses where the authenticated teacher teaches.
  */
 export async function listTeacherCourses(accessToken: string): Promise<classroom_v1.Schema$Course[]> {
-  const data = await classroomFetch<{ courses?: classroom_v1.Schema$Course[] }>(
-    accessToken,
-    '/courses?teacherId=me&courseStates=ACTIVE'
-  );
-  return data.courses || [];
+  const classroom = getClassroomClient(accessToken);
+  const res = await classroom.courses.list({
+    teacherId: 'me',
+    courseStates: ['ACTIVE'],
+  });
+  return res.data.courses || [];
 }
 
 /**
@@ -67,7 +64,9 @@ export async function listTeacherCourses(accessToken: string): Promise<classroom
  */
 export async function getCourse(accessToken: string, courseId: string): Promise<classroom_v1.Schema$Course> {
   if (!courseId) throw new Error('[Classroom Client] courseId is required.');
-  return classroomFetch<classroom_v1.Schema$Course>(accessToken, `/courses/${encodeURIComponent(courseId)}`);
+  const classroom = getClassroomClient(accessToken);
+  const res = await classroom.courses.get({ id: courseId });
+  return res.data;
 }
 
 /**
@@ -75,11 +74,9 @@ export async function getCourse(accessToken: string, courseId: string): Promise<
  */
 export async function listCourseWork(accessToken: string, courseId: string): Promise<classroom_v1.Schema$CourseWork[]> {
   if (!courseId) throw new Error('[Classroom Client] courseId is required.');
-  const data = await classroomFetch<{ courseWork?: classroom_v1.Schema$CourseWork[] }>(
-    accessToken,
-    `/courses/${encodeURIComponent(courseId)}/courseWork`
-  );
-  return data.courseWork || [];
+  const classroom = getClassroomClient(accessToken);
+  const res = await classroom.courses.courseWork.list({ courseId });
+  return res.data.courseWork || [];
 }
 
 /**
@@ -93,10 +90,12 @@ export async function getCourseWork(
   if (!courseId || !courseWorkId) {
     throw new Error('[Classroom Client] courseId and courseWorkId are required.');
   }
-  return classroomFetch<classroom_v1.Schema$CourseWork>(
-    accessToken,
-    `/courses/${encodeURIComponent(courseId)}/courseWork/${encodeURIComponent(courseWorkId)}`
-  );
+  const classroom = getClassroomClient(accessToken);
+  const res = await classroom.courses.courseWork.get({
+    courseId,
+    id: courseWorkId,
+  });
+  return res.data;
 }
 
 /**
@@ -111,6 +110,7 @@ export async function cloneCourseWorkUnderApp(
   if (!courseId || !sourceCourseWorkId) {
     throw new Error('[Classroom Client] courseId and sourceCourseWorkId are required to clone.');
   }
+  const classroom = getClassroomClient(accessToken);
   const original = await getCourseWork(accessToken, courseId, sourceCourseWorkId);
 
   const newCourseWork: classroom_v1.Schema$CourseWork = {
@@ -124,14 +124,12 @@ export async function cloneCourseWorkUnderApp(
     submissionModificationMode: original.submissionModificationMode || 'MODIFIABLE_UNTIL_TURNED_IN',
   };
 
-  return classroomFetch<classroom_v1.Schema$CourseWork>(
-    accessToken,
-    `/courses/${encodeURIComponent(courseId)}/courseWork`,
-    {
-      method: 'POST',
-      body: JSON.stringify(newCourseWork),
-    }
-  );
+  const created = await classroom.courses.courseWork.create({
+    courseId,
+    requestBody: newCourseWork,
+  });
+
+  return created.data;
 }
 
 /**
@@ -142,11 +140,22 @@ export async function listCourseStudents(
   courseId: string
 ): Promise<classroom_v1.Schema$Student[]> {
   if (!courseId) throw new Error('[Classroom Client] courseId is required.');
-  const data = await classroomFetch<{ students?: classroom_v1.Schema$Student[] }>(
-    accessToken,
-    `/courses/${encodeURIComponent(courseId)}/students`
-  );
-  return data.students || [];
+  const classroom = getClassroomClient(accessToken);
+  const students: classroom_v1.Schema$Student[] = [];
+  let pageToken: string | undefined;
+
+  do {
+    const res = await classroom.courses.students.list({
+      courseId,
+      pageToken,
+    });
+    if (res.data.students) {
+      students.push(...res.data.students);
+    }
+    pageToken = res.data.nextPageToken || undefined;
+  } while (pageToken);
+
+  return students;
 }
 
 /**
@@ -160,11 +169,23 @@ export async function listCourseWorkSubmissions(
   if (!courseId || !courseWorkId) {
     throw new Error('[Classroom Client] courseId and courseWorkId are required.');
   }
-  const data = await classroomFetch<{ studentSubmissions?: classroom_v1.Schema$StudentSubmission[] }>(
-    accessToken,
-    `/courses/${encodeURIComponent(courseId)}/courseWork/${encodeURIComponent(courseWorkId)}/studentSubmissions`
-  );
-  return data.studentSubmissions || [];
+  const classroom = getClassroomClient(accessToken);
+  const submissions: classroom_v1.Schema$StudentSubmission[] = [];
+  let pageToken: string | undefined;
+
+  do {
+    const res = await classroom.courses.courseWork.studentSubmissions.list({
+      courseId,
+      courseWorkId,
+      pageToken,
+    });
+    if (res.data.studentSubmissions) {
+      submissions.push(...res.data.studentSubmissions);
+    }
+    pageToken = res.data.nextPageToken || undefined;
+  } while (pageToken);
+
+  return submissions;
 }
 
 /**
@@ -331,6 +352,7 @@ export async function patchSubmissionGrade(
   if (!courseId || !courseWorkId || !submissionId) {
     throw new Error('[Classroom Client] courseId, courseWorkId, and submissionId are required.');
   }
+  const classroom = getClassroomClient(accessToken);
 
   const updateMaskParts: string[] = [];
   const requestBody: classroom_v1.Schema$StudentSubmission = {};
@@ -348,14 +370,15 @@ export async function patchSubmissionGrade(
     throw new Error('[Classroom Client] Either draftGrade or assignedGrade must be specified.');
   }
 
-  return classroomFetch<classroom_v1.Schema$StudentSubmission>(
-    accessToken,
-    `/courses/${encodeURIComponent(courseId)}/courseWork/${encodeURIComponent(courseWorkId)}/studentSubmissions/${encodeURIComponent(submissionId)}?updateMask=${updateMaskParts.join(',')}`,
-    {
-      method: 'PATCH',
-      body: JSON.stringify(requestBody),
-    }
-  );
+  const res = await classroom.courses.courseWork.studentSubmissions.patch({
+    courseId,
+    courseWorkId,
+    id: submissionId,
+    updateMask: updateMaskParts.join(','),
+    requestBody,
+  });
+
+  return res.data;
 }
 
 /**
@@ -370,12 +393,12 @@ export async function returnSubmission(
   if (!courseId || !courseWorkId || !submissionId) {
     throw new Error('[Classroom Client] courseId, courseWorkId, and submissionId are required to return.');
   }
-  return classroomFetch<Record<string, never>>(
-    accessToken,
-    `/courses/${encodeURIComponent(courseId)}/courseWork/${encodeURIComponent(courseWorkId)}/studentSubmissions/${encodeURIComponent(submissionId)}:return`,
-    {
-      method: 'POST',
-      body: JSON.stringify({}),
-    }
-  );
+  const classroom = getClassroomClient(accessToken);
+  const res = await classroom.courses.courseWork.studentSubmissions.return({
+    courseId,
+    courseWorkId,
+    id: submissionId,
+    requestBody: {},
+  });
+  return res.data;
 }

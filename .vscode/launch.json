@@ -27,8 +27,8 @@
     {
       "name": "Launch All Backend",
       "configurations": [
-        "Backend: Firebase Emulators (Auth, Firestore, Functions, Storage)",
-        "Backend: Watch Functions Build (TypeScript)"
+        "Firebase Emulators",
+        "Functions"
       ],
       "stopAll": true
     }

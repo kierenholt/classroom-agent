@@ -27,8 +27,9 @@ export const SubmissionPreviewZone: React.FC<SubmissionPreviewZoneProps> = ({ su
 
   // Fetch live text content from Google Drive when a CODE/TEXT attachment has a driveFileId
   useEffect(() => {
-    if (!currentAttachment || !currentAttachment.driveFileId) return;
-    if (currentAttachment.contentPreview || fetchedTextMap[currentAttachment.driveFileId] !== undefined) return;
+    const fileId = currentAttachment?.driveFileId;
+    if (!currentAttachment || !fileId) return;
+    if (currentAttachment.contentPreview || fetchedTextMap[fileId] !== undefined) return;
     if (currentAttachment.type !== 'CODE' && currentAttachment.type !== 'TEXT') return;
 
     let cancelled = false;
@@ -37,18 +38,33 @@ export const SubmissionPreviewZone: React.FC<SubmissionPreviewZoneProps> = ({ su
       try {
         const headers = await getAuthHeaders();
         const res = await fetch(
-          `${env.API_BASE_URL}/classroom/drive-file/${encodeURIComponent(currentAttachment.driveFileId!)}?exportType=text`,
+          `${env.API_BASE_URL}/classroom/drive-file/${encodeURIComponent(fileId)}?exportType=text`,
           { headers }
         );
-        if (res.ok && !cancelled) {
-          const text = await res.text();
-          setFetchedTextMap((prev) => ({
-            ...prev,
-            [currentAttachment.driveFileId!]: text,
-          }));
+        if (!cancelled) {
+          if (res.ok) {
+            const text = await res.text();
+            setFetchedTextMap((prev) => ({
+              ...prev,
+              [fileId]: text,
+            }));
+          } else {
+            const errText = await res.text();
+            console.error(`Drive text preview returned ${res.status}:`, errText);
+            setFetchedTextMap((prev) => ({
+              ...prev,
+              [fileId]: '',
+            }));
+          }
         }
       } catch (err) {
         console.error('Failed to fetch Drive text preview:', err);
+        if (!cancelled) {
+          setFetchedTextMap((prev) => ({
+            ...prev,
+            [fileId]: '',
+          }));
+        }
       } finally {
         if (!cancelled) setLoadingDriveFile(false);
       }

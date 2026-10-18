@@ -12,6 +12,7 @@ import {
   returnSubmission,
 } from '../services/classroomClient';
 import { extractDriveFile } from '../services/driveExtractor';
+import { logger } from '../services/logger';
 
 export const classroomRouter = Router();
 
@@ -70,7 +71,7 @@ classroomRouter.get(
       const workspace = await fetchLiveWorkspaceFromClassroom(req.googleAccessToken!, courseId, courseWorkId);
       res.json(workspace);
     } catch (err: any) {
-      console.error('Live workspace fetch error:', err);
+      logger.error(`Live workspace fetch error: ${err.message}`, (req as any).executionId, { error: err.message, stack: err.stack });
       res.status(500).json({ error: `Failed to fetch live workspace from Google Classroom: ${err.message}` });
     }
   }
@@ -95,7 +96,7 @@ classroomRouter.post('/sync-assignment', requireAuth, async (req: AuthenticatedR
       submissions: workspace.submissions,
     });
   } catch (err: any) {
-    console.error('Live assignment fetch failure:', err);
+    logger.error(`Live assignment fetch failure: ${err.message}`, (req as any).executionId, { error: err.message, stack: err.stack });
     res.status(500).json({ error: `Failed to load live assignment from Classroom: ${err.message}` });
   }
 });

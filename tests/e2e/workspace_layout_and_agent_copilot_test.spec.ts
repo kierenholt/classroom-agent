@@ -1,4 +1,4 @@
-import { test, expect } from '@playwright/test';
+import { test, expect } from '../helpers/logHelper';
 import { seedTestAssignment, seedTestSubmission, cleanupTestAssignment } from '../helpers/testSeeder';
 
 const TEST_ASSIGNMENT_ID = 'test_course_101_assignment_999';
