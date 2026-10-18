@@ -2,11 +2,21 @@
 
 ## Overview
 Classroom Agent is an AI-native grading and feedback workstation for Google Classroom built around a **70% Tabbed Assignment Workspace + 30% Persistent Streaming Agent Co-Pilot Pane** layout and a **Live Google Classroom Reads + Firestore Sidecar** data architecture:
-- **Google Classroom API (Live Source of Truth)**: Courses, coursework metadata, student rosters, submission turn-in states, Drive attachments, and grades (`draftGrade`, `assignedGrade`) are read live from Google Classroom (`GET /api/classroom/courses/:courseId/coursework/:courseWorkId/workspace`) with zero duplicate roster or attachment storage in Firestore.
-- **Cloud Firestore (AI Sidecar Only)**: Stores strictly what Google Classroom API does not natively provide, keyed by `assignments/{courseId}_{courseWorkId}`:
-  - `assignments/{assignmentId}` $\rightarrow$ `{ rubric, updatedAt }`
+- **Google Classroom API (Live Source of Truth)**: Courses, coursework metadata, student rosters, submission turn-in states, Drive attachments, existing Classroom rubrics (`courses.courseWork.rubrics` GET), and grades (`draftGrade`, `assignedGrade`) are read live from Google Classroom (`GET /api/classroom/courses/:courseId/coursework/:courseWorkId/workspace`) with zero duplicate roster or attachment storage in Firestore.
+- **Cloud Firestore (AI Sidecar Only)**: Stores strictly what Google Classroom API does not natively provide or blocks via API/licensing limits, keyed by `assignments/{courseId}_{courseWorkId}`:
+  - `assignments/{assignmentId}` $\rightarrow$ `{ rubric, updatedAt }` (automatically seeded from Classroom's `courses.courseWork.rubrics` GET endpoint if a Classroom rubric exists and Firestore does not yet have one)
   - `assignments/{assignmentId}/evaluations/{studentId}` $\rightarrow$ `{ studentId, submissionId, rubricBreakdown, overallFeedback, comments, draftGrade, assignedGrade, classroomSyncStatus, updatedAt }`
   - `assignments/{assignmentId}/messages/{messageId}` $\rightarrow$ Agent Co-Pilot chat history and `toolCalls` audit trail.
+
+### Known Google Classroom & Drive API Blockers (Why Firestore Sidecar is Retained)
+1. **Google Classroom Rubrics Write Blocker (`403 @UserIneligibleToModifyRubrics`)**:
+   - Calling `POST /v1/courses/{courseId}/courseWork/{courseWorkId}/rubrics` or `PATCH` to create/modify rubrics directly in Google Classroom fails with `403 PERMISSION_DENIED: @UserIneligibleToModifyRubrics` unless the teacher account holds a paid **Google Workspace for Education Plus** or **Teaching & Learning Upgrade** license.
+   - **Resolution**: Classroom rubrics are strictly **read** via `GET /v1/courses/{courseId}/courseWork/{courseWorkId}/rubrics` (`fetchCourseWorkRubricFromClassroom`) and imported into `assignments/{assignmentId}.rubric` in Firestore if present; all rubric creation and updates (`set_assignment_rubric`) are persisted in Firestore.
+2. **Google Classroom Per-Criterion Rubric Grades Read-Only Limitation**:
+   - `StudentSubmission.draftRubricGrades` and `StudentSubmission.assignedRubricGrades` are strictly **read-only** in the Google Classroom API (only top-level numerical `draftGrade` and `assignedGrade` can be patched via `studentSubmissions.patch`).
+3. **Google Drive Attachment Comments Scope Limitation (`403 PERMISSION_DENIED`)**:
+   - Writing feedback comments directly to student-submitted files via `drive.comments.create` fails with `403: The user has not granted the app write access to the file` under the non-sensitive `drive.file` + `drive.readonly` OAuth scopes (because the file was created by the student, not by the teacher's app session).
+   - **Resolution**: Per-criterion `rubricBreakdown`, `overallFeedback`, and `comments` remain stored in the Firestore sidecar (`assignments/{assignmentId}/evaluations/{studentId}`), while numerical `draftGrade` and `assignedGrade` are written directly to Google Classroom.
 
 ## GCP & Firebase Project Configuration
 - **Project ID**: `classroom-agent-511917` (Project Number: `82833838117`)
@@ -65,14 +75,15 @@ Classroom Agent is an AI-native grading and feedback workstation for Google Clas
 - [tests/helpers/classroomSandboxSeeder.ts](file:///home/kieren/Documents/code/classroom-agent/tests/helpers/classroomSandboxSeeder.ts): Live Google Classroom & Drive API batch fixture seeder (`setupLiveClassroomBatchFixture` & `teardownLiveClassroomBatchFixture`) using `googleapis` with in-memory OAuth token caching, fast-path student enrollment memoization, orphan sweep, and parallel CourseWork creation + Drive file upload.
 - [tests/e2e/function_logs_tailing_test.spec.ts](file:///home/kieren/Documents/code/classroom-agent/tests/e2e/function_logs_tailing_test.spec.ts): Verification suite asserting that Cloud Functions persist structured request/response records to Firestore `function_logs` and that Playwright automatically tails them.
 - [tests/e2e/workspace_layout_and_agent_copilot_test.spec.ts](file:///home/kieren/Documents/code/classroom-agent/tests/e2e/workspace_layout_and_agent_copilot_test.spec.ts): E2E test suite verifying workspace layout and agent co-pilot against emulator fixtures.
-- [tests/e2e/live_classroom_assignment_lifecycle_test.spec.ts](file:///home/kieren/Documents/code/classroom-agent/tests/e2e/live_classroom_assignment_lifecycle_test.spec.ts): Deterministic 7-test MVP E2E suite using suite-level `test.beforeAll` / `test.afterAll` batch setup/teardown against live Google Classroom, Google Drive, and Gemini APIs:
+- [tests/e2e/live_classroom_assignment_lifecycle_test.spec.ts](file:///home/kieren/Documents/code/classroom-agent/tests/e2e/live_classroom_assignment_lifecycle_test.spec.ts): Deterministic 8-test MVP E2E suite using suite-level `test.beforeAll` / `test.afterAll` batch setup/teardown against live Google Classroom, Google Drive, and Gemini APIs:
   1. `openAssignment_courseAndCourseworkLoaded_opensWorkspaceTabAndRendersThreeZones_test`
   2. `filterStudentRoster_turnedInStudentPresent_filtersBySearchAndSubmissionStatus_test`
   3. `previewStudentSubmission_studentWithDriveAttachmentSelected_rendersAttachmentContentInPreviewZone_test`
-  4. `setAssignmentRubric_agentPromptSubmitted_streamsToolBadgeAndRendersRubricCriteriaInZoneC_test`
-  5. `evaluateAndGradeSubmission_turnedInSubmissionWithRubric_gradesSubmissionAndSyncsDraftToClassroom_test`
-  6. `switchWorkspaceTabs_activeSessionWithDraftInput_preservesDomStateAndSelectedStudent_test`
-  7. `returnSubmission_draftGradedStudent_promotesAssignedGradeAndReturnsInClassroom_test`
+  4. `readSubmittedGoogleDoc_studentWithGoogleDocAttachment_extractsAndReadsGoogleDocContent_test`
+  5. `setAssignmentRubric_agentPromptSubmitted_streamsToolBadgeAndRendersRubricCriteriaInZoneC_test`
+  6. `evaluateAndGradeSubmission_turnedInSubmissionWithRubric_gradesSubmissionAndSyncsDraftToClassroom_test`
+  7. `switchWorkspaceTabs_activeSessionWithDraftInput_preservesDomStateAndSelectedStudent_test`
+  8. `returnSubmission_draftGradedStudent_promotesAssignedGradeAndReturnsInClassroom_test`
 
 ## Project Rules
 - **Run Tests via NPM Commands**: Always use `npm` commands (`npm test`, `npm run test:e2e`, `npm run test:emulator`, `npm run test:live`) to run tests rather than invoking `node` or `npx playwright` directly. Run tests sequentially (`--workers=1`), one test suite or filtered test at a time.

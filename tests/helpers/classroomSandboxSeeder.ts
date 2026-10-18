@@ -254,9 +254,14 @@ export async function uploadStudentDriveFile(attachment: {
   filename: string;
   mimeType: string;
   content: string;
+  mediaMimeType?: string;
 }): Promise<string> {
   const studentToken = await getLiveStudentAccessToken();
   const { drive } = getAuthenticatedClients(studentToken);
+
+  const isGoogleWorkspaceDoc = attachment.mimeType.startsWith('application/vnd.google-apps.');
+  const uploadMediaMimeType =
+    attachment.mediaMimeType || (isGoogleWorkspaceDoc ? 'text/plain' : attachment.mimeType);
 
   const res = await drive.files.create({
     requestBody: {
@@ -264,7 +269,7 @@ export async function uploadStudentDriveFile(attachment: {
       mimeType: attachment.mimeType,
     },
     media: {
-      mimeType: attachment.mimeType,
+      mimeType: uploadMediaMimeType,
       body: Readable.from([attachment.content]),
     },
     fields: 'id',
@@ -277,7 +282,7 @@ export async function uploadStudentDriveFile(attachment: {
 }
 
 /**
- * Attaches an already-uploaded Drive file (or uploads a new one) to the coursework submission
+ * Attaches already-uploaded Drive file(s) (or uploads a new one) to the coursework submission
  * and turns in the submission.
  */
 export async function submitAndTurnInAsTestStudent(
@@ -288,6 +293,7 @@ export async function submitAndTurnInAsTestStudent(
     mimeType: string;
     content: string;
     existingDriveFileId?: string;
+    additionalDriveFileIds?: string[];
   }
 ): Promise<{ submissionId: string; studentId: string; driveFileId: string }> {
   const studentToken = await getLiveStudentAccessToken();
@@ -313,17 +319,17 @@ export async function submitAndTurnInAsTestStudent(
   const submissionId: string = submission.id;
   const studentId: string = submission.userId;
 
-  // Attach the Drive file to the Classroom submission
+  const allDriveFileIds = [driveFileId, ...(attachment.additionalDriveFileIds || [])];
+
+  // Attach the Drive file(s) to the Classroom submission
   await classroom.courses.courseWork.studentSubmissions.modifyAttachments({
     courseId,
     courseWorkId,
     id: submissionId,
     requestBody: {
-      addAttachments: [
-        {
-          driveFile: { id: driveFileId },
-        },
-      ],
+      addAttachments: allDriveFileIds.map((id) => ({
+        driveFile: { id },
+      })),
     },
   });
 
@@ -345,6 +351,9 @@ export interface LiveBatchFixture {
   student: { userId: string; fullName: string };
   submissionId: string;
   driveFileId: string;
+  googleDocFileId: string;
+  googleDocTitle: string;
+  googleDocContent: string;
   teacherAccessToken: string;
   customAuthToken: string;
 }
@@ -376,7 +385,7 @@ export async function sweepOrphanedTestAssignments(courseId: string): Promise<vo
 
 /**
  * High-speed batch fixture setup for `test.beforeAll`:
- * Parallelizes token refresh, orphan sweep, student enrollment check, coursework creation, and Drive file upload
+ * Parallelizes token refresh, orphan sweep, student enrollment check, coursework creation, and Drive file uploads
  * so an entire suite of tests can share a single seeded Classroom assignment with a unique random ID/title.
  */
 export async function setupLiveClassroomBatchFixture(options?: {
@@ -384,6 +393,7 @@ export async function setupLiveClassroomBatchFixture(options?: {
   description?: string;
   maxPoints?: number;
   attachment?: { filename: string; mimeType: string; content: string };
+  googleDocAttachment?: { filename: string; content: string };
 }): Promise<LiveBatchFixture> {
   // Step 1: Warm both tokens and generate live Firebase custom token in parallel
   const [teacherAccessToken, _studentToken, customAuthToken] = await Promise.all([
@@ -395,7 +405,7 @@ export async function setupLiveClassroomBatchFixture(options?: {
   // Step 2: Sweep any orphaned E2E assignments from previous crashed runs
   await sweepOrphanedTestAssignments(testCourseId);
 
-  // Step 3: Verify enrollment, create coursework (with unique random tag), and upload Drive file ALL IN PARALLEL
+  // Step 3: Verify enrollment, create coursework (with unique random tag), and upload Drive files ALL IN PARALLEL
   const randomTag = `${Math.random().toString(36).slice(2, 7)}_${Date.now()}`;
   const attachmentSpec = options?.attachment || {
     filename: 'recursion_solution.py',
@@ -404,22 +414,33 @@ export async function setupLiveClassroomBatchFixture(options?: {
       'def factorial(n: int) -> int:\n    """Calculates n! recursively."""\n    return 1 if n <= 1 else n * factorial(n - 1)\n',
   };
 
-  const [student, courseWork, driveFileId] = await Promise.all([
+  const googleDocSpec = {
+    filename: options?.googleDocAttachment?.filename || 'Recursion Complexity Essay',
+    mimeType: 'application/vnd.google-apps.document',
+    mediaMimeType: 'text/plain',
+    content:
+      options?.googleDocAttachment?.content ||
+      'Thesis Statement: Recursive factorial algorithms operate in O(n) linear time complexity and O(n) call-stack space complexity.',
+  };
+
+  const [student, courseWork, driveFileId, googleDocFileId] = await Promise.all([
     ensureTestStudentEnrolled(testCourseId),
     createLiveClassroomAssignmentFixture(testCourseId, {
       title: options?.title || `[E2E Batch #${randomTag}] Recursion & Algorithm Analysis`,
       description:
         options?.description ||
-        'Write a recursive factorial function in Python with clean PEP8 docstrings and base-case handling.',
+        'Write a recursive factorial function in Python with clean PEP8 docstrings and a Google Doc complexity analysis.',
       maxPoints: options?.maxPoints ?? 100,
     }),
     uploadStudentDriveFile(attachmentSpec),
+    uploadStudentDriveFile(googleDocSpec),
   ]);
 
-  // Step 4: Attach the already-uploaded Drive file and turn in
+  // Step 4: Attach the already-uploaded Drive files and turn in
   const { submissionId } = await submitAndTurnInAsTestStudent(testCourseId, courseWork.id, {
     ...attachmentSpec,
     existingDriveFileId: driveFileId,
+    additionalDriveFileIds: [googleDocFileId],
   });
 
   return {
@@ -429,6 +450,9 @@ export async function setupLiveClassroomBatchFixture(options?: {
     student,
     submissionId,
     driveFileId,
+    googleDocFileId,
+    googleDocTitle: googleDocSpec.filename,
+    googleDocContent: googleDocSpec.content,
     teacherAccessToken,
     customAuthToken,
   };
@@ -437,7 +461,7 @@ export async function setupLiveClassroomBatchFixture(options?: {
 /**
  * High-speed batch fixture teardown for `test.afterAll`:
  * Reclaims submission if needed so Student regains Drive file ownership, then deletes
- * Classroom coursework and Student Drive file in parallel.
+ * Classroom coursework and Student Drive files in parallel.
  */
 export async function teardownLiveClassroomBatchFixture(fixture: LiveBatchFixture | null): Promise<void> {
   if (!fixture) return;
@@ -458,6 +482,7 @@ export async function teardownLiveClassroomBatchFixture(fixture: LiveBatchFixtur
   await Promise.all([
     deleteLiveClassroomAssignmentFixture(fixture.courseId, fixture.courseWork.id),
     deleteStudentDriveFile(fixture.driveFileId),
+    fixture.googleDocFileId ? deleteStudentDriveFile(fixture.googleDocFileId) : Promise.resolve(),
   ]);
 }
 

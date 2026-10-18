@@ -156,6 +156,77 @@ test.describe('Classroom Agent MVP — 7 Core User Stories (Live Classroom Batch
   });
 
   // =========================================================================
+  // US-3B: Read Submitted Google Document Content (Google Docs Export -> Zone B & Agent Tool)
+  // =========================================================================
+  test('readSubmittedGoogleDoc_studentWithGoogleDocAttachment_extractsAndReadsGoogleDocContent_test', async ({
+    page,
+  }) => {
+    expect(batchFixture).not.toBeNull();
+    await openBatchAssignmentInWorkspace(page, batchFixture!);
+
+    // Select the student row in Zone A
+    const studentRow = page.locator(`[data-testid="student-row-${batchFixture!.student.userId}"]`);
+    await studentRow.click();
+
+    // Verify the attachment switcher includes the student's submitted Google Document and select it
+    const attachmentSwitcher = page.locator('[data-testid="attachment-switcher"]');
+    await expect(attachmentSwitcher).toBeVisible();
+    await expect(attachmentSwitcher).toContainText(batchFixture!.googleDocTitle);
+
+    const googleDocTab = page.locator(`[data-testid="attachment-tab-${batchFixture!.googleDocFileId}"]`);
+    await expect(googleDocTab).toBeVisible();
+    await googleDocTab.click();
+
+    // Verify Zone B renders the authenticated Google Document PDF preview frame
+    const pdfFrame = page.locator('[data-testid="preview-pdf-frame"]');
+    await expect(pdfFrame).toBeVisible({ timeout: 30000 });
+    await expect(pdfFrame).toHaveAttribute('src', /^blob:/);
+
+    // Toggle to "Extracted Text" view in Zone B and assert the Google Document text is rendered directly in the preview canvas
+    const toggleTextBtn = page.locator('[data-testid="toggle-extracted-text-button"]');
+    await expect(toggleTextBtn).toBeVisible({ timeout: 30000 });
+    await toggleTextBtn.click();
+
+    const previewTextContent = page.locator('[data-testid="preview-text-content"]');
+    await expect(previewTextContent).toBeVisible();
+    await expect(previewTextContent).toContainText(batchFixture!.googleDocContent);
+
+    // Prompt the Agent Co-Pilot to read the student's submitted Google Document content
+    const chatInput = page.locator('[data-testid="chat-input"]');
+    const chatSendBtn = page.locator('[data-testid="chat-send-button"]');
+
+    await chatInput.fill(
+      `Call get_student_submission_content now for studentId "${batchFixture!.student.userId}" and quote the Thesis Statement from their Google Doc "${batchFixture!.googleDocTitle}".`
+    );
+    await chatSendBtn.click();
+
+    // Wait for get_student_submission_content tool call to succeed and streaming to complete
+    const toolBadge = page.locator('[data-testid="tool-call-badge"]', {
+      hasText: 'Tool: get_student_submission_content',
+    });
+    await expect(toolBadge).toBeVisible({ timeout: 60000 });
+    await expect(toolBadge).toContainText('success', { timeout: 60000 });
+    await expect(chatInput).toBeEnabled({ timeout: 60000 });
+
+    // Expand the tool call badge details if collapsed after Firestore reconciliation
+    const toolDetails = toolBadge.locator('[data-testid="tool-call-details"]');
+    if (!(await toolDetails.isVisible())) {
+      await toolBadge.locator('[data-testid="tool-call-header"]').click();
+    }
+
+    // Assert the extracted Google Document text content and GOOGLE_DOC type are read from Google Drive
+    await expect(toolDetails).toBeVisible();
+    await expect(toolDetails).toContainText('GOOGLE_DOC');
+    await expect(toolDetails).toContainText(batchFixture!.googleDocTitle);
+    await expect(toolDetails).toContainText(batchFixture!.googleDocContent);
+
+    // Assert the Agent's response in the chat window quotes the content read from the Google Document
+    await expect(page.locator('[data-testid="chat-window"]')).toContainText(
+      'Recursive factorial algorithms operate in O(n) linear time complexity'
+    );
+  });
+
+  // =========================================================================
   // US-4: Create / Configure Grading Rubric via Agent Co-Pilot (30% Pane -> Zone C)
   // =========================================================================
   test('setAssignmentRubric_agentPromptSubmitted_streamsToolBadgeAndRendersRubricCriteriaInZoneC_test', async ({

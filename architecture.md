@@ -126,12 +126,16 @@ classroom-agent/
      - `X-Google-Access-Token: <googleOAuthAccessToken>`
    - **Fail-Fast Validation**: The backend middleware rejects any request missing either token with `401 Unauthorized` immediately.
 3. **Live Google Classroom Reads + Firestore Sidecar Architecture (Option 2)**:
-   - **Google Classroom API (Live Source of Truth)**: Courses, coursework metadata, student rosters, submission turn-in states, Drive attachments, and grades (`draftGrade`, `assignedGrade`) are always fetched live from Google Classroom (`GET /api/classroom/courses/:courseId/coursework/:courseWorkId/workspace`) — zero duplicate roster or attachment copies are stored in Firestore.
-   - **Cloud Firestore (AI Sidecar Only)**: Stores strictly what the Google Classroom API does not support natively, keyed by `{courseId}_{courseWorkId}`:
-     - `assignments/{assignmentId}` $\rightarrow$ `{ rubric, updatedAt }`
+   - **Google Classroom API (Live Source of Truth)**: Courses, coursework metadata, student rosters, submission turn-in states, Drive attachments, existing Classroom rubrics (`GET /v1/courses/{courseId}/courseWork/{courseWorkId}/rubrics`), and grades (`draftGrade`, `assignedGrade`) are always fetched live from Google Classroom (`GET /api/classroom/courses/:courseId/coursework/:courseWorkId/workspace`) — zero duplicate roster or attachment copies are stored in Firestore.
+   - **Cloud Firestore (AI Sidecar Only)**: Stores strictly what the Google Classroom API does not support natively or blocks via licensing/API restrictions, keyed by `{courseId}_{courseWorkId}`:
+     - `assignments/{assignmentId}` $\rightarrow$ `{ rubric, updatedAt }` (seeded from Classroom's `courses.courseWork.rubrics` GET endpoint on workspace load if a Classroom rubric is present and no Firestore rubric exists yet)
      - `assignments/{assignmentId}/evaluations/{studentId}` $\rightarrow$ `{ studentId, submissionId, rubricBreakdown, overallFeedback, comments, draftGrade, assignedGrade, classroomSyncStatus, updatedAt }`
      - `assignments/{assignmentId}/messages/{messageId}` $\rightarrow$ Agent Co-Pilot chat history and `toolCalls` audit trail.
    - When the agent executes `set_assignment_rubric`, `evaluate_and_grade_submission`, or `return_student_submissions`, it patches grades directly to Google Classroom API **and** updates the Firestore sidecar (`assignments/{assignmentId}` and `evaluations/{studentId}`), which triggers the frontend's `onSnapshot` listeners in `<100ms` to merge live Classroom data with real-time AI evaluations.
+   - **Documented API Blockers Preventing Removal of the Firestore Sidecar**:
+     1. **`courses.courseWork.rubrics` Write Blocker (`403 @UserIneligibleToModifyRubrics`)**: Creating or patching rubrics via the Google Classroom API requires the teacher account to have a paid **Google Workspace for Education Plus** or **Teaching & Learning Upgrade** license. Unlicensed or standard Workspace accounts receive `403 PERMISSION_DENIED: @UserIneligibleToModifyRubrics` on `POST`/`PATCH`, though `GET .../rubrics` succeeds (`200 OK`). Therefore, Classroom rubrics are only read from Classroom into Firestore, and rubric writes remain in Firestore.
+     2. **`draftRubricGrades` / `assignedRubricGrades` Read-Only Limitation**: Per-criterion rubric scores on `StudentSubmission` are read-only in the Google Classroom v1 API; only overall `draftGrade` and `assignedGrade` can be patched.
+     3. **Drive Comments Write Scope Blocker (`403 PERMISSION_DENIED`)**: Writing comments (`drive.comments.create`) onto student-submitted Drive attachments fails under `drive.file` + `drive.readonly` scopes because the file was created by the student rather than the teacher's app session.
 
 ---
 

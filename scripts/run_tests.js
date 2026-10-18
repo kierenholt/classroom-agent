@@ -16,9 +16,18 @@ const workers = args[2] || '1';
 console.log(`[Test Runner] Running tests sequentially`);
 console.log(`[Test Runner] Filter: "${testFilter}" | Environment: ${environment} | Workers: ${workers}`);
 
+const fs = await import('fs');
+const isFileFilter =
+  !testFilter ||
+  testFilter.includes('/') ||
+  testFilter.endsWith('.ts') ||
+  testFilter.endsWith('.js') ||
+  fs.existsSync(path.resolve(process.cwd(), testFilter)) ||
+  fs.existsSync(path.resolve(process.cwd(), 'tests/e2e', `${testFilter}.spec.ts`));
+
 const playwrightArgs = [
   'test',
-  testFilter,
+  ...(testFilter ? (isFileFilter ? [testFilter] : ['-g', testFilter]) : []),
   '--workers', workers,
   '--reporter', 'list',
 ];

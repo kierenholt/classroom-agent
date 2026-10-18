@@ -13,7 +13,8 @@ export const SubmissionPreviewZone: React.FC<SubmissionPreviewZoneProps> = ({ su
   const [activeAttachmentIndex, setActiveAttachmentIndex] = useState(0);
   const [viewMode, setViewMode] = useState<'rendered' | 'raw'>('rendered');
   const [fetchedTextMap, setFetchedTextMap] = useState<Record<string, string>>({});
-  const [loadingDriveFile, setLoadingDriveFile] = useState(false);
+  const [fetchedPreviewUrlMap, setFetchedPreviewUrlMap] = useState<Record<string, string>>({});
+  const [loadingFileIds, setLoadingFileIds] = useState<Record<string, boolean>>({});
 
   const attachments = submission?.attachments || [];
   const currentAttachment: SubmissionAttachment | undefined =
@@ -25,56 +26,86 @@ export const SubmissionPreviewZone: React.FC<SubmissionPreviewZoneProps> = ({ su
     setViewMode('rendered');
   }, [submission?.studentId]);
 
-  // Fetch live text content from Google Drive when a CODE/TEXT attachment has a driveFileId
+  // Fetch live text and/or preview blob from Google Drive with authenticated headers
   useEffect(() => {
     const fileId = currentAttachment?.driveFileId;
     if (!currentAttachment || !fileId) return;
-    if (currentAttachment.contentPreview || fetchedTextMap[fileId] !== undefined) return;
-    if (currentAttachment.type !== 'CODE' && currentAttachment.type !== 'TEXT') return;
+
+    const needsText =
+      (currentAttachment.type === 'CODE' ||
+        currentAttachment.type === 'TEXT' ||
+        currentAttachment.type === 'GOOGLE_DOC' ||
+        currentAttachment.type === 'GOOGLE_SHEETS') &&
+      !currentAttachment.contentPreview &&
+      fetchedTextMap[fileId] === undefined;
+
+    const needsPreviewBlob =
+      (currentAttachment.type === 'PDF' ||
+        currentAttachment.type === 'GOOGLE_DOC' ||
+        currentAttachment.type === 'GOOGLE_SLIDES' ||
+        currentAttachment.type === 'GOOGLE_SHEETS' ||
+        (currentAttachment.type === 'IMAGE' && !currentAttachment.thumbnailUrl)) &&
+      fetchedPreviewUrlMap[fileId] === undefined;
+
+    if (!needsText && !needsPreviewBlob) return;
 
     let cancelled = false;
-    const loadDriveText = async () => {
-      setLoadingDriveFile(true);
+    const loadDriveAsset = async () => {
+      setLoadingFileIds((prev) => ({ ...prev, [fileId]: true }));
       try {
         const headers = await getAuthHeaders();
-        const res = await fetch(
-          `${env.API_BASE_URL}/classroom/drive-file/${encodeURIComponent(fileId)}?exportType=text`,
-          { headers }
-        );
-        if (!cancelled) {
-          if (res.ok) {
-            const text = await res.text();
-            setFetchedTextMap((prev) => ({
-              ...prev,
-              [fileId]: text,
-            }));
-          } else {
-            const errText = await res.text();
-            console.error(`Drive text preview returned ${res.status}:`, errText);
-            setFetchedTextMap((prev) => ({
-              ...prev,
-              [fileId]: '',
-            }));
-          }
-        }
+
+        await Promise.all([
+          needsText
+            ? (async () => {
+                const res = await fetch(
+                  `${env.API_BASE_URL}/classroom/drive-file/${encodeURIComponent(fileId)}?exportType=text`,
+                  { headers }
+                );
+                if (!cancelled) {
+                  if (res.ok) {
+                    const text = await res.text();
+                    setFetchedTextMap((prev) => ({ ...prev, [fileId]: text }));
+                  } else {
+                    setFetchedTextMap((prev) => ({ ...prev, [fileId]: '' }));
+                  }
+                }
+              })()
+            : Promise.resolve(),
+          needsPreviewBlob
+            ? (async () => {
+                const res = await fetch(
+                  `${env.API_BASE_URL}/classroom/drive-file/${encodeURIComponent(fileId)}?exportType=preview`,
+                  { headers }
+                );
+                if (!cancelled) {
+                  if (res.ok) {
+                    const blob = await res.blob();
+                    const objectUrl = URL.createObjectURL(blob);
+                    setFetchedPreviewUrlMap((prev) => ({ ...prev, [fileId]: objectUrl }));
+                  } else {
+                    setFetchedPreviewUrlMap((prev) => ({ ...prev, [fileId]: '' }));
+                  }
+                }
+              })()
+            : Promise.resolve(),
+        ]);
       } catch (err) {
-        console.error('Failed to fetch Drive text preview:', err);
+        console.error('Failed to fetch Drive preview:', err);
         if (!cancelled) {
-          setFetchedTextMap((prev) => ({
-            ...prev,
-            [fileId]: '',
-          }));
+          if (needsText) setFetchedTextMap((prev) => ({ ...prev, [fileId]: '' }));
+          if (needsPreviewBlob) setFetchedPreviewUrlMap((prev) => ({ ...prev, [fileId]: '' }));
         }
       } finally {
-        if (!cancelled) setLoadingDriveFile(false);
+        setLoadingFileIds((prev) => ({ ...prev, [fileId]: false }));
       }
     };
 
-    loadDriveText();
+    loadDriveAsset();
     return () => {
       cancelled = true;
     };
-  }, [currentAttachment, fetchedTextMap, getAuthHeaders]);
+  }, [currentAttachment, fetchedTextMap, fetchedPreviewUrlMap, getAuthHeaders]);
 
   if (!submission) {
     return (
@@ -112,6 +143,14 @@ export const SubmissionPreviewZone: React.FC<SubmissionPreviewZoneProps> = ({ su
   const resolvedTextContent =
     currentAttachment?.contentPreview ||
     (currentAttachment?.driveFileId ? fetchedTextMap[currentAttachment.driveFileId] : undefined);
+
+  const resolvedPreviewUrl = currentAttachment?.driveFileId
+    ? fetchedPreviewUrlMap[currentAttachment.driveFileId]
+    : undefined;
+
+  const isLoadingCurrentFile = Boolean(
+    currentAttachment?.driveFileId && loadingFileIds[currentAttachment.driveFileId]
+  );
 
   return (
     <div
@@ -155,6 +194,7 @@ export const SubmissionPreviewZone: React.FC<SubmissionPreviewZoneProps> = ({ su
         <div className="flex items-center space-x-2">
           {currentAttachment && resolvedTextContent && (
             <button
+              data-testid="toggle-extracted-text-button"
               onClick={() => setViewMode((m) => (m === 'rendered' ? 'raw' : 'rendered'))}
               className="flex items-center space-x-1 px-2 py-0.5 rounded text-[11px] bg-[#21262d] hover:bg-[#30363d] text-gray-300 transition-colors"
               title="Toggle between rendered preview and LLM extracted text"
@@ -190,7 +230,7 @@ export const SubmissionPreviewZone: React.FC<SubmissionPreviewZoneProps> = ({ su
           <div className="h-full flex items-center justify-center text-gray-500">
             No attachment selected.
           </div>
-        ) : loadingDriveFile ? (
+        ) : isLoadingCurrentFile ? (
           <div className="h-full flex items-center justify-center space-x-2 text-gray-400">
             <Loader2 className="w-4 h-4 animate-spin text-purple-400" />
             <span>Loading attachment from Google Drive...</span>
@@ -210,26 +250,29 @@ export const SubmissionPreviewZone: React.FC<SubmissionPreviewZoneProps> = ({ su
           </div>
         ) : (
           /* Rendered format based on attachment type */
-          renderAttachmentContent(currentAttachment, resolvedTextContent)
+          renderAttachmentContent(currentAttachment, resolvedTextContent, resolvedPreviewUrl)
         )}
       </div>
     </div>
   );
 };
 
-function renderAttachmentContent(att: SubmissionAttachment, resolvedTextContent?: string) {
+function renderAttachmentContent(
+  att: SubmissionAttachment,
+  resolvedTextContent?: string,
+  resolvedPreviewUrl?: string
+) {
   switch (att.type) {
     case 'PDF':
     case 'GOOGLE_DOC':
     case 'GOOGLE_SLIDES':
     case 'GOOGLE_SHEETS':
-      if (att.driveFileId) {
-        const previewUrl = `${env.API_BASE_URL}/classroom/drive-file/${att.driveFileId}?exportType=preview`;
+      if (resolvedPreviewUrl) {
         return (
           <div className="h-full w-full flex flex-col">
             <iframe
               data-testid="preview-pdf-frame"
-              src={previewUrl}
+              src={resolvedPreviewUrl}
               title={att.title}
               className="w-full flex-1 rounded border border-[#30363d] bg-white"
             />
@@ -257,7 +300,7 @@ function renderAttachmentContent(att: SubmissionAttachment, resolvedTextContent?
         <div className="h-full flex items-center justify-center p-4">
           <img
             data-testid="preview-image"
-            src={att.thumbnailUrl || (att.driveFileId ? `${env.API_BASE_URL}/classroom/drive-file/${att.driveFileId}` : '')}
+            src={att.thumbnailUrl || resolvedPreviewUrl || ''}
             alt={att.title}
             className="max-h-full max-w-full rounded border border-[#30363d] object-contain shadow-lg"
           />

@@ -69,6 +69,20 @@ classroomRouter.get(
 
     try {
       const workspace = await fetchLiveWorkspaceFromClassroom(req.googleAccessToken!, courseId, courseWorkId);
+      if (workspace.assignment.rubric) {
+        const db = admin.firestore();
+        const assignRef = db.collection('assignments').doc(workspace.assignment.id);
+        const snap = await assignRef.get();
+        if (!snap.exists || !snap.data()?.rubric) {
+          await assignRef.set(
+            {
+              rubric: workspace.assignment.rubric,
+              updatedAt: new Date().toISOString(),
+            },
+            { merge: true }
+          );
+        }
+      }
       res.json(workspace);
     } catch (err: any) {
       logger.error(`Live workspace fetch error: ${err.message}`, (req as any).executionId, { error: err.message, stack: err.stack });
@@ -88,6 +102,20 @@ classroomRouter.post('/sync-assignment', requireAuth, async (req: AuthenticatedR
 
   try {
     const workspace = await fetchLiveWorkspaceFromClassroom(req.googleAccessToken!, courseId, courseWorkId);
+    if (workspace.assignment.rubric) {
+      const db = admin.firestore();
+      const assignRef = db.collection('assignments').doc(workspace.assignment.id);
+      const snap = await assignRef.get();
+      if (!snap.exists || !snap.data()?.rubric) {
+        await assignRef.set(
+          {
+            rubric: workspace.assignment.rubric,
+            updatedAt: new Date().toISOString(),
+          },
+          { merge: true }
+        );
+      }
+    }
     res.json({
       success: true,
       assignmentId: workspace.assignment.id,

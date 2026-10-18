@@ -139,9 +139,20 @@ export async function executeGradingTool(
         assignRef.get(),
       ]);
       const sidecarData = sidecarSnap.exists ? sidecarSnap.data() : null;
+      let activeRubric = sidecarData?.rubric || null;
+      if (!activeRubric && assignment.rubric) {
+        activeRubric = assignment.rubric;
+        await assignRef.set(
+          {
+            rubric: activeRubric,
+            updatedAt: new Date().toISOString(),
+          },
+          { merge: true }
+        );
+      }
       return {
         ...assignment,
-        rubric: sidecarData?.rubric || null,
+        rubric: activeRubric,
       };
     }
 

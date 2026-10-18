@@ -276,7 +276,62 @@ export function mapLiveClassroomSubmission(
 }
 
 /**
- * Fetches the complete live Classroom workspace (Course + CourseWork + Roster + Submissions)
+ * Attempts to read any existing rubric from Google Classroom's `courses.courseWork.rubrics` resource.
+ * Note: Writing/modifying rubrics via Classroom API is blocked by Google's Education Plus license requirement
+ * (`@UserIneligibleToModifyRubrics`), so Classroom rubrics are read-only and synced into Firestore when present.
+ */
+export async function fetchCourseWorkRubricFromClassroom(
+  accessToken: string,
+  courseId: string,
+  courseWorkId: string
+): Promise<{
+  id: string;
+  title: string;
+  criteria: Array<{ id: string; title: string; description: string; maxPoints: number }>;
+  updatedAt: string;
+} | null> {
+  if (!courseId || !courseWorkId) return null;
+  try {
+    const res = await fetch(
+      `https://classroom.googleapis.com/v1/courses/${encodeURIComponent(courseId)}/courseWork/${encodeURIComponent(courseWorkId)}/rubrics`,
+      {
+        method: 'GET',
+        headers: {
+          Authorization: `Bearer ${accessToken}`,
+        },
+      }
+    );
+    if (!res.ok) return null;
+    const data: any = await res.json();
+    const firstRubric = data?.rubrics?.[0];
+    if (!firstRubric || !Array.isArray(firstRubric.criteria) || firstRubric.criteria.length === 0) {
+      return null;
+    }
+
+    const criteria = firstRubric.criteria.map((c: any, idx: number) => {
+      const levels = Array.isArray(c.levels) ? c.levels : [];
+      const maxPoints = levels.reduce((max: number, lvl: any) => Math.max(max, Number(lvl.points) || 0), 0);
+      return {
+        id: c.id || `crit_${idx + 1}`,
+        title: c.title || `Criterion ${idx + 1}`,
+        description: c.description || '',
+        maxPoints,
+      };
+    });
+
+    return {
+      id: firstRubric.id || `classroom_rubric_${courseWorkId}`,
+      title: 'Classroom Rubric',
+      criteria,
+      updatedAt: firstRubric.updateTime || firstRubric.creationTime || new Date().toISOString(),
+    };
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Fetches the complete live Classroom workspace (Course + CourseWork + Roster + Submissions + Classroom Rubric if present)
  * directly from the Google Classroom API in parallel.
  */
 export async function fetchLiveWorkspaceFromClassroom(
@@ -284,11 +339,12 @@ export async function fetchLiveWorkspaceFromClassroom(
   courseId: string,
   courseWorkId: string
 ) {
-  const [course, coursework, students, rawSubmissions] = await Promise.all([
+  const [course, coursework, students, rawSubmissions, classroomRubric] = await Promise.all([
     getCourse(accessToken, courseId),
     getCourseWork(accessToken, courseId, courseWorkId),
     listCourseStudents(accessToken, courseId),
     listCourseWorkSubmissions(accessToken, courseId, courseWorkId),
+    fetchCourseWorkRubricFromClassroom(accessToken, courseId, courseWorkId),
   ]);
 
   const studentMap = new Map<string, { name: string; email?: string | null; photoUrl?: string | null }>();
@@ -324,6 +380,7 @@ export async function fetchLiveWorkspaceFromClassroom(
       : undefined,
     state: (coursework.state || 'PUBLISHED') as 'PUBLISHED' | 'DRAFT',
     apiWriteBackEligible: coursework.associatedWithDeveloper || false,
+    ...(classroomRubric ? { rubric: classroomRubric } : {}),
     submissionStats: {
       total: submissions.length,
       turnedIn: turnedInCount,
