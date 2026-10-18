@@ -119,6 +119,30 @@ export async function seedTestSubmission(assignmentId: string, studentId: string
   }
 }
 
+export async function seedTestChatMessage(
+  assignmentId: string,
+  messageId: string,
+  message: { sender: 'user' | 'agent'; content: string; timestamp?: string }
+) {
+  const url = `${BASE_URL}/assignments/${assignmentId}/messages/${messageId}`;
+  const fields: Record<string, any> = {
+    sender: { stringValue: message.sender },
+    content: { stringValue: message.content },
+    timestamp: { stringValue: message.timestamp || new Date().toISOString() },
+  };
+
+  const res = await fetch(url, {
+    method: 'PATCH',
+    headers: EMULATOR_ADMIN_HEADERS,
+    body: JSON.stringify({ fields }),
+  });
+
+  if (!res.ok) {
+    const text = await res.text();
+    throw new Error(`Failed to seed test chat message: ${text}`);
+  }
+}
+
 export async function cleanupTestAssignment(assignmentId: string, studentIds: string[] = []) {
   for (const sId of studentIds) {
     try {

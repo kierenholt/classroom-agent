@@ -3,14 +3,15 @@ import { Plus, X, GraduationCap, LogOut, User } from 'lucide-react';
 import { useAuth } from '../../context/AuthContext';
 
 export interface TabItem {
-  id: string; // assignmentId or '__new__'
+  id: string; // assignmentId
   title: string;
   courseName?: string;
 }
 
 interface TopTabBarProps {
   tabs: TabItem[];
-  activeTabId: string;
+  activeTabId: string | null;
+  isPickerOpen?: boolean;
   onSelectTab: (tabId: string) => void;
   onCloseTab: (tabId: string) => void;
   onNewTab: () => void;
@@ -19,6 +20,7 @@ interface TopTabBarProps {
 export const TopTabBar: React.FC<TopTabBarProps> = ({
   tabs,
   activeTabId,
+  isPickerOpen = false,
   onSelectTab,
   onCloseTab,
   onNewTab,
@@ -80,19 +82,19 @@ export const TopTabBar: React.FC<TopTabBarProps> = ({
             );
           })}
 
-          {/* "+ New Assignment Tab" Button */}
+          {/* "+ Assignment" Button */}
           <button
             data-testid="new-assignment-tab-button"
             onClick={onNewTab}
             className={`flex items-center space-x-1 px-2.5 py-1 rounded text-xs transition-colors shrink-0 ${
-              activeTabId === '__new__'
+              isPickerOpen
                 ? 'bg-purple-600/30 text-purple-200 border border-purple-500/50'
                 : 'text-gray-400 hover:text-white hover:bg-[#21262d]'
             }`}
             title="Open new assignment tab"
           >
             <Plus className="w-3.5 h-3.5" />
-            <span className="text-[11px]">New Tab</span>
+            <span className="text-[11px]">Assignment</span>
           </button>
         </div>
       </div>

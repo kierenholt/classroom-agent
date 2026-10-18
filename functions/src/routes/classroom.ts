@@ -16,13 +16,22 @@ import { logger } from '../services/logger';
 
 export const classroomRouter = Router();
 
+function getUpstreamErrorStatus(err: any): number {
+  const code = err?.code || err?.status || err?.response?.status;
+  const msg = String(err?.message || '');
+  if (code === 401 || /invalid credentials|unauthenticated/i.test(msg)) {
+    return 401;
+  }
+  return 500;
+}
+
 // 1. List Courses (Live from Google Classroom API)
 classroomRouter.get('/courses', requireAuth, async (req: AuthenticatedRequest, res: Response): Promise<void> => {
   try {
     const courses = await listTeacherCourses(req.googleAccessToken!);
     res.json({ courses });
   } catch (err: any) {
-    res.status(500).json({ error: `Failed to list courses: ${err.message}` });
+    res.status(getUpstreamErrorStatus(err)).json({ error: `Failed to list courses: ${err.message}` });
   }
 });
 
@@ -33,7 +42,7 @@ classroomRouter.get('/courses/:courseId/coursework', requireAuth, async (req: Au
     const coursework = await listCourseWork(req.googleAccessToken!, courseId);
     res.json({ coursework });
   } catch (err: any) {
-    res.status(500).json({ error: `Failed to list coursework: ${err.message}` });
+    res.status(getUpstreamErrorStatus(err)).json({ error: `Failed to list coursework: ${err.message}` });
   }
 });
 
@@ -51,7 +60,7 @@ classroomRouter.post('/courses/:courseId/coursework/clone', requireAuth, async (
     const cloned = await cloneCourseWorkUnderApp(req.googleAccessToken!, courseId, courseWorkId);
     res.json({ success: true, clonedCourseWork: cloned });
   } catch (err: any) {
-    res.status(500).json({ error: `Failed to clone coursework: ${err.message}` });
+    res.status(getUpstreamErrorStatus(err)).json({ error: `Failed to clone coursework: ${err.message}` });
   }
 });
 
@@ -86,7 +95,7 @@ classroomRouter.get(
       res.json(workspace);
     } catch (err: any) {
       logger.error(`Live workspace fetch error: ${err.message}`, (req as any).executionId, { error: err.message, stack: err.stack });
-      res.status(500).json({ error: `Failed to fetch live workspace from Google Classroom: ${err.message}` });
+      res.status(getUpstreamErrorStatus(err)).json({ error: `Failed to fetch live workspace from Google Classroom: ${err.message}` });
     }
   }
 );
@@ -125,7 +134,7 @@ classroomRouter.post('/sync-assignment', requireAuth, async (req: AuthenticatedR
     });
   } catch (err: any) {
     logger.error(`Live assignment fetch failure: ${err.message}`, (req as any).executionId, { error: err.message, stack: err.stack });
-    res.status(500).json({ error: `Failed to load live assignment from Classroom: ${err.message}` });
+    res.status(getUpstreamErrorStatus(err)).json({ error: `Failed to load live assignment from Classroom: ${err.message}` });
   }
 });
 
@@ -144,7 +153,7 @@ classroomRouter.get('/drive-file/:fileId', requireAuth, async (req: Authenticate
       res.send(extracted.textContent || '');
     }
   } catch (err: any) {
-    res.status(500).json({ error: `Failed to retrieve Drive file: ${err.message}` });
+    res.status(getUpstreamErrorStatus(err)).json({ error: `Failed to retrieve Drive file: ${err.message}` });
   }
 });
 
@@ -197,15 +206,6 @@ classroomRouter.post(
       const existingEval = evalSnap.exists ? evalSnap.data() : null;
 
       const comments = existingEval?.comments ? [...existingEval.comments] : [];
-      if (overallFeedback) {
-        comments.push({
-          id: `comment_${Date.now()}`,
-          author: 'Teacher',
-          content: overallFeedback,
-          createdAt: new Date().toISOString(),
-          syncedToDriveOrClassroom: syncStatus === 'SYNCED_DRAFT',
-        });
-      }
 
       await evalRef.set(
         {
@@ -229,7 +229,7 @@ classroomRouter.post(
         classroomSyncError: syncError,
       });
     } catch (err: any) {
-      res.status(500).json({ error: `Failed to save grade: ${err.message}` });
+      res.status(getUpstreamErrorStatus(err)).json({ error: `Failed to save grade: ${err.message}` });
     }
   }
 );
@@ -319,7 +319,7 @@ classroomRouter.post(
         results,
       });
     } catch (err: any) {
-      res.status(500).json({ error: `Failed to return submissions: ${err.message}` });
+      res.status(getUpstreamErrorStatus(err)).json({ error: `Failed to return submissions: ${err.message}` });
     }
   }
 );

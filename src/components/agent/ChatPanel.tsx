@@ -3,6 +3,7 @@ import { Send, Bot, User, Sparkles, Loader2, AlertCircle, Paperclip, FileText, X
 import { collection, query, orderBy, onSnapshot } from 'firebase/firestore';
 import { db } from '../../config/firebase';
 import { ToolCallBadge } from './ToolCallBadge';
+import { MarkdownRenderer } from './MarkdownRenderer';
 import { sendChatMessage } from './api';
 import { PersistedChatMessage, ToolCallItem } from '../../types/classroom';
 import { useAuth } from '../../context/AuthContext';
@@ -230,11 +231,6 @@ export const ChatPanel: React.FC<ChatPanelProps> = ({
             {title}
           </span>
         </div>
-        {selectedStudentId && (
-          <span className="text-[10px] text-purple-300/80 bg-purple-900/30 px-2 py-0.5 rounded border border-purple-800/40">
-            Targeting Student: {selectedStudentId}
-          </span>
-        )}
       </div>
 
       {/* Message List */}
@@ -303,7 +299,11 @@ export const ChatPanel: React.FC<ChatPanelProps> = ({
                 )}
 
                 {/* Message Content */}
-                <div className="whitespace-pre-wrap">{msg.content}</div>
+                {msg.sender === 'agent' ? (
+                  <MarkdownRenderer content={msg.content} />
+                ) : (
+                  <div className="whitespace-pre-wrap">{msg.content}</div>
+                )}
               </div>
             </div>
           ))

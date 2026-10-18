@@ -68,7 +68,7 @@ export interface CriterionEvaluation {
 
 export interface SubmissionComment {
   id: string;
-  author: 'Teacher' | 'Agent';
+  author: 'Teacher' | 'Agent' | 'Student';
   content: string;
   createdAt: string;
   syncedToDriveOrClassroom: boolean;

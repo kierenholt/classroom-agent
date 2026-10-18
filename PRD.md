@@ -185,9 +185,10 @@ The application occupies a locked full-viewport dark container (`h-screen w-scre
     - Criterion title, description, and point allocation (`score` input out of `maxPoints`).
     - Criterion-specific feedback / justification text area (populated by the agent or editable by the teacher).
   - Includes an **"Edit Rubric"** toggle (`data-testid="edit-rubric-button"`) allowing manual inspection or quick prompt shortcut to the agent.
-- **Overall Summary Feedback & Comments (`data-testid="overall-feedback-section"`)**:
-  - Editable **Overall Summary Feedback** textarea (`data-testid="overall-feedback-input"`), populated automatically by the agent during grading or edited by the teacher.
-  - **Comments Feed (`data-testid="submission-comments-list"`)**: Displays synced feedback comments (with timestamp, author badge `Agent` / `Teacher`, and sync status to Google Drive / Classroom).
+- **Submission Comments Dialogue Thread (`data-testid="submission-comments-section"`)**:
+  - Live 2-way dialogue thread with student (`data-testid="submission-comments-list"`), displaying messages with timestamps and author badges (`Student`, `Teacher`).
+  - Comment Composer (`data-testid="submission-comment-input"` and `data-testid="send-submission-comment-button"`): Allows the teacher to type and send messages directly to the student.
+  - Overall Summary Feedback textarea is removed from Zone C to eliminate pointless repetition: agent evaluation critiques and scoring justifications are delivered exclusively in the Co-Pilot Chat Panel stream on the right.
 
 ### 4.3 30% Right Pane: Persistent Agent Co-Pilot (`ChatPanel`)
 
@@ -356,7 +357,7 @@ All endpoints require a valid Firebase ID token + Google OAuth access token in h
 ## 9. Testing, Observability & `data-testid` Contract
 
 In compliance with project testing rules:
-- All Playwright E2E and integration tests run sequentially one at a time (`node scripts/run_tests.js <test-name> local 1`).
+- All Playwright E2E and integration tests run sequentially one at a time via the `npm` command (`npm test -- <test-name> local 1`).
 - Every test follows the naming convention: `methodname_initialstate_expectedbehaviour_test()`.
 - Any mock data required for E2E testing is seeded during test setup and cleaned up in teardown; zero mock or dummy data exists in production code.
 
@@ -368,6 +369,6 @@ In compliance with project testing rules:
 - **Zone B (Submission Preview)**:
   - `attachment-switcher`, `attachment-tab-{attachmentId}`, `submission-preview-container`, `preview-pdf-frame`, `preview-code-block`, `preview-text-content`, `preview-image`, `preview-link-card`
 - **Zone C (Rubric & Marking)**:
-  - `grading-header`, `total-grade-input`, `classroom-sync-status`, `save-draft-grade-button`, `return-submission-button`, `rubric-breakdown-list`, `rubric-criterion-{criterionId}`, `criterion-score-input-{criterionId}`, `criterion-comment-input-{criterionId}`, `overall-feedback-input`, `submission-comments-list`
+  - `grading-header`, `total-grade-input`, `classroom-sync-status`, `save-draft-grade-button`, `return-submission-button`, `rubric-breakdown-list`, `rubric-criterion-{criterionId}`, `criterion-score-input-{criterionId}`, `criterion-comment-input-{criterionId}`, `submission-comments-section`, `submission-comments-list`, `submission-comment-input`, `send-submission-comment-button`
 - **30% Agent Pane (`ChatPanel` & `ToolCallBadge`)**:
   - `chat-window`, `tool-call-badge`, `tool-call-header`, `tool-call-expander`, `tool-call-details`, `chat-input`, `chat-send-button`, `chat-attach-button`

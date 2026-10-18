@@ -4,7 +4,7 @@ import { WorkspaceLayout } from './components/layout/WorkspaceLayout';
 import { GraduationCap, LogIn, ShieldAlert, Sparkles, Loader2 } from 'lucide-react';
 
 export const App: React.FC = () => {
-  const { user, loading, signInWithGoogle } = useAuth();
+  const { user, googleAccessToken, loading, signInWithGoogle } = useAuth();
   const [authError, setAuthError] = React.useState<string | null>(null);
   const [signingIn, setSigningIn] = React.useState(false);
 
@@ -17,7 +17,7 @@ export const App: React.FC = () => {
     );
   }
 
-  if (!user) {
+  if (!user || !googleAccessToken) {
     const handleSignIn = async () => {
       setSigningIn(true);
       setAuthError(null);
@@ -48,6 +48,13 @@ export const App: React.FC = () => {
               Inspect submissions, configure rubrics, and stream automated evaluations directly to Classroom.
             </p>
           </div>
+
+          {user && !googleAccessToken && !authError && (
+            <div className="w-full p-3 bg-amber-950/50 border border-amber-800/60 rounded-lg text-amber-200 text-xs flex items-center space-x-2 text-left">
+              <ShieldAlert className="w-4 h-4 shrink-0 text-amber-400" />
+              <span>Your Google Classroom OAuth token has expired. Please sign in again to refresh Classroom access.</span>
+            </div>
+          )}
 
           {authError && (
             <div className="w-full p-3 bg-red-950/60 border border-red-800/60 rounded-lg text-red-300 text-xs flex items-center space-x-2 text-left">

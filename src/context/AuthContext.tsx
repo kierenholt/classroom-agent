@@ -15,20 +15,45 @@ interface AuthContextType {
   googleAccessToken: string | null;
   signInWithGoogle: () => Promise<void>;
   logOut: () => Promise<void>;
+  clearGoogleAccessToken: () => void;
   getAuthHeaders: () => Promise<{ Authorization: string; 'X-Google-Access-Token': string }>;
 }
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
 const GOOGLE_TOKEN_STORAGE_KEY = 'classroom_agent_google_access_token';
+const GOOGLE_TOKEN_EXPIRY_KEY = 'classroom_agent_google_token_expiry';
 const CUSTOM_TOKEN_STORAGE_KEY = 'classroom_agent_custom_token';
+// Google OAuth access tokens expire after 3600s (60 mins); refresh at 55 mins
+const GOOGLE_TOKEN_TTL_MS = 55 * 60 * 1000;
+
+function getValidStoredGoogleToken(): string | null {
+  const token = sessionStorage.getItem(GOOGLE_TOKEN_STORAGE_KEY);
+  if (!token) return null;
+  const expiryStr = sessionStorage.getItem(GOOGLE_TOKEN_EXPIRY_KEY);
+  if (expiryStr) {
+    const expiry = Number(expiryStr);
+    if (!Number.isNaN(expiry) && Date.now() > expiry) {
+      sessionStorage.removeItem(GOOGLE_TOKEN_STORAGE_KEY);
+      sessionStorage.removeItem(GOOGLE_TOKEN_EXPIRY_KEY);
+      return null;
+    }
+  }
+  return token;
+}
 
 export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const [user, setUser] = useState<User | null>(null);
   const [loading, setLoading] = useState(true);
   const [googleAccessToken, setGoogleAccessToken] = useState<string | null>(() => {
-    return sessionStorage.getItem(GOOGLE_TOKEN_STORAGE_KEY);
+    return getValidStoredGoogleToken();
   });
+
+  const clearGoogleAccessToken = useCallback(() => {
+    sessionStorage.removeItem(GOOGLE_TOKEN_STORAGE_KEY);
+    sessionStorage.removeItem(GOOGLE_TOKEN_EXPIRY_KEY);
+    setGoogleAccessToken(null);
+  }, []);
 
   useEffect(() => {
     let attemptedTokenSignIn = false;
@@ -36,10 +61,8 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     const unsubscribe = onAuthStateChanged(auth, async (currentUser) => {
       if (currentUser) {
         setUser(currentUser);
-        const storedToken = sessionStorage.getItem(GOOGLE_TOKEN_STORAGE_KEY);
-        if (storedToken) {
-          setGoogleAccessToken(storedToken);
-        }
+        const storedToken = getValidStoredGoogleToken();
+        setGoogleAccessToken(storedToken);
         setLoading(false);
         return;
       }
@@ -52,7 +75,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
           try {
             const result = await signInWithCustomToken(auth, customToken);
             setUser(result.user);
-            const storedToken = sessionStorage.getItem(GOOGLE_TOKEN_STORAGE_KEY);
+            const storedToken = getValidStoredGoogleToken();
             if (storedToken) {
               setGoogleAccessToken(storedToken);
             }
@@ -62,6 +85,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
             console.error('[AuthContext] Failed to sign in with custom token:', err);
             sessionStorage.removeItem(CUSTOM_TOKEN_STORAGE_KEY);
             sessionStorage.removeItem(GOOGLE_TOKEN_STORAGE_KEY);
+            sessionStorage.removeItem(GOOGLE_TOKEN_EXPIRY_KEY);
             setGoogleAccessToken(null);
           }
         }
@@ -82,6 +106,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         throw new Error('Google Sign-In completed but no Google OAuth access token was returned.');
       }
       sessionStorage.setItem(GOOGLE_TOKEN_STORAGE_KEY, token);
+      sessionStorage.setItem(GOOGLE_TOKEN_EXPIRY_KEY, String(Date.now() + GOOGLE_TOKEN_TTL_MS));
       setGoogleAccessToken(token);
     } catch (error) {
       console.error('Error signing in with Google:', error);
@@ -91,6 +116,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
   const logOut = async () => {
     sessionStorage.removeItem(GOOGLE_TOKEN_STORAGE_KEY);
+    sessionStorage.removeItem(GOOGLE_TOKEN_EXPIRY_KEY);
     sessionStorage.removeItem(CUSTOM_TOKEN_STORAGE_KEY);
     setGoogleAccessToken(null);
     await signOut(auth);
@@ -102,15 +128,16 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       throw new Error('[Auth Failure] Unauthenticated request: Teacher user is not signed in.');
     }
     const idToken = await activeUser.getIdToken();
-    const gToken = googleAccessToken || sessionStorage.getItem(GOOGLE_TOKEN_STORAGE_KEY);
+    const gToken = getValidStoredGoogleToken() || googleAccessToken;
     if (!gToken) {
-      throw new Error('[Auth Failure] Missing Google OAuth access token. Please re-authenticate.');
+      clearGoogleAccessToken();
+      throw new Error('[Auth Failure] Missing or expired Google OAuth access token. Please re-authenticate.');
     }
     return {
       Authorization: `Bearer ${idToken}`,
       'X-Google-Access-Token': gToken,
     };
-  }, [user, googleAccessToken]);
+  }, [user, googleAccessToken, clearGoogleAccessToken]);
 
   return (
     <AuthContext.Provider
@@ -120,6 +147,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         googleAccessToken,
         signInWithGoogle,
         logOut,
+        clearGoogleAccessToken,
         getAuthHeaders,
       }}
     >

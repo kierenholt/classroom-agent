@@ -1,4 +1,5 @@
 import React, { useState } from 'react';
+import { GraduationCap } from 'lucide-react';
 import { TopTabBar, TabItem } from './TopTabBar';
 import { AssignmentWorkspace } from '../workspace/AssignmentWorkspace';
 import { ChatPanel } from '../agent/ChatPanel';
@@ -13,7 +14,8 @@ interface OpenAssignmentSession {
 
 export const WorkspaceLayout: React.FC = () => {
   const [sessions, setSessions] = useState<OpenAssignmentSession[]>([]);
-  const [activeTabId, setActiveTabId] = useState<string>('__new__');
+  const [activeTabId, setActiveTabId] = useState<string | null>(null);
+  const [isPickerOpen, setIsPickerOpen] = useState<boolean>(false);
 
   // Derive top tabs list
   const tabs: TabItem[] = sessions.map((s) => ({
@@ -29,6 +31,7 @@ export const WorkspaceLayout: React.FC = () => {
     const existingIndex = sessions.findIndex((s) => s.assignmentId === assignmentId);
     if (existingIndex !== -1) {
       setActiveTabId(assignmentId);
+      setIsPickerOpen(false);
       return;
     }
 
@@ -41,6 +44,7 @@ export const WorkspaceLayout: React.FC = () => {
 
     setSessions((prev) => [...prev, newSession]);
     setActiveTabId(assignmentId);
+    setIsPickerOpen(false);
   };
 
   const handleUpdateSessionMetadata = (
@@ -64,7 +68,7 @@ export const WorkspaceLayout: React.FC = () => {
         if (filtered.length > 0) {
           setActiveTabId(filtered[filtered.length - 1].assignmentId);
         } else {
-          setActiveTabId('__new__');
+          setActiveTabId(null);
         }
       }
       return filtered;
@@ -83,17 +87,32 @@ export const WorkspaceLayout: React.FC = () => {
       <TopTabBar
         tabs={tabs}
         activeTabId={activeTabId}
-        onSelectTab={(id) => setActiveTabId(id)}
+        isPickerOpen={isPickerOpen}
+        onSelectTab={(id) => {
+          setActiveTabId(id);
+          setIsPickerOpen(false);
+        }}
         onCloseTab={handleCloseTab}
-        onNewTab={() => setActiveTabId('__new__')}
+        onNewTab={() => setIsPickerOpen(true)}
       />
 
       {/* Main Workspace Body */}
       <div className="flex-1 overflow-hidden relative">
-        {/* Assignment Picker View (renders when activeTabId is '__new__' or when no assignments are open) */}
-        <div className={`w-full h-full ${activeTabId === '__new__' ? 'flex' : 'hidden'}`}>
-          <AssignmentPickerView onOpenAssignment={handleOpenAssignment} />
-        </div>
+        {/* Empty Workspace State (renders when no assignment tab is active) */}
+        {sessions.length === 0 && (
+          <div
+            data-testid="empty-workspace-state"
+            className="w-full h-full flex flex-col items-center justify-center text-gray-500 p-6 select-none"
+          >
+            <div className="w-14 h-14 rounded-2xl bg-[#161b22] border border-[#30363d] flex items-center justify-center mb-4">
+              <GraduationCap className="w-7 h-7 text-purple-400/70" />
+            </div>
+            <h2 className="text-sm font-semibold text-gray-300">No Assignment Open</h2>
+            <p className="text-xs text-gray-500 mt-1 text-center max-w-xs">
+              Click <span className="text-purple-300 font-medium">+ Assignment</span> in the top bar to select a class and assignment.
+            </p>
+          </div>
+        )}
 
         {/* Persistent In-Memory Session Containers: 70% Left Workspace + 30% Right Agent Pane */}
         {sessions.map((session) => {
@@ -124,7 +143,15 @@ export const WorkspaceLayout: React.FC = () => {
             </div>
           );
         })}
+
+        {/* Assignment Picker Modal */}
+        <AssignmentPickerView
+          isOpen={isPickerOpen}
+          onClose={() => setIsPickerOpen(false)}
+          onOpenAssignment={handleOpenAssignment}
+        />
       </div>
     </div>
   );
 };
+

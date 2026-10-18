@@ -80,7 +80,7 @@ export const gradingToolDeclarations = [
   {
     name: 'evaluate_and_grade_submission',
     description:
-      'Grades an individual student submission according to the rubric. Patches draftGrade directly to Google Classroom API and saves rubric breakdown & feedback comments to the Firestore sidecar. Call once per student.',
+      'Grades an individual student submission according to the rubric. Writes the grade directly to Google Classroom API and saves the rubric breakdown to the Firestore sidecar. Explains comprehensive critique and rationale directly in the co-pilot chat for the teacher. Call once per student.',
     parameters: {
       type: 'object',
       properties: {
@@ -98,8 +98,8 @@ export const gradingToolDeclarations = [
             required: ['criterionId', 'score', 'comment'],
           },
         },
-        draftGrade: { type: 'number', description: 'Total draft grade out of assignment maxPoints' },
-        overallFeedback: { type: 'string', description: 'Comprehensive constructive feedback for the student' },
+        draftGrade: { type: 'number', description: 'Total grade out of assignment maxPoints to assign to the student' },
+        overallFeedback: { type: 'string', description: 'Comprehensive constructive feedback for the teacher to review in chat' },
       },
       required: ['studentId', 'rubricScores', 'draftGrade', 'overallFeedback'],
     },
@@ -306,10 +306,10 @@ export async function executeGradingTool(
         throw new Error(`Student ${studentId} submission does not exist in Google Classroom.`);
       }
 
-      let syncStatus = 'SYNCED_DRAFT';
+      let syncStatus = 'SYNCED_GRADE';
       let syncError: string | undefined;
 
-      // 1. Attempt write-back to Google Classroom API
+      // 1. Write grade directly to Google Classroom API immediately (assignedGrade + draftGrade)
       try {
         await patchSubmissionGrade(
           googleAccessToken,
@@ -317,41 +317,47 @@ export async function executeGradingTool(
           courseWorkId,
           liveSub.submissionId,
           draftGrade,
-          undefined
+          draftGrade
         );
+        try {
+          await returnSubmission(
+            googleAccessToken,
+            courseId,
+            courseWorkId,
+            liveSub.submissionId
+          );
+          syncStatus = 'RETURNED';
+        } catch {
+          syncStatus = 'SYNCED_GRADE';
+        }
       } catch (err: any) {
         if (err.message && err.message.includes('403')) {
           syncStatus = 'LOCAL_ONLY_PERMISSION_DENIED';
           syncError =
-            'Google Classroom API draftGrade write-back requires coursework created by this app. Grade saved in Classroom Agent sidecar.';
+            'Google Classroom API grade write-back requires coursework created by this app. Grade saved in Classroom Agent sidecar.';
         } else {
           syncStatus = 'ERROR';
           syncError = err.message || 'Failed to patch grade in Google Classroom.';
         }
       }
 
-      // 2. Prepare submission comments & persist to Firestore Sidecar (evaluations/{studentId})
+      // 2. Persist evaluation to Firestore Sidecar (evaluations/{studentId})
+      // NOTE: Submission comments are reserved strictly for genuine 2-way dialogue with the student.
+      // Agent feedback is delivered exclusively in the Co-Pilot Chat Panel and NOT duplicated into comments.
       const evalRef = assignRef.collection('evaluations').doc(liveSub.studentId);
       const evalSnap = await evalRef.get();
       const existingEval = evalSnap.exists ? evalSnap.data() : null;
       const existingComments = existingEval?.comments || [];
-
-      const newComment = {
-        id: `comment_${Date.now()}`,
-        author: 'Agent',
-        content: `Evaluated by Classroom Agent:\nScore: ${draftGrade}/${assignment.maxPoints}\n\n${overallFeedback}`,
-        createdAt: new Date().toISOString(),
-        syncedToDriveOrClassroom: syncStatus === 'SYNCED_DRAFT',
-      };
 
       await evalRef.set(
         {
           studentId: liveSub.studentId,
           submissionId: liveSub.submissionId,
           draftGrade,
+          assignedGrade: draftGrade,
           rubricBreakdown: rubricScores || [],
-          overallFeedback,
-          comments: [...existingComments, newComment],
+          overallFeedback: overallFeedback || '',
+          comments: existingComments,
           classroomSyncStatus: syncStatus,
           classroomSyncError: syncError || null,
           updatedAt: new Date().toISOString(),
@@ -363,8 +369,11 @@ export async function executeGradingTool(
         success: true,
         studentId: liveSub.studentId,
         studentName: liveSub.studentName,
-        draftGrade,
+        grade: draftGrade,
+        assignedGrade: draftGrade,
         maxPoints: assignment.maxPoints,
+        rubricScores: rubricScores || [],
+        feedback: overallFeedback || '',
         classroomSyncStatus: syncStatus,
         syncNotice: syncError,
       };

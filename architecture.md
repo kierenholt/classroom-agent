@@ -98,7 +98,7 @@ classroom-agent/
 │       └── tools/
 │           └── gradingTools.ts   # Tool declarations & executors (evaluate_and_grade_submission, etc.)
 ├── scripts/
-│   └── run_tests.js              # Sequential test runner (`node scripts/run_tests.js <name> local 1`)
+│   └── run_tests.js              # Sequential test runner (`npm test -- <name> local 1`)
 ├── TESTING.md                    # E2E & Live Google Classroom test setup & OAuth refresh token guide
 └── tests/
     ├── helpers/

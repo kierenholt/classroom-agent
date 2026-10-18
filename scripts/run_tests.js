@@ -2,7 +2,7 @@
 
 /**
  * Sequential Test Runner
- * Usage: node scripts/run_tests.js <test-name-or-file> local 1
+ * Usage: npm test -- <test-name-or-file> local 1
  */
 
 import { spawn } from 'child_process';

@@ -55,41 +55,37 @@ export const SubmissionPreviewZone: React.FC<SubmissionPreviewZoneProps> = ({ su
       try {
         const headers = await getAuthHeaders();
 
-        await Promise.all([
+        const [fetchedText, fetchedBlobUrl] = await Promise.all([
           needsText
             ? (async () => {
                 const res = await fetch(
                   `${env.API_BASE_URL}/classroom/drive-file/${encodeURIComponent(fileId)}?exportType=text`,
                   { headers }
                 );
-                if (!cancelled) {
-                  if (res.ok) {
-                    const text = await res.text();
-                    setFetchedTextMap((prev) => ({ ...prev, [fileId]: text }));
-                  } else {
-                    setFetchedTextMap((prev) => ({ ...prev, [fileId]: '' }));
-                  }
-                }
+                return res.ok ? await res.text() : '';
               })()
-            : Promise.resolve(),
+            : Promise.resolve(undefined),
           needsPreviewBlob
             ? (async () => {
                 const res = await fetch(
                   `${env.API_BASE_URL}/classroom/drive-file/${encodeURIComponent(fileId)}?exportType=preview`,
                   { headers }
                 );
-                if (!cancelled) {
-                  if (res.ok) {
-                    const blob = await res.blob();
-                    const objectUrl = URL.createObjectURL(blob);
-                    setFetchedPreviewUrlMap((prev) => ({ ...prev, [fileId]: objectUrl }));
-                  } else {
-                    setFetchedPreviewUrlMap((prev) => ({ ...prev, [fileId]: '' }));
-                  }
-                }
+                if (!res.ok) return '';
+                const blob = await res.blob();
+                return URL.createObjectURL(blob);
               })()
-            : Promise.resolve(),
+            : Promise.resolve(undefined),
         ]);
+
+        if (!cancelled) {
+          if (fetchedText !== undefined) {
+            setFetchedTextMap((prev) => ({ ...prev, [fileId]: fetchedText }));
+          }
+          if (fetchedBlobUrl !== undefined) {
+            setFetchedPreviewUrlMap((prev) => ({ ...prev, [fileId]: fetchedBlobUrl }));
+          }
+        }
       } catch (err) {
         console.error('Failed to fetch Drive preview:', err);
         if (!cancelled) {
@@ -192,7 +188,7 @@ export const SubmissionPreviewZone: React.FC<SubmissionPreviewZoneProps> = ({ su
 
         {/* View mode toggle & external link */}
         <div className="flex items-center space-x-2">
-          {currentAttachment && resolvedTextContent && (
+          {env.ENABLE_EXTRACTED_TEXT_TOGGLE && currentAttachment && resolvedTextContent && (
             <button
               data-testid="toggle-extracted-text-button"
               onClick={() => setViewMode((m) => (m === 'rendered' ? 'raw' : 'rendered'))}

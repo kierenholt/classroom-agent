@@ -38,7 +38,7 @@ export const AssignmentWorkspace: React.FC<AssignmentWorkspaceProps> = ({
   onSelectStudent,
   onAssignmentLoaded,
 }) => {
-  const { getAuthHeaders } = useAuth();
+  const { getAuthHeaders, clearGoogleAccessToken } = useAuth();
   const [liveAssignment, setLiveAssignment] = useState<AssignmentDoc | null>(null);
   const [liveSubmissions, setLiveSubmissions] = useState<StudentSubmissionDoc[]>([]);
   const [sidecarRubric, setSidecarRubric] = useState<AssignmentRubric | undefined>(undefined);
@@ -71,6 +71,10 @@ export const AssignmentWorkspace: React.FC<AssignmentWorkspaceProps> = ({
 
         if (!res.ok) {
           const errText = await res.text();
+          if (res.status === 401 || /invalid credentials/i.test(errText)) {
+            clearGoogleAccessToken();
+            return;
+          }
           throw new Error(`Failed to load live Classroom workspace: ${errText}`);
         }
 
@@ -91,7 +95,7 @@ export const AssignmentWorkspace: React.FC<AssignmentWorkspaceProps> = ({
         setLoading(false);
       }
     },
-    [assignmentId, getAuthHeaders]
+    [assignmentId, getAuthHeaders, clearGoogleAccessToken]
   );
 
   useEffect(() => {
@@ -191,6 +195,94 @@ export const AssignmentWorkspace: React.FC<AssignmentWorkspaceProps> = ({
     }
   }, [mergedSubmissions, selectedStudentId, onSelectStudent]);
 
+  // Local unsaved edits map keyed by studentId
+  const [localEditsMap, setLocalEditsMap] = useState<
+    Record<
+      string,
+      {
+        totalGrade: number | '';
+        rubricBreakdown: CriterionEvaluation[];
+        overallFeedback: string;
+        dirty: boolean;
+      }
+    >
+  >({});
+
+  // Checked student IDs in Zone A for batch actions
+  const [checkedStudentIds, setCheckedStudentIds] = useState<string[]>([]);
+
+  // Clear local dirty flag for a student when remote Firestore sidecar updates their evaluation
+  useEffect(() => {
+    setLocalEditsMap((prev) => {
+      const next = { ...prev };
+      let changed = false;
+      for (const studentId of Object.keys(evaluationsMap)) {
+        if (next[studentId] && !next[studentId].dirty) {
+          delete next[studentId];
+          changed = true;
+        }
+      }
+      return changed ? next : prev;
+    });
+  }, [evaluationsMap]);
+
+  // Helper to get effective grading state for any student
+  const getStudentEffectiveEdit = useCallback(
+    (sub: StudentSubmissionDoc) => {
+      const local = localEditsMap[sub.studentId];
+      if (local) return local;
+
+      const criteria = mergedAssignment?.rubric?.criteria || [];
+      const initialBreakdown: CriterionEvaluation[] = criteria.map((crit) => {
+        const existing = sub.rubricBreakdown?.find((b) => b.criterionId === crit.id);
+        return existing || { criterionId: crit.id, score: 0, comment: '' };
+      });
+
+      return {
+        totalGrade: (sub.draftGrade ?? sub.assignedGrade ?? '') as number | '',
+        rubricBreakdown: initialBreakdown,
+        overallFeedback: sub.overallFeedback || '',
+        dirty: false,
+      };
+    },
+    [localEditsMap, mergedAssignment]
+  );
+
+  const handleUpdateStudentScore = useCallback(
+    (studentId: string, newScore: number | '') => {
+      const sub = mergedSubmissions.find((s) => s.studentId === studentId);
+      if (!sub) return;
+      const current = getStudentEffectiveEdit(sub);
+      setLocalEditsMap((prev) => ({
+        ...prev,
+        [studentId]: {
+          ...current,
+          totalGrade: newScore,
+          dirty: true,
+        },
+      }));
+    },
+    [mergedSubmissions, getStudentEffectiveEdit]
+  );
+
+  const handleUpdateStudentRubricAndFeedback = useCallback(
+    (studentId: string, rubricBreakdown: CriterionEvaluation[], overallFeedback: string, newTotalScore?: number) => {
+      const sub = mergedSubmissions.find((s) => s.studentId === studentId);
+      if (!sub) return;
+      const current = getStudentEffectiveEdit(sub);
+      setLocalEditsMap((prev) => ({
+        ...prev,
+        [studentId]: {
+          totalGrade: newTotalScore !== undefined ? newTotalScore : current.totalGrade,
+          rubricBreakdown,
+          overallFeedback,
+          dirty: true,
+        },
+      }));
+    },
+    [mergedSubmissions, getStudentEffectiveEdit]
+  );
+
   // Refresh live roster & submissions from Google Classroom
   const handleSyncClassroom = async () => {
     setIsSyncing(true);
@@ -201,35 +293,49 @@ export const AssignmentWorkspace: React.FC<AssignmentWorkspaceProps> = ({
     }
   };
 
-  const handleSaveDraftGrade = async (
-    draftGrade: number,
-    rubricBreakdown: CriterionEvaluation[],
-    overallFeedback: string
-  ) => {
-    if (!activeSubmission) return;
+  // Save draft grades for target studentIds (checked students or active student)
+  const handleSaveDraftStudents = async (studentIds: string[]) => {
+    const targetIds = studentIds.length > 0 ? studentIds : selectedStudentId ? [selectedStudentId] : [];
+    if (targetIds.length === 0) return;
+
     setIsSaving(true);
     try {
       const headers = await getAuthHeaders();
-      const res = await fetch(
-        `${env.API_BASE_URL}/classroom/assignments/${assignmentId}/submissions/${activeSubmission.studentId}/grade`,
-        {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            ...headers,
-          },
-          body: JSON.stringify({
-            submissionId: activeSubmission.submissionId,
-            draftGrade,
-            rubricBreakdown,
-            overallFeedback,
-          }),
-        }
-      );
+      for (const studentId of targetIds) {
+        const sub = mergedSubmissions.find((s) => s.studentId === studentId);
+        if (!sub) continue;
+        const edit = getStudentEffectiveEdit(sub);
+        const grade = typeof edit.totalGrade === 'number' ? edit.totalGrade : 0;
 
-      if (!res.ok) {
-        const errText = await res.text();
-        throw new Error(`Failed to save draft grade: ${errText}`);
+        const res = await fetch(
+          `${env.API_BASE_URL}/classroom/assignments/${assignmentId}/submissions/${studentId}/grade`,
+          {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+              ...headers,
+            },
+            body: JSON.stringify({
+              submissionId: sub.submissionId,
+              draftGrade: grade,
+              rubricBreakdown: edit.rubricBreakdown,
+              overallFeedback: edit.overallFeedback,
+            }),
+          }
+        );
+
+        if (!res.ok) {
+          const errText = await res.text();
+          throw new Error(`Failed to save draft grade for ${sub.studentName}: ${errText}`);
+        }
+
+        setLocalEditsMap((prev) => {
+          const next = { ...prev };
+          if (next[studentId]) {
+            next[studentId] = { ...next[studentId], dirty: false };
+          }
+          return next;
+        });
       }
     } catch (err: any) {
       console.error('Save grade error:', err);
@@ -239,19 +345,17 @@ export const AssignmentWorkspace: React.FC<AssignmentWorkspaceProps> = ({
     }
   };
 
-  const handleReturnSubmission = async (
-    assignedGrade: number,
-    rubricBreakdown: CriterionEvaluation[],
-    overallFeedback: string
-  ) => {
-    if (!activeSubmission) return;
+  // Return submissions for target studentIds (saves draft first if dirty or graded, then returns)
+  const handleReturnStudents = async (studentIds: string[]) => {
+    const targetIds = studentIds.length > 0 ? studentIds : selectedStudentId ? [selectedStudentId] : [];
+    if (targetIds.length === 0) return;
+
     setIsReturning(true);
     try {
-      const headers = await getAuthHeaders();
-      // First save the grade/feedback
-      await handleSaveDraftGrade(assignedGrade, rubricBreakdown, overallFeedback);
+      // Save draft grades first so any unsaved scores/feedback are persisted
+      await handleSaveDraftStudents(targetIds);
 
-      // Then return the submission
+      const headers = await getAuthHeaders();
       const res = await fetch(`${env.API_BASE_URL}/classroom/assignments/${assignmentId}/return`, {
         method: 'POST',
         headers: {
@@ -259,47 +363,17 @@ export const AssignmentWorkspace: React.FC<AssignmentWorkspaceProps> = ({
           ...headers,
         },
         body: JSON.stringify({
-          studentIds: [activeSubmission.studentId],
+          studentIds: targetIds,
         }),
       });
 
       if (!res.ok) {
         const errText = await res.text();
-        throw new Error(`Failed to return submission: ${errText}`);
+        throw new Error(`Failed to return submissions: ${errText}`);
       }
     } catch (err: any) {
       console.error('Return submission error:', err);
       alert(err.message || 'Failed to return submission');
-    } finally {
-      setIsReturning(false);
-    }
-  };
-
-  const handleReturnAllDrafts = async () => {
-    const draftStudents = mergedSubmissions.filter((s) => s.draftGrade !== undefined && s.state !== 'RETURNED');
-    if (draftStudents.length === 0) return;
-
-    setIsReturning(true);
-    try {
-      const headers = await getAuthHeaders();
-      const res = await fetch(`${env.API_BASE_URL}/classroom/assignments/${assignmentId}/return`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          ...headers,
-        },
-        body: JSON.stringify({
-          studentIds: draftStudents.map((s) => s.studentId),
-        }),
-      });
-
-      if (!res.ok) {
-        const errText = await res.text();
-        throw new Error(`Bulk return failed: ${errText}`);
-      }
-    } catch (err: any) {
-      console.error('Bulk return error:', err);
-      alert(err.message || 'Bulk return failed');
     } finally {
       setIsReturning(false);
     }
@@ -324,6 +398,8 @@ export const AssignmentWorkspace: React.FC<AssignmentWorkspaceProps> = ({
     );
   }
 
+  const activeEffectiveEdit = activeSubmission ? getStudentEffectiveEdit(activeSubmission) : null;
+
   return (
     <div className="flex-1 h-full flex overflow-hidden">
       {/* Zone A: Student Roster (22%) */}
@@ -331,24 +407,37 @@ export const AssignmentWorkspace: React.FC<AssignmentWorkspaceProps> = ({
         assignment={mergedAssignment}
         submissions={mergedSubmissions}
         selectedStudentId={selectedStudentId}
+        checkedStudentIds={checkedStudentIds}
+        onToggleCheckStudent={(studentId) => {
+          setCheckedStudentIds((prev) =>
+            prev.includes(studentId) ? prev.filter((id) => id !== studentId) : [...prev, studentId]
+          );
+        }}
         onSelectStudent={(id) => onSelectStudent(id)}
         onSyncClassroom={handleSyncClassroom}
-        onReturnAllDrafts={handleReturnAllDrafts}
+        onSaveDraftStudents={handleSaveDraftStudents}
+        onReturnStudents={handleReturnStudents}
+        onUpdateStudentScore={handleUpdateStudentScore}
+        getStudentEffectiveEdit={getStudentEffectiveEdit}
         isSyncing={isSyncing}
+        isSaving={isSaving}
         isReturning={isReturning}
       />
 
       {/* Zone B: Submission Preview Canvas (48%) */}
       <SubmissionPreviewZone submission={activeSubmission} />
 
-      {/* Zone C: Rubric Breakdown & Comments (30%) */}
+      {/* Zone C: Rubric Breakdown (30%) */}
       <RubricMarkingZone
         assignment={mergedAssignment}
         submission={activeSubmission}
-        onSaveDraftGrade={handleSaveDraftGrade}
-        onReturnSubmission={handleReturnSubmission}
-        isSaving={isSaving}
-        isReturning={isReturning}
+        rubricBreakdown={activeEffectiveEdit?.rubricBreakdown || []}
+        overallFeedback={activeEffectiveEdit?.overallFeedback || ''}
+        onUpdateRubricAndFeedback={(breakdown, feedback, newTotalScore) => {
+          if (activeSubmission) {
+            handleUpdateStudentRubricAndFeedback(activeSubmission.studentId, breakdown, feedback, newTotalScore);
+          }
+        }}
       />
     </div>
   );
