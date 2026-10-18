@@ -2073,8 +2073,11 @@ test.describe('Classroom Agent - Workspace and Agent Co-Pilot Tests', () => {
     request,
   }) => {
     const TEACHER_UID = 'teacher_live_e2e';
-    const API_BASE_URL =
-      process.env.VITE_API_BASE_URL || 'http://127.0.0.1:5001/classroom-agent-511917/europe-west2/api';
+    const isProd = process.env.TEST_ENV === 'prod' || process.env.TEST_ENV === 'production';
+    const API_BASE_URL = isProd
+      ? 'https://europe-west2-classroom-agent-511917.cloudfunctions.net/api'
+      : process.env.VITE_API_BASE_URL || 'http://127.0.0.1:5001/classroom-agent-511917/europe-west2/api';
+    const FRONTEND_ORIGIN = isProd ? 'https://classroom-agent-511917.web.app' : 'http://127.0.0.1:5173';
 
     try {
       const { getLiveTeacherAccessToken, getLiveTestTeacherCustomToken } = await import(
@@ -2094,8 +2097,8 @@ test.describe('Classroom Agent - Workspace and Agent Co-Pilot Tests', () => {
           ownerUid: TEACHER_UID,
           email: 'teacher_e2e@classroom-agent.test',
           creditsCount: 100,
-          successUrl: 'http://127.0.0.1:5173/?checkout=success&session_id={CHECKOUT_SESSION_ID}&credits=100',
-          cancelUrl: 'http://127.0.0.1:5173/?checkout=canceled',
+          successUrl: `${FRONTEND_ORIGIN}/?checkout=success&session_id={CHECKOUT_SESSION_ID}&credits=100`,
+          cancelUrl: `${FRONTEND_ORIGIN}/?checkout=canceled`,
         },
       });
       expect(createRes.ok()).toBe(true);

@@ -16,9 +16,9 @@ test.setTimeout(120000);
  */
 async function openBatchAssignmentInWorkspace(page: Page, fixture: LiveBatchFixture) {
   page.on('response', async (res) => {
-    if (res.url().includes(':5001') && res.status() >= 400) {
+    if ((res.url().includes(':5001') || res.url().includes('cloudfunctions.net') || res.url().includes('/api/')) && res.status() >= 400) {
       const body = await res.text().catch(() => '');
-      console.log(`[Browser 5001 Error Response] ${res.status()} ${res.url()} -> ${body}`);
+      console.log(`[Browser API Error Response] ${res.status()} ${res.url()} -> ${body}`);
     }
   });
 
@@ -394,6 +394,10 @@ test.describe('Classroom Agent MVP — 7 Core User Stories (Live Classroom Batch
         { criterionId: 'crit_docs', score: 35, comment: 'Clear docstring' },
       ],
       comments: [],
+    });
+
+    await page.addInitScript(() => {
+      window.localStorage.setItem('classroom_agent_grading_mode', 'draft');
     });
 
     await openBatchAssignmentInWorkspace(page, batchFixture!);

@@ -16,7 +16,11 @@ interface AuthContextType {
   signInWithGoogle: () => Promise<void>;
   logOut: () => Promise<void>;
   clearGoogleAccessToken: () => void;
-  getAuthHeaders: () => Promise<{ Authorization: string; 'X-Google-Access-Token': string }>;
+  getAuthHeaders: () => Promise<{
+    Authorization: string;
+    'X-Google-Access-Token': string;
+    'X-Classroom-Access-Token': string;
+  }>;
 }
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
@@ -67,27 +71,25 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         return;
       }
 
-      // Check for test/custom token (STRICTLY for headless E2E test runner; never in production)
-      if (!import.meta.env.PROD) {
-        const customToken = sessionStorage.getItem(CUSTOM_TOKEN_STORAGE_KEY);
-        if (customToken && !attemptedTokenSignIn) {
-          attemptedTokenSignIn = true;
-          try {
-            const result = await signInWithCustomToken(auth, customToken);
-            setUser(result.user);
-            const storedToken = getValidStoredGoogleToken();
-            if (storedToken) {
-              setGoogleAccessToken(storedToken);
-            }
-            setLoading(false);
-            return;
-          } catch (err) {
-            console.error('[AuthContext] Failed to sign in with custom token:', err);
-            sessionStorage.removeItem(CUSTOM_TOKEN_STORAGE_KEY);
-            sessionStorage.removeItem(GOOGLE_TOKEN_STORAGE_KEY);
-            sessionStorage.removeItem(GOOGLE_TOKEN_EXPIRY_KEY);
-            setGoogleAccessToken(null);
+      // Check for cryptographic Firebase Admin custom token (used by headless E2E test runner)
+      const customToken = sessionStorage.getItem(CUSTOM_TOKEN_STORAGE_KEY);
+      if (customToken && !attemptedTokenSignIn) {
+        attemptedTokenSignIn = true;
+        try {
+          const result = await signInWithCustomToken(auth, customToken);
+          setUser(result.user);
+          const storedToken = getValidStoredGoogleToken();
+          if (storedToken) {
+            setGoogleAccessToken(storedToken);
           }
+          setLoading(false);
+          return;
+        } catch (err) {
+          console.error('[AuthContext] Failed to sign in with custom token:', err);
+          sessionStorage.removeItem(CUSTOM_TOKEN_STORAGE_KEY);
+          sessionStorage.removeItem(GOOGLE_TOKEN_STORAGE_KEY);
+          sessionStorage.removeItem(GOOGLE_TOKEN_EXPIRY_KEY);
+          setGoogleAccessToken(null);
         }
       }
 
@@ -124,7 +126,11 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     await signOut(auth);
   };
 
-  const getAuthHeaders = useCallback(async (): Promise<{ Authorization: string; 'X-Google-Access-Token': string }> => {
+  const getAuthHeaders = useCallback(async (): Promise<{
+    Authorization: string;
+    'X-Google-Access-Token': string;
+    'X-Classroom-Access-Token': string;
+  }> => {
     const activeUser = user || auth.currentUser;
     if (!activeUser) {
       throw new Error('[Auth Failure] Unauthenticated request: Teacher user is not signed in.');
@@ -138,6 +144,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     return {
       Authorization: `Bearer ${idToken}`,
       'X-Google-Access-Token': gToken,
+      'X-Classroom-Access-Token': gToken,
     };
   }, [user, googleAccessToken, clearGoogleAccessToken]);
 

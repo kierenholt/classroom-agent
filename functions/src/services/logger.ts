@@ -94,14 +94,22 @@ export function requestLogger(req: AuthenticatedLogRequest, res: Response, next:
   const path = req.originalUrl || req.url;
 
   // Log request arrival
-  logger.info(`--> ${method} ${path}`, executionId, {
+  const arrivalLogPromise = logger.info(`--> ${method} ${path}`, executionId, {
     method,
     path,
     ip: req.ip || 'unknown',
   });
 
-  // Log on response completion
-  res.on('finish', () => {
+  // Intercept res.end so both arrival and completion logs flush to Firestore before Cloud Run throttles CPU
+  const originalEnd = res.end.bind(res);
+  let endCalled = false;
+
+  (res as any).end = function (...args: any[]) {
+    if (endCalled) {
+      return originalEnd(...args);
+    }
+    endCalled = true;
+
     const elapsedHrTime = process.hrtime(startHrTime);
     const elapsedMs = Math.round((elapsedHrTime[0] * 1000) + (elapsedHrTime[1] / 1000000));
     const statusCode = res.statusCode;
@@ -113,7 +121,7 @@ export function requestLogger(req: AuthenticatedLogRequest, res: Response, next:
       level = 'WARN';
     }
 
-    writeFunctionLog({
+    const completionLogPromise = writeFunctionLog({
       level,
       message: `<-- ${method} ${path} ${statusCode} (${elapsedMs}ms)`,
       executionId,
@@ -124,7 +132,13 @@ export function requestLogger(req: AuthenticatedLogRequest, res: Response, next:
         durationMs: elapsedMs,
       },
     });
-  });
+
+    Promise.allSettled([arrivalLogPromise, completionLogPromise]).finally(() => {
+      originalEnd(...args);
+    });
+
+    return res;
+  };
 
   next();
 }

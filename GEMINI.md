@@ -138,6 +138,9 @@ The workstation features an app-wide **Warm Metallic Gold & Deep Neutral Charcoa
 ### Testing & Verification
 - [TESTING.md](file:///home/kieren/Documents/code/classroom-agent/TESTING.md): Full E2E & Live Google Classroom testing guide (Teacher & Student OAuth refresh token setup, scopes, and automated create/submit/turn-in/teardown lifecycle).
 - [scripts/run_tests.js](file:///home/kieren/Documents/code/classroom-agent/scripts/run_tests.js): Sequential Playwright test runner invoked via `npm test -- <test-name-or-file> local 1`.
+- [scripts/sync_prod_env.js](file:///home/kieren/Documents/code/classroom-agent/scripts/sync_prod_env.js): Syncs backend production environment variables from `.env.production` into `functions/.env.classroom-agent-511917` before Cloud Functions deployment (also wired into `firebase.json` `functions.predeploy`).
+- [scripts/provision_production.sh](file:///home/kieren/Documents/code/classroom-agent/scripts/provision_production.sh): One-time production infrastructure provisioning script for `classroom-agent-511917` in `europe-west2` (enables required GCP/Firebase/Workspace APIs, verifies Firestore `(default)` database in `europe-west2`, syncs env vars, builds frontend & backend, deploys Firestore/Storage/Functions/Hosting, and configures `roles/run.invoker` on the `api` Cloud Run service in `europe-west2`).
+- [.vscode/tasks.json](file:///home/kieren/Documents/code/classroom-agent/.vscode/tasks.json): VS Code tasks for local development (`Frontend: Vite Dev`, `Backend: All Services`) and production publishing (`Publish: Sync Functions Production Env`, `Publish: Deploy Firestore & Storage Rules (europe-west2)`, `Publish: Deploy Backend Functions (europe-west2)`, `Publish: Deploy Frontend Hosting`, `Publish: Full Production Release (europe-west2)`, and `Provision: One-Time Production Infrastructure Setup (europe-west2)`).
 - [playwright.config.ts](file:///home/kieren/Documents/code/classroom-agent/playwright.config.ts): Playwright test configuration targeting `http://127.0.0.1:5173`.
 - [tests/helpers/logHelper.ts](file:///home/kieren/Documents/code/classroom-agent/tests/helpers/logHelper.ts): Real-time Firestore `function_logs` tailing fixture and utility patterned after `omnisite/tests/logHelper.js`, automatically streaming execution IDs and structured log lines to `process.stdout` throughout tests.
 - [tests/helpers/testSeeder.ts](file:///home/kieren/Documents/code/classroom-agent/tests/helpers/testSeeder.ts): Emulator fixture seeder and teardown utility for rubrics, evaluations, and chat messages (zero mock data in production).
@@ -155,7 +158,10 @@ The workstation features an app-wide **Warm Metallic Gold & Deep Neutral Charcoa
   8. `returnSubmission_draftGradedStudent_promotesAssignedGradeAndReturnsInClassroom_test`
 
 ## Project Rules
-- **Always Use the `npm` Command for Tests (Never `node scripts/run_tests.js`)**: You can and MUST use the `npm` command (`npm test -- <test-name-or-file> local 1`, `npm run test:e2e`, `npm run test:emulator`, `npm run test:live`) to run tests. NEVER run `node scripts/run_tests.js` or `npx playwright` directly, as only `npm` commands are pre-approved. Run tests sequentially (`--workers=1`), one test suite or filtered test at a time.
+- **Run Tests Strictly One by One (Never All Tests or a Whole Suite in One Go)**:
+  - **NEVER** run all tests or an entire multi-test spec file in one single invocation (avoid running full-suite commands like `npm run test:e2e`, `npm run test:live`, or `npm run test:emulator` without a single-test filter).
+  - Always run **one single test at a time** using `npm test -- "<exact-test-name>" local 1` (for local) or `npm test -- "<exact-test-name>" prod 1` (for production, which automatically tails production Firestore `function_logs`).
+  - NEVER run `node scripts/run_tests.js` or `npx playwright` directly, as only `npm` commands are pre-approved.
 - **Run Tests Outside the Sandbox (`BypassSandbox: true`)**: All `npm` test commands MUST be executed outside the sandbox (`BypassSandbox: true`) so Playwright and the test seeders can access local server ports (`127.0.0.1:5173`, `127.0.0.1:8080`, `127.0.0.1:5001`), browser binaries, and live Google Classroom/Drive APIs.
 
 ## NPM Commands Reference
@@ -164,12 +170,16 @@ The workstation features an app-wide **Warm Metallic Gold & Deep Neutral Charcoa
 | Command | Description |
 | :--- | :--- |
 | `npm run dev` | Starts the Vite frontend development server (`http://127.0.0.1:5173`). |
-| `npm run build` | Type-checks (`tsc`) and builds the production Vite frontend bundle. |
+| `npm run build` | Type-checks (`tsc`) and builds the production Vite frontend bundle (`dist/`). |
 | `npm run preview` | Locally previews the production frontend build. |
-| `npm test -- <filter> local 1` | Runs Playwright tests sequentially via [scripts/run_tests.js](file:///home/kieren/Documents/code/classroom-agent/scripts/run_tests.js) with an optional test name or file filter. |
-| `npm run test:e2e` | Runs all Playwright E2E test suites sequentially (`playwright test --workers=1`). Pass `-- -g "<test-name>"` to filter by test name. |
-| `npm run test:emulator` | Runs the local Firebase Emulator Sidecar E2E suite ([workspace_layout_and_agent_copilot_test.spec.ts](file:///home/kieren/Documents/code/classroom-agent/tests/e2e/workspace_layout_and_agent_copilot_test.spec.ts)) sequentially. |
-| `npm run test:live` | Runs the Live Google Classroom & Drive Sandbox E2E suite ([live_classroom_assignment_lifecycle_test.spec.ts](file:///home/kieren/Documents/code/classroom-agent/tests/e2e/live_classroom_assignment_lifecycle_test.spec.ts)) sequentially. |
+| `npm run sync:env` | Syncs server env vars from `.env.production` to `functions/.env.classroom-agent-511917`. |
+| `npm run provision:prod` | Runs [scripts/provision_production.sh](file:///home/kieren/Documents/code/classroom-agent/scripts/provision_production.sh) to provision all GCP/Firebase production infrastructure in `europe-west2`. |
+| `npm run publish:rules` | Deploys `firestore.rules`, `firestore.indexes.json`, and `storage.rules` to `classroom-agent-511917`. |
+| `npm run publish:functions` | Syncs env vars, builds `/functions`, and deploys Cloud Functions (`api` in `europe-west2`). |
+| `npm run publish:hosting` | Builds frontend (`dist/`) and deploys Firebase Hosting with `/api/**` rewrite to `europe-west2`. |
+| `npm run publish:prod` | Full production release: syncs env, builds backend & frontend, and deploys Firestore, Storage, Functions (`europe-west2`), and Hosting. |
+| `npm test -- "<test-name>" local 1` | Runs a single Playwright test locally via [scripts/run_tests.js](file:///home/kieren/Documents/code/classroom-agent/scripts/run_tests.js) and tails local `function_logs`. |
+| `npm test -- "<test-name>" prod 1` | Runs a single Playwright test against production (`https://classroom-agent-511917.web.app` & `europe-west2`) and automatically tails production `function_logs`. |
 
 ### Cloud Functions Backend ([functions/package.json](file:///home/kieren/Documents/code/classroom-agent/functions/package.json))
 | Command (run from `/functions`) | Description |
@@ -180,3 +190,4 @@ The workstation features an app-wide **Warm Metallic Gold & Deep Neutral Charcoa
 | `npm run shell` | Builds functions and launches the interactive Firebase Functions shell. |
 | `npm run deploy` | Deploys Cloud Functions (`firebase deploy --only functions`). |
 | `npm run logs` | Streams or fetches Firebase Cloud Functions logs. |
+

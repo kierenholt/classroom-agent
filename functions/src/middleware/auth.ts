@@ -15,10 +15,11 @@ export async function requireAuth(req: AuthenticatedRequest, res: Response, next
     return;
   }
 
-  const googleAccessToken = req.headers['x-google-access-token'];
+  const rawTokenHeader = req.headers['x-classroom-access-token'] || req.headers['x-google-access-token'];
+  const googleAccessToken = Array.isArray(rawTokenHeader) ? rawTokenHeader[0] : rawTokenHeader;
   if (!googleAccessToken || typeof googleAccessToken !== 'string' || googleAccessToken.trim() === '') {
     res.status(401).json({
-      error: '[Auth Failure] Missing mandatory X-Google-Access-Token header. Google Classroom OAuth access is required.',
+      error: '[Auth Failure] Missing mandatory X-Classroom-Access-Token / X-Google-Access-Token header. Google Classroom OAuth access is required.',
     });
     return;
   }

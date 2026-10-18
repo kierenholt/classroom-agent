@@ -82,6 +82,11 @@ export async function startLogging(testName: string, isProduction: boolean = fal
   if (isProduction) {
     delete process.env.FIRESTORE_EMULATOR_HOST;
     delete process.env.STORAGE_EMULATOR_HOST;
+    const fs = require('fs');
+    const saPath = path.resolve(process.cwd(), process.env.FIREBASE_SERVICE_ACCOUNT_PATH || 'serviceAccountKey.json');
+    if (fs.existsSync(saPath)) {
+      dbOptions.keyFilename = saPath;
+    }
   } else {
     dbOptions.host = `${EMULATOR_HOST}:${EMULATOR_PORT}`;
     dbOptions.ssl = false;
@@ -108,8 +113,8 @@ export async function startLogging(testName: string, isProduction: boolean = fal
     }
   }
 
-  startTime = new Date();
-  console.log(`[TEST LOG] Connected to Firestore database '(default)' for test "${testName}". Tailing function_logs since ${startTime.toISOString()}...`);
+  startTime = new Date(Date.now() - 5000);
+  console.log(`[TEST LOG] Connected to ${isProduction ? 'PRODUCTION' : 'EMULATOR'} Firestore database '(default)' for test "${testName}". Tailing function_logs since ${startTime.toISOString()}...`);
 
   // Listen to function_logs collection in real time
   const unsubscribe = db.collection('function_logs')
@@ -150,6 +155,10 @@ export async function startLogging(testName: string, isProduction: boolean = fal
  * Stops tailing logs.
  */
 export async function stopLogging(): Promise<void> {
+  // Brief pause in production to allow final response logs to arrive over onSnapshot before unsubscribing
+  if (process.env.TEST_ENV === 'prod' || process.env.TEST_ENV === 'production') {
+    await new Promise((r) => setTimeout(r, 500));
+  }
   for (const tail of activeTails) {
     if (tail.unsubscribe) {
       tail.unsubscribe();
@@ -171,7 +180,8 @@ export function createLoggingFixture(forcedIsProduction?: boolean) {
   return base.extend({
     autoLog: [
       async ({}, use, testInfo) => {
-        const projectIsProd = Boolean((testInfo.project?.use as any)?.isProduction);
+        const envIsProd = process.env.TEST_ENV === 'prod' || process.env.TEST_ENV === 'production';
+        const projectIsProd = Boolean((testInfo.project?.use as any)?.isProduction) || envIsProd;
         const isProd = typeof forcedIsProduction === 'boolean' ? forcedIsProduction : projectIsProd;
         await startLogging(testInfo.title, isProd);
         await use();

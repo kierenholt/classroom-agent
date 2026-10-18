@@ -1,12 +1,20 @@
 /**
  * Test Seeder Utility for E2E Tests
- * Populates and cleans up test Sidecar fixtures (rubrics & evaluations) strictly within the local Firebase Emulator.
- * Zero mock or dummy data in production.
+ * Populates and cleans up test Sidecar fixtures (rubrics, evaluations, messages, user credits).
+ * Uses local Firestore Emulator in `local` mode and live Firestore via Admin SDK in `prod` mode,
+ * always cleaning up test documents after each test.
  */
+
+import path from 'path';
+import fs from 'fs';
+import { createRequire } from 'module';
+
+const require = createRequire(import.meta.url);
 
 const FIRESTORE_EMULATOR_HOST = process.env.VITE_FIRESTORE_EMULATOR_HOST || '127.0.0.1';
 const FIRESTORE_EMULATOR_PORT = process.env.VITE_FIRESTORE_EMULATOR_PORT || '8080';
 const PROJECT_ID = process.env.VITE_FIREBASE_PROJECT_ID || 'classroom-agent-511917';
+const IS_PROD = process.env.TEST_ENV === 'prod' || process.env.TEST_ENV === 'production';
 
 const BASE_URL = `http://${FIRESTORE_EMULATOR_HOST}:${FIRESTORE_EMULATOR_PORT}/v1/projects/${PROJECT_ID}/databases/(default)/documents`;
 
@@ -16,7 +24,45 @@ const EMULATOR_ADMIN_HEADERS = {
   Authorization: 'Bearer owner',
 };
 
+let prodDbInstance: any = null;
+
+function getProdDb(): any {
+  if (prodDbInstance) return prodDbInstance;
+  delete process.env.FIRESTORE_EMULATOR_HOST;
+  const firestoreModulePath = path.resolve(process.cwd(), 'functions/node_modules/@google-cloud/firestore');
+  const { Firestore } = require(firestoreModulePath);
+  const saPath = path.resolve(process.cwd(), process.env.FIREBASE_SERVICE_ACCOUNT_PATH || 'serviceAccountKey.json');
+  prodDbInstance = new Firestore({
+    projectId: PROJECT_ID,
+    ...(fs.existsSync(saPath) ? { keyFilename: saPath } : {}),
+    ignoreUndefinedProperties: true,
+  });
+  return prodDbInstance;
+}
+
 export async function seedTestAssignment(assignmentId: string, assignment: Record<string, any>) {
+  if (IS_PROD) {
+    const db = getProdDb();
+    const docData: Record<string, any> = {
+      updatedAt: new Date().toISOString(),
+    };
+    if (assignment.rubric) {
+      docData.rubric = {
+        id: assignment.rubric.id,
+        title: assignment.rubric.title,
+        criteria: (assignment.rubric.criteria || []).map((c: any) => ({
+          id: c.id,
+          title: c.title,
+          description: c.description || '',
+          maxPoints: Number(c.maxPoints),
+        })),
+        updatedAt: new Date().toISOString(),
+      };
+    }
+    await db.collection('assignments').doc(assignmentId).set(docData, { merge: true });
+    return;
+  }
+
   const url = `${BASE_URL}/assignments/${assignmentId}`;
 
   const fields: Record<string, any> = {
@@ -62,6 +108,36 @@ export async function seedTestAssignment(assignmentId: string, assignment: Recor
 }
 
 export async function seedTestSubmission(assignmentId: string, studentId: string, evaluation: Record<string, any>) {
+  if (IS_PROD) {
+    const db = getProdDb();
+    const docData: Record<string, any> = {
+      studentId,
+      submissionId: evaluation.submissionId || studentId,
+      overallFeedback: evaluation.overallFeedback || '',
+      classroomSyncStatus: evaluation.classroomSyncStatus || 'UNSAVED',
+      updatedAt: new Date().toISOString(),
+      rubricBreakdown: (evaluation.rubricBreakdown || []).map((b: any) => ({
+        criterionId: b.criterionId,
+        score: Number(b.score),
+        comment: b.comment || '',
+      })),
+      comments: (evaluation.comments || []).map((c: any) => ({
+        id: c.id,
+        author: c.author,
+        content: c.content,
+        createdAt: c.createdAt || new Date().toISOString(),
+        syncedToDriveOrClassroom: c.syncedToDriveOrClassroom ?? true,
+      })),
+    };
+    if (evaluation.draftGrade !== undefined) docData.draftGrade = Number(evaluation.draftGrade);
+    if (evaluation.assignedGrade !== undefined) docData.assignedGrade = Number(evaluation.assignedGrade);
+    if (evaluation.feedbackDocId !== undefined) docData.feedbackDocId = evaluation.feedbackDocId;
+    if (evaluation.feedbackDocUrl !== undefined) docData.feedbackDocUrl = evaluation.feedbackDocUrl;
+
+    await db.collection('assignments').doc(assignmentId).collection('evaluations').doc(studentId).set(docData, { merge: true });
+    return;
+  }
+
   const url = `${BASE_URL}/assignments/${assignmentId}/evaluations/${studentId}`;
 
   const fields: Record<string, any> = {
@@ -162,6 +238,20 @@ export async function seedTestChatMessage(
   messageId: string,
   message: { sender: 'user' | 'agent'; content: string; timestamp?: string; toolCalls?: any[] }
 ) {
+  if (IS_PROD) {
+    const db = getProdDb();
+    const docData: Record<string, any> = {
+      sender: message.sender,
+      content: message.content,
+      timestamp: message.timestamp || new Date().toISOString(),
+    };
+    if (message.toolCalls) {
+      docData.toolCalls = message.toolCalls;
+    }
+    await db.collection('assignments').doc(assignmentId).collection('messages').doc(messageId).set(docData, { merge: true });
+    return;
+  }
+
   const url = `${BASE_URL}/assignments/${assignmentId}/messages/${messageId}`;
   const fields: Record<string, any> = {
     sender: { stringValue: message.sender },
@@ -186,6 +276,28 @@ export async function seedTestChatMessage(
 }
 
 export async function cleanupTestAssignment(assignmentId: string, studentIds: string[] = []) {
+  if (IS_PROD) {
+    const db = getProdDb();
+    const assignmentRef = db.collection('assignments').doc(assignmentId);
+    for (const sId of studentIds) {
+      await assignmentRef.collection('evaluations').doc(sId).delete().catch(() => {});
+    }
+    try {
+      const evalSnap = await assignmentRef.collection('evaluations').get();
+      await Promise.all(evalSnap.docs.map((d: any) => d.ref.delete().catch(() => {})));
+    } catch {
+      // ignore
+    }
+    try {
+      const msgSnap = await assignmentRef.collection('messages').get();
+      await Promise.all(msgSnap.docs.map((d: any) => d.ref.delete().catch(() => {})));
+    } catch {
+      // ignore
+    }
+    await assignmentRef.delete().catch(() => {});
+    return;
+  }
+
   for (const sId of studentIds) {
     try {
       await fetch(`${BASE_URL}/assignments/${assignmentId}/evaluations/${sId}`, {
@@ -229,6 +341,19 @@ export async function cleanupTestAssignment(assignmentId: string, studentIds: st
 }
 
 export async function seedTestUserCredits(uid: string, aiCredits: number) {
+  if (IS_PROD) {
+    const db = getProdDb();
+    await db.collection('users').doc(uid).set(
+      {
+        uid,
+        aiCredits: Number(aiCredits),
+        updatedAt: new Date().toISOString(),
+      },
+      { merge: true }
+    );
+    return;
+  }
+
   const url = `${BASE_URL}/users/${uid}`;
   const now = new Date().toISOString();
   const fields: Record<string, any> = {
@@ -250,6 +375,12 @@ export async function seedTestUserCredits(uid: string, aiCredits: number) {
 }
 
 export async function deleteTestUser(uid: string) {
+  if (IS_PROD) {
+    const db = getProdDb();
+    await db.collection('users').doc(uid).delete().catch(() => {});
+    return;
+  }
+
   try {
     await fetch(`${BASE_URL}/users/${uid}`, {
       method: 'DELETE',
@@ -259,4 +390,3 @@ export async function deleteTestUser(uid: string) {
     // ignore
   }
 }
-

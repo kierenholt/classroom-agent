@@ -1,7 +1,16 @@
 import * as dotenv from 'dotenv';
 import * as path from 'path';
 
-// Load .env.local and .env from project root if not already set in process.env
+const isEmulator = process.env.FUNCTIONS_EMULATOR === 'true';
+
+// In local emulator, prioritize .env.local from project root.
+// In production or deployment discovery, prioritize functions/.env.classroom-agent-511917 and root .env.production.
+if (isEmulator) {
+  dotenv.config({ path: path.resolve(__dirname, '../../../.env.local') });
+}
+dotenv.config({ path: path.resolve(__dirname, '../../.env.classroom-agent-511917') });
+dotenv.config({ path: path.resolve(__dirname, '../../.env') });
+dotenv.config({ path: path.resolve(__dirname, '../../../.env.production') });
 dotenv.config({ path: path.resolve(__dirname, '../../../.env.local') });
 dotenv.config({ path: path.resolve(__dirname, '../../../.env') });
 

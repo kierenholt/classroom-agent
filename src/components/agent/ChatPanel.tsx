@@ -355,6 +355,7 @@ export const ChatPanel: React.FC<ChatPanelProps> = ({
       headers: {
         Authorization: headers.Authorization,
         'X-Google-Access-Token': headers['X-Google-Access-Token'],
+        'X-Classroom-Access-Token': headers['X-Classroom-Access-Token'],
       },
       body: formData,
     });

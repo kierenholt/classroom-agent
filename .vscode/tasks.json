@@ -82,6 +82,66 @@
         "group": "backend",
         "reveal": "always"
       }
+    },
+    {
+      "label": "Publish: Sync Functions Production Env",
+      "type": "shell",
+      "command": "npm run sync:env",
+      "problemMatcher": [],
+      "presentation": {
+        "group": "publish",
+        "reveal": "always"
+      }
+    },
+    {
+      "label": "Publish: Deploy Firestore & Storage Rules (europe-west2)",
+      "type": "shell",
+      "command": "npm run publish:rules",
+      "problemMatcher": [],
+      "presentation": {
+        "group": "publish",
+        "reveal": "always"
+      }
+    },
+    {
+      "label": "Publish: Deploy Backend Functions (europe-west2)",
+      "type": "shell",
+      "command": "npm run publish:functions",
+      "problemMatcher": "$tsc",
+      "presentation": {
+        "group": "publish",
+        "reveal": "always"
+      }
+    },
+    {
+      "label": "Publish: Deploy Frontend Hosting",
+      "type": "shell",
+      "command": "npm run publish:hosting",
+      "problemMatcher": "$tsc",
+      "presentation": {
+        "group": "publish",
+        "reveal": "always"
+      }
+    },
+    {
+      "label": "Publish: Full Production Release (europe-west2)",
+      "type": "shell",
+      "command": "npm run publish:prod",
+      "problemMatcher": "$tsc",
+      "presentation": {
+        "group": "publish",
+        "reveal": "always"
+      }
+    },
+    {
+      "label": "Provision: One-Time Production Infrastructure Setup (europe-west2)",
+      "type": "shell",
+      "command": "npm run provision:prod",
+      "problemMatcher": [],
+      "presentation": {
+        "group": "publish",
+        "reveal": "always"
+      }
     }
   ]
 }

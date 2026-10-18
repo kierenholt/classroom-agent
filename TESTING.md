@@ -6,20 +6,15 @@ This document details the E2E testing architecture, credential configuration, an
 
 ## 1. Core Testing Rules & Conventions
 
-1. **Sequential Execution via NPM Commands (Outside of Sandbox)**:
-   All Playwright E2E tests must be executed via `npm` commands one at a time (sequentially, `workers = 1`) and **outside of the sandbox (`BypassSandbox: true`)** so Playwright and the test seeders can reach localhost ports (`127.0.0.1:5173`, `127.0.0.1:8080`, `127.0.0.1:5001`), browser binaries, and live Google Classroom/Drive APIs:
+1. **Run Tests Strictly One by One via NPM Command (Outside of Sandbox)**:
+   - **NEVER run all tests or an entire multi-test spec file in one single go.**
+   - Always run **one individual test at a time** by passing its specific test name (`methodname_initialstate_expectedbehaviour_test`) to `npm test` with `BypassSandbox: true`:
    ```bash
-   # Run a specific test file or filter via the sequential test runner:
-   npm test -- <test-name-or-file> local 1
+   # Run ONE single local test at a time:
+   npm test -- "<exact-test-name>" local 1
 
-   # Run the local Firebase Emulator Sidecar E2E suite:
-   npm run test:emulator
-
-   # Run the Live Google Classroom & Drive Sandbox E2E suite:
-   npm run test:live
-
-   # Run all E2E tests sequentially:
-   npm run test:e2e
+   # Run ONE single production test at a time (automatically tails production function_logs):
+   npm test -- "<exact-test-name>" prod 1
    ```
 2. **Test Naming Convention**:
    Every test must follow:

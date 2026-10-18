@@ -18,6 +18,7 @@ export interface ChatRequestOptions {
   authHeaders: {
     Authorization: string;
     'X-Google-Access-Token': string;
+    'X-Classroom-Access-Token'?: string;
   };
   callbacks: ChatStreamCallbacks;
 }

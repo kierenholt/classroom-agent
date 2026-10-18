@@ -321,25 +321,41 @@ export async function submitAndTurnInAsTestStudent(
 
   const allDriveFileIds = [driveFileId, ...(attachment.additionalDriveFileIds || [])];
 
-  // Attach the Drive file(s) to the Classroom submission
-  await classroom.courses.courseWork.studentSubmissions.modifyAttachments({
-    courseId,
-    courseWorkId,
-    id: submissionId,
-    requestBody: {
-      addAttachments: allDriveFileIds.map((id) => ({
-        driveFile: { id },
-      })),
-    },
-  });
+  // Attach the Drive file(s) to the Classroom submission (with retry for transient 5xx Classroom backendError)
+  for (let attempt = 1; attempt <= 3; attempt++) {
+    try {
+      await classroom.courses.courseWork.studentSubmissions.modifyAttachments({
+        courseId,
+        courseWorkId,
+        id: submissionId,
+        requestBody: {
+          addAttachments: allDriveFileIds.map((id) => ({
+            driveFile: { id },
+          })),
+        },
+      });
+      break;
+    } catch (err: any) {
+      if (attempt === 3) throw err;
+      await new Promise((r) => setTimeout(r, 1000 * attempt));
+    }
+  }
 
-  // Turn in the submission
-  await classroom.courses.courseWork.studentSubmissions.turnIn({
-    courseId,
-    courseWorkId,
-    id: submissionId,
-    requestBody: {},
-  });
+  // Turn in the submission (with retry for transient 5xx Classroom backendError)
+  for (let attempt = 1; attempt <= 3; attempt++) {
+    try {
+      await classroom.courses.courseWork.studentSubmissions.turnIn({
+        courseId,
+        courseWorkId,
+        id: submissionId,
+        requestBody: {},
+      });
+      break;
+    } catch (err: any) {
+      if (attempt === 3) throw err;
+      await new Promise((r) => setTimeout(r, 1000 * attempt));
+    }
+  }
 
   return { submissionId, studentId, driveFileId };
 }

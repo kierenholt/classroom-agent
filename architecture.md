@@ -141,12 +141,16 @@ classroom-agent/
 
 ## 4. GCP & Firebase Project Setup (`classroom-agent-511917`)
 
-### 4.1 Provisioned Firebase Resources
+### 4.1 Provisioned Firebase & GCP Resources (`europe-west2`)
 - **Project Display Name**: `classroom-agent`
 - **Project ID**: `classroom-agent-511917`
 - **Project Number**: `82833838117`
+- **Region**: `europe-west2` (London) across Firestore, Cloud Functions (2nd Gen / Cloud Run), and Hosting API rewrites
 - **Firebase Web App**: `classroom-agent-web` (`1:82833838117:web:6646420fa24876a1112fcc`)
-- **Cloud Firestore**: `(default)` Native database in `europe-west2` with real-time updates enabled
+- **Firebase Hosting**: `https://classroom-agent-511917.web.app` (serves `dist/` with `/api/**` rewritten to `api` function in `europe-west2`)
+- **Cloud Functions (2nd Gen)**: `api` (`https://europe-west2-classroom-agent-511917.cloudfunctions.net/api`)
+- **Cloud Firestore**: `(default)` Native database in `europe-west2` with real-time updates enabled and `firestore.rules` deployed
+- **Cloud Storage**: `classroom-agent-511917.firebasestorage.app` with `storage.rules` deployed
 - **Firebase Auth**: Google Sign-In provider enabled (`Classroom Agent`)
 - **Local Emulator Ports**:
   - Auth: `9099`
@@ -155,15 +159,22 @@ classroom-agent/
   - Storage: `9199`
   - Emulator UI: `4000`
 
-### 4.2 Manual Google Cloud Console Checklist
-1. **Enable Google Workspace APIs**:
-   - Enable **[Google Classroom API](https://console.cloud.google.com/apis/library/classroom.googleapis.com?project=classroom-agent-511917)**
-   - Enable **[Google Drive API](https://console.cloud.google.com/apis/library/drive.googleapis.com?project=classroom-agent-511917)**
-2. **Configure OAuth Consent Screen & Scopes**:
+### 4.2 Production Provisioning & Publishing (`europe-west2`)
+- **One-Time Infrastructure Provisioning**:
+  - Run `./scripts/provision_production.sh` (or `npm run provision:prod` / VS Code task **`Provision: One-Time Production Infrastructure Setup (europe-west2)`**).
+  - Enables all required GCP, Firebase, and Google Workspace APIs (`cloudfunctions`, `run`, `cloudbuild`, `artifactregistry`, `eventarc`, `firestore`, `firebasestorage`, `firebasehosting`, `identitytoolkit`, `secretmanager`, `classroom`, `drive`, `docs`), verifies Firestore `(default)` in `europe-west2`, syncs `functions/.env.classroom-agent-511917` from `.env.production`, builds backend and frontend, deploys all resources, and binds `roles/run.invoker` (`allUsers`) on the `api` Cloud Run service in `europe-west2`.
+- **Repeatable Publish Tasks (`.vscode/tasks.json`)**:
+  - **`Publish: Full Production Release (europe-west2)`** (`npm run publish:prod`)
+  - **`Publish: Deploy Backend Functions (europe-west2)`** (`npm run publish:functions`)
+  - **`Publish: Deploy Frontend Hosting`** (`npm run publish:hosting`)
+  - **`Publish: Deploy Firestore & Storage Rules (europe-west2)`** (`npm run publish:rules`)
+  - **`Publish: Sync Functions Production Env`** (`npm run sync:env`)
+
+### 4.3 Manual Google Cloud Console OAuth Checklist
+1. **Configure OAuth Consent Screen & Scopes**:
    - In **[OAuth Consent Screen](https://console.cloud.google.com/apis/credentials/consent?project=classroom-agent-511917)**:
      - Add your teacher and student test Google accounts under **Test users**.
-     - Add the 6 Classroom and Drive scopes listed in Section 3.
+     - Add the Classroom and Drive scopes listed in Section 3.
    - In **[Credentials](https://console.cloud.google.com/apis/credentials?project=classroom-agent-511917)**:
-     - Ensure `http://localhost:5173` is listed under **Authorized JavaScript origins** and `http://localhost:5173/__/auth/handler` is in **Authorized redirect URIs** on the Web client OAuth 2.0 Client ID.
-3. **Configure Gemini API Key**:
-   - Set `GEMINI_API_KEY` in [.env.local](file:///home/kieren/Documents/code/classroom-agent/.env.local) and [.env.production](file:///home/kieren/Documents/code/classroom-agent/.env.production).
+     - Ensure `http://localhost:5173`, `https://classroom-agent-511917.web.app`, and `https://classroom-agent-511917.firebaseapp.com` are listed under **Authorized JavaScript origins**, and `https://classroom-agent-511917.firebaseapp.com/__/auth/handler` is in **Authorized redirect URIs** on the Web client OAuth 2.0 Client ID.
+

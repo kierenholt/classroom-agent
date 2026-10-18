@@ -66,23 +66,29 @@ app.use(
 );
 app.use(requestLogger);
 
-// Routes mounted under the `api` Cloud Function (e.g., .../europe-west2/api/chat, .../europe-west2/api/classroom)
-app.use('/chat', chatRouter);
-app.use('/classroom', classroomRouter);
-app.use('/upload', uploadRouter);
-app.use('/assignments', classroomRouter);
-app.use('/stripe', stripeRouter);
+// Routes mounted under both `/` (direct Cloud Function URL .../europe-west2/api/*)
+// and `/api` (Firebase Hosting rewrite /api/** -> function `api` in europe-west2)
+const apiRouter = express.Router();
+apiRouter.use('/chat', chatRouter);
+apiRouter.use('/classroom', classroomRouter);
+apiRouter.use('/upload', uploadRouter);
+apiRouter.use('/assignments', classroomRouter);
+apiRouter.use('/stripe', stripeRouter);
 
 // Health check endpoint
-app.get('/health', (_req, res) => {
-  res.json({ status: 'healthy', timestamp: new Date().toISOString() });
+apiRouter.get('/health', (_req, res) => {
+  res.json({ status: 'healthy', region: 'europe-west2', timestamp: new Date().toISOString() });
 });
 
-// Export Cloud Function
+app.use('/api', apiRouter);
+app.use('/', apiRouter);
+
+// Export Cloud Function in europe-west2
 export const api = onRequest(
   {
     region: 'europe-west2',
     cors: true,
+    invoker: 'public',
     timeoutSeconds: 300,
     memory: '1GiB',
   },
