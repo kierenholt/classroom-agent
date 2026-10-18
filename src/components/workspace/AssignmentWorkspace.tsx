@@ -43,6 +43,7 @@ export const AssignmentWorkspace: React.FC<AssignmentWorkspaceProps> = ({
   const [liveAssignment, setLiveAssignment] = useState<AssignmentDoc | null>(null);
   const [liveSubmissions, setLiveSubmissions] = useState<StudentSubmissionDoc[]>([]);
   const [sidecarRubric, setSidecarRubric] = useState<AssignmentRubric | undefined>(undefined);
+  const [sidecarMaxPoints, setSidecarMaxPoints] = useState<number | undefined>(undefined);
   const [evaluationsMap, setEvaluationsMap] = useState<Record<string, StudentEvaluationSidecarDoc>>({});
 
   const [loading, setLoading] = useState(true);
@@ -132,6 +133,9 @@ export const AssignmentWorkspace: React.FC<AssignmentWorkspaceProps> = ({
         if (snap.exists()) {
           const data = snap.data();
           setSidecarRubric(data.rubric || undefined);
+          if (typeof data.maxPoints === 'number') {
+            setSidecarMaxPoints(data.maxPoints);
+          }
         }
       },
       (err) => {
@@ -223,6 +227,7 @@ export const AssignmentWorkspace: React.FC<AssignmentWorkspaceProps> = ({
 
     return {
       ...liveAssignment,
+      maxPoints: sidecarMaxPoints !== undefined ? sidecarMaxPoints : liveAssignment.maxPoints,
       rubric: sidecarRubric || liveAssignment.rubric,
       submissionStats: {
         total: mergedSubmissions.length,

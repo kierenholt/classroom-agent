@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { X, FileText, Eye, Edit3, Check, Save, Loader2 } from 'lucide-react';
+import { X, FileText, Eye, Edit3, Check, Loader2 } from 'lucide-react';
 import { MarkdownRenderer } from './MarkdownRenderer';
 
 export interface FeedbackPreviewModalProps {
@@ -10,10 +10,8 @@ export interface FeedbackPreviewModalProps {
   initialScore?: number | null;
   maxPoints?: number;
   hasScore: boolean;
-  isSaving: boolean;
   isApproving: boolean;
   onClose: () => void;
-  onSaveDraft: (feedback: string, score: number | null) => Promise<void>;
   onApprove: (feedback: string, score: number | null) => Promise<void>;
 }
 
@@ -24,10 +22,8 @@ export const FeedbackPreviewModal: React.FC<FeedbackPreviewModalProps> = ({
   initialScore,
   maxPoints = 100,
   hasScore,
-  isSaving,
   isApproving,
   onClose,
-  onSaveDraft,
   onApprove,
 }) => {
   const [feedbackText, setFeedbackText] = useState(initialFeedback);
@@ -52,10 +48,6 @@ export const FeedbackPreviewModal: React.FC<FeedbackPreviewModalProps> = ({
     if (trimmed === '') return null;
     const num = Number(trimmed);
     return Number.isNaN(num) ? null : num;
-  };
-
-  const handleSave = async () => {
-    await onSaveDraft(feedbackText, parseScore());
   };
 
   const handleApprove = async () => {
@@ -85,7 +77,7 @@ export const FeedbackPreviewModal: React.FC<FeedbackPreviewModalProps> = ({
             type="button"
             data-testid="preview-modal-close-button"
             onClick={onClose}
-            disabled={isSaving || isApproving}
+            disabled={isApproving}
             className="p-1.5 rounded-lg text-gray-400 hover:text-white hover:bg-[#22262C] transition-colors disabled:opacity-50"
           >
             <X className="w-4 h-4" />
@@ -173,7 +165,7 @@ export const FeedbackPreviewModal: React.FC<FeedbackPreviewModalProps> = ({
             type="button"
             data-testid="preview-modal-cancel-button"
             onClick={onClose}
-            disabled={isSaving || isApproving}
+            disabled={isApproving}
             className="px-3 py-1.5 rounded-lg border border-[#333842] bg-[#22262C] hover:bg-[#2D323A] text-xs font-medium text-gray-300 transition-colors disabled:opacity-50"
           >
             Cancel
@@ -181,20 +173,9 @@ export const FeedbackPreviewModal: React.FC<FeedbackPreviewModalProps> = ({
 
           <button
             type="button"
-            data-testid="preview-modal-save-button"
-            onClick={handleSave}
-            disabled={isSaving || isApproving}
-            className="flex items-center space-x-1.5 px-3.5 py-1.5 rounded-lg border border-[#D4AF37]/40 bg-[#D4AF37]/15 hover:bg-[#D4AF37]/25 text-xs font-medium text-[#F3E5AB] transition-colors disabled:opacity-50"
-          >
-            {isSaving ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Save className="w-3.5 h-3.5" />}
-            <span>Save Draft</span>
-          </button>
-
-          <button
-            type="button"
             data-testid="preview-modal-approve-button"
             onClick={handleApprove}
-            disabled={isSaving || isApproving}
+            disabled={isApproving}
             className="flex items-center space-x-1.5 px-3.5 py-1.5 rounded-lg bg-[#D4AF37] hover:bg-[#E5B869] text-xs font-semibold text-[#121316] shadow-sm transition-colors disabled:opacity-50 cursor-pointer"
           >
             {isApproving ? <Loader2 className="w-3.5 h-3.5 animate-spin text-[#121316]" /> : <Check className="w-3.5 h-3.5" />}

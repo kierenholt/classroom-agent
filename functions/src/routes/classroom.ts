@@ -218,6 +218,89 @@ classroomRouter.get('/drive-file/:fileId', requireAuth, async (req: Authenticate
   }
 });
 
+// 6b. Set / Update Assignment Rubric Endpoint (Saves to Firestore assignments/{assignmentId})
+classroomRouter.post(
+  '/assignments/:assignmentId/rubric',
+  requireAuth,
+  async (req: AuthenticatedRequest, res: Response): Promise<void> => {
+    const { assignmentId } = req.params;
+    const { title, criteria } = req.body;
+
+    if (!assignmentId) {
+      res.status(400).json({ error: 'assignmentId is required. Fail-fast enabled.' });
+      return;
+    }
+
+    try {
+      parseAssignmentId(assignmentId);
+    } catch (err: any) {
+      res.status(400).json({ error: err.message });
+      return;
+    }
+
+    if (!Array.isArray(criteria) || criteria.length === 0) {
+      res.status(400).json({ error: 'Rubric must contain at least one criterion. Fail-fast enabled.' });
+      return;
+    }
+
+    for (let i = 0; i < criteria.length; i++) {
+      const c = criteria[i];
+      if (!c || typeof c.title !== 'string' || !c.title.trim()) {
+        res.status(400).json({ error: `Criterion at index ${i} must have a non-empty title. Fail-fast enabled.` });
+        return;
+      }
+      const points = Number(c.maxPoints);
+      if (Number.isNaN(points) || points <= 0) {
+        res.status(400).json({ error: `Criterion "${c.title}" must have maxPoints greater than 0. Fail-fast enabled.` });
+        return;
+      }
+    }
+
+    try {
+      const sanitizedCriteria = criteria.map((c: any, idx: number) => ({
+        id: c.id && typeof c.id === 'string' && c.id.trim() ? c.id.trim() : `crit_${Date.now()}_${idx}`,
+        title: c.title.trim(),
+        description: typeof c.description === 'string' ? c.description.trim() : '',
+        maxPoints: Number(c.maxPoints),
+      }));
+
+      const totalCriterionPoints = sanitizedCriteria.reduce(
+        (sum: number, c: any) => sum + c.maxPoints,
+        0
+      );
+
+      const db = admin.firestore();
+      const assignRef = db.collection('assignments').doc(assignmentId);
+      const assignSnap = await assignRef.get();
+      const existingData = assignSnap.exists ? assignSnap.data() : null;
+
+      const rubricPayload = {
+        id: existingData?.rubric?.id || `rubric_${Date.now()}`,
+        title: typeof title === 'string' && title.trim() ? title.trim() : 'Grading Rubric',
+        criteria: sanitizedCriteria,
+        updatedAt: new Date().toISOString(),
+      };
+
+      await assignRef.set(
+        {
+          rubric: rubricPayload,
+          maxPoints: totalCriterionPoints,
+          updatedAt: new Date().toISOString(),
+        },
+        { merge: true }
+      );
+
+      res.status(200).json({
+        success: true,
+        rubric: rubricPayload,
+        maxPoints: totalCriterionPoints,
+      });
+    } catch (err: any) {
+      res.status(500).json({ error: `Failed to save rubric: ${err.message}` });
+    }
+  }
+);
+
 // 7. Manual Grade / Draft Save Endpoint (Writes draftGrade to Google Classroom API if numeric + rubric/feedback to Firestore Sidecar)
 classroomRouter.post(
   '/assignments/:assignmentId/submissions/:studentId/grade',

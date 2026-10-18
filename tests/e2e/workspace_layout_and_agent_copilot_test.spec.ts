@@ -455,6 +455,109 @@ test.describe('Classroom Agent - Workspace and Agent Co-Pilot Tests', () => {
     await expect(page.locator('[data-testid="submission-comment-input"]')).toBeHidden();
   });
 
+  test('editRubric_activeAssignment_opensModalAndPersistsUpdatedCriteria_test', async ({
+    page,
+  }) => {
+    page.on('pageerror', (err) => console.error('[PAGE ERROR]', err.message));
+    let googleToken = '';
+    let customToken = '';
+    try {
+      const { getLiveTeacherAccessToken, getLiveTestTeacherCustomToken } = await import('../helpers/classroomSandboxSeeder');
+      [googleToken, customToken] = await Promise.all([
+        getLiveTeacherAccessToken(),
+        getLiveTestTeacherCustomToken(),
+      ]);
+    } catch (err) {
+      console.error('[TEST TOKEN ERROR]', err);
+      googleToken = '';
+      customToken = '';
+    }
+
+    await page.addInitScript(
+      ({ gToken, cToken }) => {
+        if (gToken) {
+          window.sessionStorage.setItem('classroom_agent_google_access_token', gToken);
+        }
+        if (cToken) {
+          window.sessionStorage.setItem('classroom_agent_custom_token', cToken);
+        }
+      },
+      { gToken: googleToken, cToken: customToken }
+    );
+
+    await page.goto('/');
+
+    const newAssignmentTabBtn = page.locator('[data-testid="new-assignment-tab-button"]');
+    await expect(newAssignmentTabBtn).toBeVisible({ timeout: 15000 });
+    await newAssignmentTabBtn.click();
+    await expect(page.locator('[data-testid="assignment-picker-modal"]')).toBeVisible({ timeout: 15000 });
+
+    const courseButtons = page.locator('[data-testid^="course-select-"]');
+    await expect(courseButtons.first()).toBeVisible({ timeout: 15000 });
+    const courseCount = await courseButtons.count();
+    let opened = false;
+    for (let i = 0; i < courseCount; i++) {
+      await courseButtons.nth(i).click();
+      await expect(page.locator('[data-testid="assignment-picker-section"]')).toBeVisible({ timeout: 5000 });
+      const assignmentCard = page.locator('[data-testid^="assignment-card-"]').first();
+      try {
+        await expect(assignmentCard).toBeVisible({ timeout: 5000 });
+        await assignmentCard.click();
+        const okBtn = page.locator('[data-testid="assignment-picker-ok-button"]');
+        await expect(okBtn).toBeEnabled();
+        await okBtn.click();
+        opened = true;
+        break;
+      } catch {
+        // Continue
+      }
+    }
+    expect(opened).toBe(true);
+    await expect(page.locator('[data-testid="assignment-picker-modal"]')).toBeHidden();
+
+    // Wait for the workspace to load
+    await expect(page.locator('[data-testid="student-roster-list"]')).toBeVisible({ timeout: 15000 });
+
+    // Select the first student row
+    const firstStudent = page.locator('[data-testid^="student-row-"]').first();
+    await expect(firstStudent).toBeVisible({ timeout: 10000 });
+    await firstStudent.click();
+
+    // Verify rubric pane and either edit-rubric-button or create-rubric-button
+    const editBtn = page.locator('[data-testid="edit-rubric-button"]');
+    const createBtn = page.locator('[data-testid="create-rubric-button"]');
+    await expect(editBtn.or(createBtn)).toBeVisible({ timeout: 10000 });
+
+    if (await editBtn.isVisible()) {
+      await editBtn.click();
+    } else {
+      await createBtn.click();
+    }
+
+    const rubricModal = page.locator('[data-testid="rubric-edit-modal"]');
+    await expect(rubricModal).toBeVisible({ timeout: 5000 });
+    await expect(page.locator('[data-testid="rubric-title-input"]')).toBeVisible();
+    await expect(page.locator('[data-testid="rubric-total-points"]')).toBeVisible();
+    await expect(page.locator('[data-testid="add-criterion-button"]')).toBeVisible();
+
+    // Add a new criterion
+    const initialCount = await page.locator('[data-testid^="rubric-criterion-card-"]').count();
+    await page.locator('[data-testid="add-criterion-button"]').click();
+    await expect(page.locator(`[data-testid="rubric-criterion-card-${initialCount}"]`)).toBeVisible();
+
+    // Fill in criterion details
+    await page.locator(`[data-testid="criterion-title-input-${initialCount}"]`).fill('Test Analysis Depth');
+    await page.locator(`[data-testid="criterion-points-input-${initialCount}"]`).fill('25');
+    await page.locator(`[data-testid="criterion-desc-input-${initialCount}"]`).fill('Evaluates rigorous analytical reasoning');
+
+    // Save rubric
+    await page.locator('[data-testid="save-rubric-modal-button"]').click();
+    await expect(rubricModal).toBeHidden({ timeout: 15000 });
+
+    // Verify the rubric criteria breakdown in workspace displays the newly added criterion
+    await expect(page.locator('[data-testid="rubric-breakdown-list"]')).toContainText('Test Analysis Depth', { timeout: 15000 });
+  });
+
   test('clickAccountName_authenticatedUser_togglesUserPopupMenuWithSignOutButton_test', async ({ page }) => {
     let googleToken = '';
     let customToken = '';

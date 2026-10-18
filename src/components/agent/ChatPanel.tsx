@@ -92,7 +92,6 @@ export const ChatPanel: React.FC<ChatPanelProps> = ({
 
   // Preview Modal & Approval state
   const [previewTarget, setPreviewTarget] = useState<ExtractedEvaluationItem | null>(null);
-  const [savingStudentId, setSavingStudentId] = useState<string | null>(null);
   const [approvingStudentIds, setApprovingStudentIds] = useState<Record<string, boolean>>({});
 
   // Minimised chat messages tracking (persisted to localStorage)
@@ -290,44 +289,6 @@ export const ChatPanel: React.FC<ChatPanelProps> = ({
     }
 
     return items;
-  };
-
-  const handleSaveEvaluationDraft = async (
-    item: ExtractedEvaluationItem,
-    updatedFeedback: string,
-    updatedScore: number | null
-  ) => {
-    setSavingStudentId(item.studentId);
-    setErrorText(null);
-    try {
-      const headers = await getAuthHeaders();
-      const res = await fetch(
-        `${env.API_BASE_URL}/classroom/assignments/${assignmentId}/submissions/${item.studentId}/grade`,
-        {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            ...headers,
-          },
-          body: JSON.stringify({
-            submissionId: item.submissionId,
-            draftGrade: updatedScore,
-            overallFeedback: updatedFeedback,
-          }),
-        }
-      );
-
-      if (!res.ok) {
-        const errText = await res.text();
-        throw new Error(`Failed to save feedback draft: ${errText}`);
-      }
-
-      setPreviewTarget(null);
-    } catch (err: any) {
-      setErrorText(err.message || 'Failed to save draft');
-    } finally {
-      setSavingStudentId(null);
-    }
   };
 
   const handleApproveEvaluation = async (
@@ -1049,12 +1010,8 @@ export const ChatPanel: React.FC<ChatPanelProps> = ({
           initialScore={previewTarget.score}
           maxPoints={previewTarget.maxPoints}
           hasScore={previewTarget.hasScore}
-          isSaving={savingStudentId === previewTarget.studentId}
           isApproving={Boolean(approvingStudentIds[previewTarget.studentId])}
           onClose={() => setPreviewTarget(null)}
-          onSaveDraft={(updatedFeedback, updatedScore) =>
-            handleSaveEvaluationDraft(previewTarget, updatedFeedback, updatedScore)
-          }
           onApprove={(updatedFeedback, updatedScore) =>
             handleApproveEvaluation(previewTarget, updatedFeedback, updatedScore)
           }

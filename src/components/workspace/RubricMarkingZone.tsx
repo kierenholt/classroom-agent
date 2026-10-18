@@ -1,5 +1,7 @@
-import React from 'react';
+import React, { useState } from 'react';
+import { Edit3, Plus } from 'lucide-react';
 import { AssignmentDoc, StudentSubmissionDoc, CriterionEvaluation } from '../../types/classroom';
+import { RubricEditModal } from './RubricEditModal';
 
 interface RubricMarkingZoneProps {
   assignment: AssignmentDoc;
@@ -20,6 +22,8 @@ export const RubricMarkingZone: React.FC<RubricMarkingZoneProps> = ({
   overallFeedback = '',
   onUpdateRubricAndFeedback,
 }) => {
+  const [isModalOpen, setIsModalOpen] = useState(false);
+
   const handleCriterionScoreChange = (criterionId: string, score: number) => {
     const exists = rubricBreakdown.some((item) => item.criterionId === criterionId);
     const updated = exists
@@ -44,14 +48,36 @@ export const RubricMarkingZone: React.FC<RubricMarkingZoneProps> = ({
             <span className="font-semibold text-gray-300 uppercase tracking-wider text-[10px]">
               Rubric Criteria
             </span>
+            {assignment.rubric?.criteria && assignment.rubric.criteria.length > 0 && (
+              <button
+                type="button"
+                data-testid="edit-rubric-button"
+                onClick={() => setIsModalOpen(true)}
+                className="flex items-center space-x-1 text-[11px] font-medium text-[#D4AF37] hover:text-[#f3e5ab] hover:bg-[#D4AF37]/10 px-2 py-0.5 rounded transition-colors"
+              >
+                <Edit3 className="w-3 h-3" />
+                <span>Edit Rubric</span>
+              </button>
+            )}
           </div>
 
           <div data-testid="rubric-breakdown-list" className="space-y-2">
             {(!assignment.rubric?.criteria || assignment.rubric.criteria.length === 0) ? (
-              <div className="p-3 bg-[#121316] rounded border border-dashed border-[#333842] text-center text-gray-500">
+              <div className="p-3 bg-[#121316] rounded border border-dashed border-[#333842] text-center text-gray-500 space-y-2">
                 <p>No rubric configured for this assignment.</p>
-                <p className="mt-1 text-[11px] text-[#D4AF37]">
-                  Ask the Co-Pilot in the right pane: &quot;Generate a grading rubric&quot;
+                <div className="flex items-center justify-center space-x-2">
+                  <button
+                    type="button"
+                    data-testid="create-rubric-button"
+                    onClick={() => setIsModalOpen(true)}
+                    className="inline-flex items-center space-x-1 px-3 py-1 bg-[#D4AF37] text-black font-semibold text-xs rounded hover:bg-[#c29d2b] transition-colors shadow-sm"
+                  >
+                    <Plus className="w-3.5 h-3.5" />
+                    <span>Create Rubric</span>
+                  </button>
+                </div>
+                <p className="text-[11px] text-[#D4AF37]">
+                  Or ask the Co-Pilot in the right pane: &quot;Generate a grading rubric&quot;
                 </p>
               </div>
             ) : (
@@ -92,6 +118,14 @@ export const RubricMarkingZone: React.FC<RubricMarkingZoneProps> = ({
           </div>
         </div>
       </div>
+
+      {/* Rubric Edit / Create Modal */}
+      <RubricEditModal
+        isOpen={isModalOpen}
+        assignmentId={assignment.id}
+        initialRubric={assignment.rubric}
+        onClose={() => setIsModalOpen(false)}
+      />
     </div>
   );
 };
