@@ -14,8 +14,8 @@ export const App: React.FC = () => {
 
   if (loading) {
     return (
-      <div className="h-screen w-screen flex flex-col items-center justify-center bg-[#0d1117] text-gray-300">
-        <Loader2 className="w-8 h-8 animate-spin text-purple-500 mb-3" />
+      <div className="h-screen w-screen flex flex-col items-center justify-center bg-[#121316] text-[#EDEDED]">
+        <Loader2 className="w-8 h-8 animate-spin text-[#D4AF37] mb-3" />
         <p className="text-sm font-medium tracking-wide">Initializing Classroom Agent...</p>
       </div>
     );
@@ -36,16 +36,16 @@ export const App: React.FC = () => {
     };
 
     return (
-      <div className="h-screen w-screen flex flex-col items-center justify-center bg-[#0d1117] text-gray-200 p-6 select-none">
-        <div className="max-w-md w-full bg-[#161b22] border border-[#30363d] rounded-2xl p-8 shadow-2xl flex flex-col items-center text-center space-y-6">
-          <div className="w-16 h-16 rounded-2xl bg-gradient-to-tr from-purple-600 to-blue-500 flex items-center justify-center shadow-lg shadow-purple-500/20">
-            <GraduationCap className="w-9 h-9 text-white" />
+      <div className="h-screen w-screen flex flex-col items-center justify-center bg-[#121316] text-[#EDEDED] p-6 select-none">
+        <div className="max-w-md w-full bg-[#1A1D21] border border-[#333842] rounded-2xl p-8 shadow-2xl flex flex-col items-center text-center space-y-6">
+          <div className="w-16 h-16 rounded-2xl bg-gradient-to-tr from-[#D4AF37] to-[#E5B869] flex items-center justify-center shadow-lg shadow-[#D4AF37]/20">
+            <GraduationCap className="w-9 h-9 text-[#121316]" />
           </div>
 
           <div>
             <h1 className="text-2xl font-bold text-white tracking-tight flex items-center justify-center space-x-2">
               <span>Classroom Agent</span>
-              <Sparkles className="w-4 h-4 text-purple-400" />
+              <Sparkles className="w-4 h-4 text-[#D4AF37]" />
             </h1>
             <p className="text-xs text-gray-400 mt-2 leading-relaxed">
               AI-Native grading and feedback workstation for Google Classroom.
@@ -70,7 +70,7 @@ export const App: React.FC = () => {
           <button
             onClick={handleSignIn}
             disabled={signingIn}
-            className="w-full flex items-center justify-center space-x-2 py-2.5 px-4 rounded-lg bg-purple-600 hover:bg-purple-500 text-white font-medium text-sm transition-all shadow-md shadow-purple-600/30 disabled:opacity-50"
+            className="w-full flex items-center justify-center space-x-2 py-2.5 px-4 rounded-lg bg-[#D4AF37] hover:bg-[#E5B869] text-[#121316] font-semibold text-sm transition-all shadow-md shadow-[#D4AF37]/20 disabled:opacity-50 cursor-pointer"
           >
             {signingIn ? (
               <>

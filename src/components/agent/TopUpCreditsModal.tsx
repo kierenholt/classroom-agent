@@ -122,14 +122,14 @@ export const TopUpCreditsModal: React.FC = () => {
       onClick={closeTopUpModal}
     >
       <div
-        className="w-full max-w-md bg-[#161b22] border border-[#30363d] rounded-xl shadow-2xl overflow-hidden flex flex-col"
+        className="w-full max-w-md bg-[#1A1D21] border border-[#333842] rounded-xl shadow-2xl overflow-hidden flex flex-col"
         onClick={(e) => e.stopPropagation()}
       >
         {/* Header */}
-        <div className="px-5 py-4 border-b border-[#30363d] flex items-center justify-between bg-[#0d1117]">
+        <div className="px-5 py-4 border-b border-[#333842] flex items-center justify-between bg-[#121316]">
           <div className="flex items-center space-x-2.5">
-            <div className="w-7 h-7 rounded-lg bg-purple-950/70 border border-purple-500/40 flex items-center justify-center">
-              <Sparkles className="w-4 h-4 text-purple-400" />
+            <div className="w-7 h-7 rounded-lg bg-[#D4AF37]/15 border border-[#D4AF37]/30 flex items-center justify-center">
+              <Sparkles className="w-4 h-4 text-[#D4AF37]" />
             </div>
             <div>
               <h2 className="text-sm font-semibold text-white">Top Up AI Credits</h2>
@@ -142,7 +142,7 @@ export const TopUpCreditsModal: React.FC = () => {
             type="button"
             data-testid="close-topup-modal-button"
             onClick={closeTopUpModal}
-            className="p-1.5 rounded-lg text-gray-400 hover:text-white hover:bg-[#21262d] transition-colors"
+            className="p-1.5 rounded-lg text-gray-400 hover:text-white hover:bg-[#22262C] transition-colors"
             title="Close"
           >
             <X className="w-4 h-4" />
@@ -162,7 +162,7 @@ export const TopUpCreditsModal: React.FC = () => {
           )}
 
           {/* Current Balance */}
-          <div className="p-3.5 rounded-lg bg-[#0d1117] border border-[#30363d] flex items-center justify-between">
+          <div className="p-3.5 rounded-lg bg-[#121316] border border-[#333842] flex items-center justify-between">
             <div>
               <p className="text-[11px] font-medium text-gray-400 uppercase tracking-wider">
                 Current Balance
@@ -173,7 +173,7 @@ export const TopUpCreditsModal: React.FC = () => {
               data-testid="topup-modal-current-credits"
               className={`text-xl font-bold px-3 py-1 rounded-lg border ${
                 (aiCredits ?? 0) > 0
-                  ? 'text-purple-300 bg-purple-950/40 border-purple-500/30'
+                  ? 'text-[#D4AF37] bg-[#D4AF37]/15 border-[#D4AF37]/30'
                   : 'text-red-300 bg-red-950/40 border-red-500/30'
               }`}
             >
@@ -182,11 +182,11 @@ export const TopUpCreditsModal: React.FC = () => {
           </div>
 
           {/* Package Card */}
-          <div className="p-4 rounded-xl bg-gradient-to-br from-purple-950/40 via-[#161b22] to-blue-950/30 border border-purple-500/40 flex items-center justify-between">
+          <div className="p-4 rounded-xl bg-gradient-to-br from-[#D4AF37]/15 via-[#22262C] to-[#1A1D21] border border-[#D4AF37]/40 flex items-center justify-between">
             <div className="space-y-1">
               <div className="flex items-center space-x-2">
                 <span className="text-sm font-bold text-white">+100 AI Credits Pack</span>
-                <span className="text-[10px] font-semibold uppercase px-2 py-0.5 rounded-full bg-purple-500/20 text-purple-300 border border-purple-500/30">
+                <span className="text-[10px] font-semibold uppercase px-2 py-0.5 rounded-full bg-[#D4AF37]/20 text-[#F3E5AB] border border-[#D4AF37]/30">
                   Instant Top-Up
                 </span>
               </div>
@@ -198,7 +198,7 @@ export const TopUpCreditsModal: React.FC = () => {
             <div data-testid="topup-modal-price" className="text-right shrink-0 ml-3">
               {loadingPrice ? (
                 <div className="flex items-center space-x-1.5 text-xs text-gray-400">
-                  <Loader2 className="w-3.5 h-3.5 animate-spin text-purple-400" />
+                  <Loader2 className="w-3.5 h-3.5 animate-spin text-[#D4AF37]" />
                   <span>Loading...</span>
                 </div>
               ) : priceInfo ? (
@@ -225,7 +225,7 @@ export const TopUpCreditsModal: React.FC = () => {
               htmlFor="topup-promo-code"
               className="text-xs font-medium text-gray-300 flex items-center space-x-1.5"
             >
-              <Tag className="w-3.5 h-3.5 text-purple-400" />
+              <Tag className="w-3.5 h-3.5 text-[#D4AF37]" />
               <span>Promo or Coupon Code (optional)</span>
             </label>
             <input
@@ -235,7 +235,7 @@ export const TopUpCreditsModal: React.FC = () => {
               value={promoCode}
               onChange={(e) => setPromoCode(e.target.value)}
               placeholder="Enter promo code..."
-              className="w-full px-3 py-2 rounded-lg bg-[#0d1117] border border-[#30363d] text-xs text-white placeholder-gray-500 focus:outline-none focus:border-purple-500"
+              className="w-full px-3 py-2 rounded-lg bg-[#121316] border border-[#333842] text-xs text-white placeholder-gray-500 focus:outline-none focus:border-[#D4AF37]"
             />
           </div>
 
@@ -250,11 +250,11 @@ export const TopUpCreditsModal: React.FC = () => {
           )}
 
           {/* Actions */}
-          <div className="pt-2 flex items-center justify-end space-x-2 border-t border-[#30363d]">
+          <div className="pt-2 flex items-center justify-end space-x-2 border-t border-[#333842]">
             <button
               type="button"
               onClick={closeTopUpModal}
-              className="px-3.5 py-2 rounded-lg text-xs font-medium text-gray-300 hover:text-white hover:bg-[#21262d] transition-colors"
+              className="px-3.5 py-2 rounded-lg text-xs font-medium text-gray-300 hover:text-white hover:bg-[#22262C] transition-colors"
             >
               Cancel
             </button>
@@ -262,11 +262,11 @@ export const TopUpCreditsModal: React.FC = () => {
               type="submit"
               data-testid="topup-checkout-button"
               disabled={creatingCheckout}
-              className="flex items-center space-x-2 px-4 py-2 rounded-lg text-xs font-semibold bg-purple-600 hover:bg-purple-500 disabled:opacity-50 text-white shadow-sm transition-colors cursor-pointer"
+              className="flex items-center space-x-2 px-4 py-2 rounded-lg text-xs font-semibold bg-[#D4AF37] hover:bg-[#E5B869] disabled:opacity-50 text-[#121316] shadow-sm transition-colors cursor-pointer"
             >
               {creatingCheckout ? (
                 <>
-                  <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                  <Loader2 className="w-3.5 h-3.5 animate-spin text-[#121316]" />
                   <span>Redirecting to Stripe...</span>
                 </>
               ) : (

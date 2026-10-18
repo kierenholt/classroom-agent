@@ -67,11 +67,11 @@ export const FeedbackPreviewModal: React.FC<FeedbackPreviewModalProps> = ({
       data-testid="feedback-preview-modal"
       className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 backdrop-blur-sm p-4"
     >
-      <div className="bg-[#161b22] border border-[#30363d] rounded-xl shadow-2xl w-full max-w-2xl max-h-[85vh] flex flex-col overflow-hidden text-gray-100">
+      <div className="bg-[#1A1D21] border border-[#333842] rounded-xl shadow-2xl w-full max-w-2xl max-h-[85vh] flex flex-col overflow-hidden text-gray-100">
         {/* Header */}
-        <div className="px-5 py-3.5 border-b border-[#30363d] flex items-center justify-between bg-[#0d1117]">
+        <div className="px-5 py-3.5 border-b border-[#333842] flex items-center justify-between bg-[#121316]">
           <div className="flex items-center space-x-2.5">
-            <FileText className="w-4 h-4 text-purple-400 shrink-0" />
+            <FileText className="w-4 h-4 text-[#D4AF37] shrink-0" />
             <div>
               <h3 className="text-sm font-semibold text-gray-100">
                 Feedback Preview — {studentName}
@@ -86,22 +86,22 @@ export const FeedbackPreviewModal: React.FC<FeedbackPreviewModalProps> = ({
             data-testid="preview-modal-close-button"
             onClick={onClose}
             disabled={isSaving || isApproving}
-            className="p-1.5 rounded-lg text-gray-400 hover:text-white hover:bg-[#21262d] transition-colors disabled:opacity-50"
+            className="p-1.5 rounded-lg text-gray-400 hover:text-white hover:bg-[#22262C] transition-colors disabled:opacity-50"
           >
             <X className="w-4 h-4" />
           </button>
         </div>
 
         {/* Toolbar: Edit vs Rendered Preview + Optional Score */}
-        <div className="px-5 py-2.5 border-b border-[#30363d] bg-[#161b22] flex items-center justify-between gap-4">
-          <div className="flex items-center space-x-1 bg-[#0d1117] p-1 rounded-lg border border-[#30363d]">
+        <div className="px-5 py-2.5 border-b border-[#333842] bg-[#1A1D21] flex items-center justify-between gap-4">
+          <div className="flex items-center space-x-1 bg-[#121316] p-1 rounded-lg border border-[#333842]">
             <button
               type="button"
               data-testid="preview-modal-edit-tab"
               onClick={() => setActiveTab('edit')}
-              className={`flex items-center space-x-1.5 px-2.5 py-1 rounded text-xs font-medium transition-colors ${
+              className={`flex items-center space-x-1.5 px-2.5 py-1 rounded text-xs font-semibold transition-colors ${
                 activeTab === 'edit'
-                  ? 'bg-purple-600 text-white'
+                  ? 'bg-[#D4AF37] text-[#121316]'
                   : 'text-gray-400 hover:text-gray-200'
               }`}
             >
@@ -112,9 +112,9 @@ export const FeedbackPreviewModal: React.FC<FeedbackPreviewModalProps> = ({
               type="button"
               data-testid="preview-modal-rendered-tab"
               onClick={() => setActiveTab('rendered')}
-              className={`flex items-center space-x-1.5 px-2.5 py-1 rounded text-xs font-medium transition-colors ${
+              className={`flex items-center space-x-1.5 px-2.5 py-1 rounded text-xs font-semibold transition-colors ${
                 activeTab === 'rendered'
-                  ? 'bg-purple-600 text-white'
+                  ? 'bg-[#D4AF37] text-[#121316]'
                   : 'text-gray-400 hover:text-gray-200'
               }`}
             >
@@ -134,7 +134,7 @@ export const FeedbackPreviewModal: React.FC<FeedbackPreviewModalProps> = ({
                   onChange={(e) => setScoreValue(e.target.value)}
                   min={0}
                   max={maxPoints}
-                  className="w-16 bg-[#0d1117] border border-[#30363d] rounded px-2 py-1 text-xs text-right text-gray-100 focus:outline-none focus:border-purple-500"
+                  className="w-16 bg-[#121316] border border-[#333842] rounded px-2 py-1 text-xs text-right text-gray-100 focus:outline-none focus:border-[#D4AF37]"
                 />
                 <span className="text-xs text-gray-500">/ {maxPoints}</span>
               </div>
@@ -143,7 +143,7 @@ export const FeedbackPreviewModal: React.FC<FeedbackPreviewModalProps> = ({
         </div>
 
         {/* Body */}
-        <div className="flex-1 p-5 overflow-y-auto bg-[#0d1117]">
+        <div className="flex-1 p-5 overflow-y-auto bg-[#121316]">
           {activeTab === 'edit' ? (
             <textarea
               data-testid="preview-modal-feedback-textarea"
@@ -151,12 +151,12 @@ export const FeedbackPreviewModal: React.FC<FeedbackPreviewModalProps> = ({
               onChange={(e) => setFeedbackText(e.target.value)}
               rows={14}
               placeholder="Enter student feedback..."
-              className="w-full h-full min-h-[280px] bg-[#161b22] border border-[#30363d] rounded-lg p-3.5 text-xs text-gray-100 font-mono leading-relaxed focus:outline-none focus:border-purple-500 resize-y"
+              className="w-full h-full min-h-[280px] bg-[#1A1D21] border border-[#333842] rounded-lg p-3.5 text-xs text-gray-100 font-mono leading-relaxed focus:outline-none focus:border-[#D4AF37] resize-y"
             />
           ) : (
             <div
               data-testid="preview-modal-rendered-content"
-              className="min-h-[280px] bg-[#161b22] border border-[#30363d] rounded-lg p-4 text-xs text-gray-100 leading-relaxed"
+              className="min-h-[280px] bg-[#1A1D21] border border-[#333842] rounded-lg p-4 text-xs text-gray-100 leading-relaxed"
             >
               {feedbackText.trim() ? (
                 <MarkdownRenderer content={feedbackText} />
@@ -168,13 +168,13 @@ export const FeedbackPreviewModal: React.FC<FeedbackPreviewModalProps> = ({
         </div>
 
         {/* Footer */}
-        <div className="px-5 py-3 border-t border-[#30363d] bg-[#161b22] flex items-center justify-end space-x-2.5">
+        <div className="px-5 py-3 border-t border-[#333842] bg-[#1A1D21] flex items-center justify-end space-x-2.5">
           <button
             type="button"
             data-testid="preview-modal-cancel-button"
             onClick={onClose}
             disabled={isSaving || isApproving}
-            className="px-3 py-1.5 rounded-lg border border-[#30363d] bg-[#21262d] hover:bg-[#30363d] text-xs font-medium text-gray-300 transition-colors disabled:opacity-50"
+            className="px-3 py-1.5 rounded-lg border border-[#333842] bg-[#22262C] hover:bg-[#2D323A] text-xs font-medium text-gray-300 transition-colors disabled:opacity-50"
           >
             Cancel
           </button>
@@ -184,7 +184,7 @@ export const FeedbackPreviewModal: React.FC<FeedbackPreviewModalProps> = ({
             data-testid="preview-modal-save-button"
             onClick={handleSave}
             disabled={isSaving || isApproving}
-            className="flex items-center space-x-1.5 px-3.5 py-1.5 rounded-lg border border-purple-500/40 bg-purple-950/40 hover:bg-purple-900/50 text-xs font-medium text-purple-200 transition-colors disabled:opacity-50"
+            className="flex items-center space-x-1.5 px-3.5 py-1.5 rounded-lg border border-[#D4AF37]/40 bg-[#D4AF37]/15 hover:bg-[#D4AF37]/25 text-xs font-medium text-[#F3E5AB] transition-colors disabled:opacity-50"
           >
             {isSaving ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Save className="w-3.5 h-3.5" />}
             <span>Save Draft</span>
@@ -195,9 +195,9 @@ export const FeedbackPreviewModal: React.FC<FeedbackPreviewModalProps> = ({
             data-testid="preview-modal-approve-button"
             onClick={handleApprove}
             disabled={isSaving || isApproving}
-            className="flex items-center space-x-1.5 px-3.5 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-xs font-semibold text-white shadow-sm transition-colors disabled:opacity-50"
+            className="flex items-center space-x-1.5 px-3.5 py-1.5 rounded-lg bg-[#D4AF37] hover:bg-[#E5B869] text-xs font-semibold text-[#121316] shadow-sm transition-colors disabled:opacity-50 cursor-pointer"
           >
-            {isApproving ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Check className="w-3.5 h-3.5" />}
+            {isApproving ? <Loader2 className="w-3.5 h-3.5 animate-spin text-[#121316]" /> : <Check className="w-3.5 h-3.5" />}
             <span>Approve &amp; Send to Classroom</span>
           </button>
         </div>

@@ -106,6 +106,12 @@ export async function seedTestSubmission(assignmentId: string, studentId: string
   if (evaluation.assignedGrade !== undefined) {
     fields.assignedGrade = { integerValue: String(evaluation.assignedGrade) };
   }
+  if (evaluation.feedbackDocId !== undefined) {
+    fields.feedbackDocId = { stringValue: evaluation.feedbackDocId };
+  }
+  if (evaluation.feedbackDocUrl !== undefined) {
+    fields.feedbackDocUrl = { stringValue: evaluation.feedbackDocUrl };
+  }
 
   const res = await fetch(url, {
     method: 'PATCH',

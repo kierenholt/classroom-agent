@@ -42,13 +42,13 @@ const CodeBlock: React.FC<{ code: string; lang?: string }> = ({ code, lang }) =>
   };
 
   return (
-    <div className="my-2 rounded bg-[#0d1117] border border-[#30363d] overflow-hidden text-xs">
-      <div className="px-3 py-1 bg-[#161b22] border-b border-[#30363d] text-[10px] text-gray-400 font-mono flex justify-between items-center select-none">
+    <div className="my-2 rounded bg-[#121316] border border-[#333842] overflow-hidden text-xs">
+      <div className="px-3 py-1 bg-[#1A1D21] border-b border-[#333842] text-[10px] text-gray-400 font-mono flex justify-between items-center select-none">
         <span>{lang || 'code'}</span>
         <button
           onClick={handleCopy}
           type="button"
-          className="flex items-center space-x-1 hover:text-white transition-colors"
+          className="flex items-center space-x-1 hover:text-[#F3E5AB] transition-colors"
           title="Copy code"
         >
           {copied ? (
@@ -64,7 +64,7 @@ const CodeBlock: React.FC<{ code: string; lang?: string }> = ({ code, lang }) =>
           )}
         </button>
       </div>
-      <pre className="p-2.5 overflow-x-auto text-[11px] font-mono text-purple-200 leading-snug">
+      <pre className="p-2.5 overflow-x-auto text-[11px] font-mono text-gray-200 leading-snug">
         <code>{code}</code>
       </pre>
     </div>
@@ -109,7 +109,7 @@ export const MarkdownRenderer: React.FC<MarkdownRendererProps> = ({ content, cla
           return (
             <code
               key={key}
-              className="bg-[#0d1117] text-purple-300 px-1 py-0.5 rounded text-[11px] font-mono border border-purple-500/20"
+              className="bg-[#121316] text-[#F3E5AB] px-1 py-0.5 rounded text-[11px] font-mono border border-[#D4AF37]/30"
             >
               {decodeEntities(cs.text)}
             </code>
@@ -123,7 +123,7 @@ export const MarkdownRenderer: React.FC<MarkdownRendererProps> = ({ content, cla
               href={link.href}
               target="_blank"
               rel="noopener noreferrer"
-              className="text-blue-400 hover:text-blue-300 underline underline-offset-2"
+              className="text-[#D4AF37] hover:text-[#E5B869] underline underline-offset-2 transition-colors"
               title={link.title || undefined}
             >
               {link.tokens ? renderInlineTokens(link.tokens) : decodeEntities(link.text)}
@@ -169,7 +169,7 @@ export const MarkdownRenderer: React.FC<MarkdownRendererProps> = ({ content, cla
             type="checkbox"
             checked={item.checked}
             readOnly
-            className="mt-0.5 rounded bg-black/40 border-gray-600 accent-purple-500"
+            className="mt-0.5 rounded bg-[#121316] border-[#333842] accent-[#D4AF37]"
           />
           <div className="flex-1">
             {item.tokens.map((t, i) => renderBlockToken(t, i))}
@@ -196,19 +196,19 @@ export const MarkdownRenderer: React.FC<MarkdownRendererProps> = ({ content, cla
         switch (heading.depth) {
           case 1:
             return (
-              <h1 key={key} className="text-sm font-bold text-purple-200 mt-3 mb-1.5 pb-1 border-b border-purple-500/20">
+              <h1 key={key} className="text-sm font-bold text-[#F3E5AB] mt-3 mb-1.5 pb-1 border-b border-[#D4AF37]/30">
                 {headingContent}
               </h1>
             );
           case 2:
             return (
-              <h2 key={key} className="text-xs font-bold text-purple-200 mt-2.5 mb-1 pb-0.5 border-b border-purple-500/10">
+              <h2 key={key} className="text-xs font-bold text-[#F3E5AB] mt-2.5 mb-1 pb-0.5 border-b border-[#D4AF37]/20">
                 {headingContent}
               </h2>
             );
           case 3:
             return (
-              <h3 key={key} className="text-xs font-semibold text-purple-300 uppercase tracking-wide mt-2 mb-1">
+              <h3 key={key} className="text-xs font-semibold text-[#D4AF37] uppercase tracking-wide mt-2 mb-1">
                 {headingContent}
               </h3>
             );
@@ -229,7 +229,7 @@ export const MarkdownRenderer: React.FC<MarkdownRendererProps> = ({ content, cla
         );
       }
       case 'hr':
-        return <hr key={key} className="border-t border-[#3b3260] my-2.5" />;
+        return <hr key={key} className="border-t border-[#333842] my-2.5" />;
       case 'list': {
         const list = token as Tokens.List;
         const ListTag = list.ordered ? 'ol' : 'ul';
@@ -251,7 +251,7 @@ export const MarkdownRenderer: React.FC<MarkdownRendererProps> = ({ content, cla
         return (
           <blockquote
             key={key}
-            className="border-l-2 border-purple-400/60 pl-3 my-2 text-gray-300 italic bg-purple-950/20 py-1 rounded-r"
+            className="border-l-2 border-[#D4AF37] pl-3 my-2 text-gray-300 italic bg-[#D4AF37]/10 py-1 rounded-r"
           >
             {bq.tokens ? bq.tokens.map((t, i) => renderBlockToken(t, i)) : decodeEntities(bq.text)}
           </blockquote>
@@ -264,29 +264,29 @@ export const MarkdownRenderer: React.FC<MarkdownRendererProps> = ({ content, cla
       case 'table': {
         const tbl = token as Tokens.Table;
         return (
-          <div key={key} className="overflow-x-auto my-2 rounded border border-[#30363d]">
+          <div key={key} className="overflow-x-auto my-2 rounded border border-[#333842]">
             <table className="min-w-full text-left border-collapse text-xs">
-              <thead className="bg-[#0d1117] border-b border-[#30363d] text-gray-200">
+              <thead className="bg-[#121316] border-b border-[#333842] text-gray-200">
                 <tr>
                   {tbl.header.map((cell, ci) => (
                     <th
                       key={ci}
                       style={{ textAlign: tbl.align[ci] || 'left' }}
-                      className="p-1.5 font-semibold border-r border-[#30363d] last:border-r-0"
+                      className="p-1.5 font-semibold border-r border-[#333842] last:border-r-0"
                     >
                       {cell.tokens ? renderInlineTokens(cell.tokens) : decodeEntities(cell.text)}
                     </th>
                   ))}
                 </tr>
               </thead>
-              <tbody className="divide-y divide-[#30363d]">
+              <tbody className="divide-y divide-[#333842]">
                 {tbl.rows.map((row, ri) => (
-                  <tr key={ri} className="hover:bg-white/5 transition-colors">
+                  <tr key={ri} className="hover:bg-[#22262C]/60 transition-colors">
                     {row.map((cell, ci) => (
                       <td
                         key={ci}
                         style={{ textAlign: tbl.align[ci] || 'left' }}
-                        className="p-1.5 text-gray-300 border-r border-[#30363d] last:border-r-0"
+                        className="p-1.5 text-gray-300 border-r border-[#333842] last:border-r-0"
                       >
                         {cell.tokens ? renderInlineTokens(cell.tokens) : decodeEntities(cell.text)}
                       </td>

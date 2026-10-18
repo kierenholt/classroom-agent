@@ -205,6 +205,7 @@ classroomRouter.get('/drive-file/:fileId', requireAuth, async (req: Authenticate
 
   try {
     const extracted = await extractDriveFile(req.googleAccessToken!, fileId, exportType);
+    res.setHeader('Cache-Control', 'private, max-age=3600');
     if (extracted.buffer) {
       res.setHeader('Content-Type', extracted.mimeType);
       res.send(extracted.buffer);

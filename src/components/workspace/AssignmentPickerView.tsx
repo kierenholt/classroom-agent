@@ -191,14 +191,14 @@ export const AssignmentPickerView: React.FC<AssignmentPickerViewProps> = ({
     >
       <div
         data-testid="assignment-picker-view"
-        className="w-full max-w-2xl max-h-[85vh] flex flex-col bg-[#161b22] border border-[#30363d] rounded-xl text-gray-200 shadow-2xl overflow-hidden"
+        className="w-full max-w-2xl max-h-[85vh] flex flex-col bg-[#1A1D21] border border-[#333842] rounded-xl text-gray-200 shadow-2xl overflow-hidden"
         onClick={(e) => e.stopPropagation()}
       >
         {/* Modal Header */}
-        <div className="px-6 py-4 border-b border-[#30363d] flex items-center justify-between bg-[#0d1117]">
+        <div className="px-6 py-4 border-b border-[#333842] flex items-center justify-between bg-[#121316]">
           <div className="flex items-center space-x-2.5">
-            <div className="w-8 h-8 rounded-lg bg-purple-600/20 border border-purple-500/40 flex items-center justify-center">
-              <GraduationCap className="w-4 h-4 text-purple-400" />
+            <div className="w-8 h-8 rounded-lg bg-[#D4AF37]/15 border border-[#D4AF37]/30 flex items-center justify-center">
+              <GraduationCap className="w-4 h-4 text-[#D4AF37]" />
             </div>
             <div>
               <h2 className="text-sm font-semibold text-white">Open Assignment</h2>
@@ -213,15 +213,15 @@ export const AssignmentPickerView: React.FC<AssignmentPickerViewProps> = ({
               data-testid="assignment-picker-refresh-button"
               onClick={handleManualRefresh}
               disabled={isRefreshing || isCoursesLoading || isSubmittingCreate}
-              className="p-1.5 rounded-lg text-gray-400 hover:text-white hover:bg-[#21262d] transition-colors disabled:opacity-50"
+              className="p-1.5 rounded-lg text-gray-400 hover:text-white hover:bg-[#22262C] transition-colors disabled:opacity-50"
               title="Refresh classes and assignments"
             >
-              <RefreshCw className={`w-3.5 h-3.5 ${isRefreshing ? 'animate-spin text-purple-400' : ''}`} />
+              <RefreshCw className={`w-3.5 h-3.5 ${isRefreshing ? 'animate-spin text-[#D4AF37]' : ''}`} />
             </button>
             <button
               data-testid="assignment-picker-close-button"
               onClick={onClose}
-              className="p-1.5 rounded-lg text-gray-400 hover:text-white hover:bg-[#21262d] transition-colors"
+              className="p-1.5 rounded-lg text-gray-400 hover:text-white hover:bg-[#22262C] transition-colors"
               title="Close"
             >
               <X className="w-4 h-4" />
@@ -247,12 +247,12 @@ export const AssignmentPickerView: React.FC<AssignmentPickerViewProps> = ({
               1. Select a Class
             </label>
             {isCoursesLoading ? (
-              <div className="flex items-center space-x-2 text-xs text-gray-400 p-4 bg-[#0d1117] border border-[#30363d] rounded-lg">
-                <Loader2 className="w-4 h-4 animate-spin text-purple-400" />
+              <div className="flex items-center space-x-2 text-xs text-gray-400 p-4 bg-[#121316] border border-[#333842] rounded-lg">
+                <Loader2 className="w-4 h-4 animate-spin text-[#D4AF37]" />
                 <span>Loading classes...</span>
               </div>
             ) : courses.length === 0 ? (
-              <div className="text-xs text-gray-500 p-4 bg-[#0d1117] border border-[#30363d] rounded-lg">
+              <div className="text-xs text-gray-500 p-4 bg-[#121316] border border-[#333842] rounded-lg">
                 No active classes found.
               </div>
             ) : (
@@ -267,8 +267,8 @@ export const AssignmentPickerView: React.FC<AssignmentPickerViewProps> = ({
                       onClick={() => setSelectedCourseId(course.id)}
                       className={`w-full text-left p-3 rounded-lg border transition-all text-xs flex items-center justify-between ${
                         isSelected
-                          ? 'bg-purple-900/30 border-purple-500 text-white shadow-sm'
-                          : 'bg-[#0d1117] border-[#30363d] text-gray-300 hover:bg-[#21262d]'
+                          ? 'bg-[#D4AF37]/15 border-[#D4AF37] text-white shadow-sm'
+                          : 'bg-[#121316] border-[#333842] text-gray-300 hover:bg-[#22262C]'
                       }`}
                     >
                       <div className="min-w-0 pr-2">
@@ -277,7 +277,7 @@ export const AssignmentPickerView: React.FC<AssignmentPickerViewProps> = ({
                           <div className="text-gray-400 text-[11px] mt-0.5 truncate">{course.section}</div>
                         )}
                       </div>
-                      {isSelected && <CheckCircle className="w-4 h-4 text-purple-400 shrink-0" />}
+                      {isSelected && <CheckCircle className="w-4 h-4 text-[#D4AF37] shrink-0" />}
                     </button>
                   );
                 })}
@@ -287,7 +287,7 @@ export const AssignmentPickerView: React.FC<AssignmentPickerViewProps> = ({
 
           {/* Step 2: Assignment Picker or Create New Assignment Form (shown once user selects a class) */}
           {selectedCourseId && (
-            <div data-testid="assignment-picker-section" className="space-y-3 pt-2 border-t border-[#30363d]">
+            <div data-testid="assignment-picker-section" className="space-y-3 pt-2 border-t border-[#333842]">
               <div className="flex items-center justify-between">
                 <label className="block text-[11px] font-semibold uppercase tracking-wider text-gray-400">
                   {isCreatingAssignment ? '2. Create New Assignment' : '2. Select an Assignment'}
@@ -297,7 +297,7 @@ export const AssignmentPickerView: React.FC<AssignmentPickerViewProps> = ({
                     type="button"
                     data-testid="create-new-assignment-button"
                     onClick={handleOpenCreateForm}
-                    className="inline-flex items-center space-x-1.5 px-2.5 py-1 rounded-md bg-purple-600/20 hover:bg-purple-600/30 border border-purple-500/40 text-purple-300 text-xs font-medium transition-colors"
+                    className="inline-flex items-center space-x-1.5 px-2.5 py-1 rounded-md bg-[#D4AF37]/15 hover:bg-[#D4AF37]/25 border border-[#D4AF37]/40 text-[#F3E5AB] text-xs font-medium transition-colors"
                   >
                     <PlusCircle className="w-3.5 h-3.5" />
                     <span>+ New Assignment</span>
@@ -320,7 +320,7 @@ export const AssignmentPickerView: React.FC<AssignmentPickerViewProps> = ({
                 <form
                   data-testid="create-assignment-form"
                   onSubmit={handleCreateAssignment}
-                  className="p-4 bg-[#0d1117] border border-[#30363d] rounded-lg space-y-3.5"
+                  className="p-4 bg-[#121316] border border-[#333842] rounded-lg space-y-3.5"
                 >
                   <div>
                     <label className="block text-xs font-medium text-gray-300 mb-1">
@@ -334,7 +334,7 @@ export const AssignmentPickerView: React.FC<AssignmentPickerViewProps> = ({
                       onChange={(e) => setNewTitle(e.target.value)}
                       placeholder="e.g., Unit 3 Essay: Industrial Revolution"
                       disabled={isSubmittingCreate}
-                      className="w-full px-3 py-2 text-xs bg-[#161b22] border border-[#30363d] rounded-md text-white placeholder-gray-500 focus:outline-none focus:border-purple-500"
+                      className="w-full px-3 py-2 text-xs bg-[#22262C] border border-[#333842] rounded-md text-white placeholder-gray-500 focus:outline-none focus:border-[#D4AF37]"
                     />
                   </div>
 
@@ -349,7 +349,7 @@ export const AssignmentPickerView: React.FC<AssignmentPickerViewProps> = ({
                       onChange={(e) => setNewDescription(e.target.value)}
                       placeholder="Provide assignment instructions, prompts, or grading expectations..."
                       disabled={isSubmittingCreate}
-                      className="w-full px-3 py-2 text-xs bg-[#161b22] border border-[#30363d] rounded-md text-white placeholder-gray-500 focus:outline-none focus:border-purple-500 resize-none"
+                      className="w-full px-3 py-2 text-xs bg-[#22262C] border border-[#333842] rounded-md text-white placeholder-gray-500 focus:outline-none focus:border-[#D4AF37] resize-none"
                     />
                   </div>
 
@@ -364,7 +364,7 @@ export const AssignmentPickerView: React.FC<AssignmentPickerViewProps> = ({
                         value={newMaxPoints}
                         onChange={(e) => setNewMaxPoints(e.target.value)}
                         disabled={isSubmittingCreate}
-                        className="w-full px-3 py-1.5 text-xs bg-[#161b22] border border-[#30363d] rounded-md text-white focus:outline-none focus:border-purple-500"
+                        className="w-full px-3 py-1.5 text-xs bg-[#22262C] border border-[#333842] rounded-md text-white focus:outline-none focus:border-[#D4AF37]"
                       />
                     </div>
                     <div>
@@ -377,25 +377,25 @@ export const AssignmentPickerView: React.FC<AssignmentPickerViewProps> = ({
                         value={newDueDate}
                         onChange={(e) => setNewDueDate(e.target.value)}
                         disabled={isSubmittingCreate}
-                        className="w-full px-3 py-1.5 text-xs bg-[#161b22] border border-[#30363d] rounded-md text-white focus:outline-none focus:border-purple-500"
+                        className="w-full px-3 py-1.5 text-xs bg-[#22262C] border border-[#333842] rounded-md text-white focus:outline-none focus:border-[#D4AF37]"
                       />
                     </div>
                   </div>
                 </form>
               ) : isCourseworkLoading ? (
-                <div className="flex items-center space-x-2 text-xs text-gray-400 p-6 bg-[#0d1117] border border-[#30363d] rounded-lg justify-center">
-                  <Loader2 className="w-4 h-4 animate-spin text-purple-400" />
+                <div className="flex items-center space-x-2 text-xs text-gray-400 p-6 bg-[#121316] border border-[#333842] rounded-lg justify-center">
+                  <Loader2 className="w-4 h-4 animate-spin text-[#D4AF37]" />
                   <span>Loading assignments from Classroom...</span>
                 </div>
               ) : currentCoursework.length === 0 ? (
-                <div className="flex flex-col items-center justify-center text-gray-400 text-xs p-6 bg-[#0d1117] border border-[#30363d] rounded-lg space-y-3">
+                <div className="flex flex-col items-center justify-center text-gray-400 text-xs p-6 bg-[#121316] border border-[#333842] rounded-lg space-y-3">
                   <BookOpen className="w-8 h-8 text-gray-600" />
                   <p className="text-gray-500">No existing assignments found for this class.</p>
                   <button
                     type="button"
                     data-testid="create-new-assignment-card"
                     onClick={handleOpenCreateForm}
-                    className="inline-flex items-center space-x-1.5 px-3.5 py-2 rounded-lg bg-purple-600/20 hover:bg-purple-600/30 border border-purple-500/40 text-purple-300 text-xs font-medium transition-colors"
+                    className="inline-flex items-center space-x-1.5 px-3.5 py-2 rounded-lg bg-[#D4AF37]/15 hover:bg-[#D4AF37]/25 border border-[#D4AF37]/40 text-[#F3E5AB] text-xs font-medium transition-colors"
                   >
                     <PlusCircle className="w-4 h-4" />
                     <span>Create New Assignment</span>
@@ -414,8 +414,8 @@ export const AssignmentPickerView: React.FC<AssignmentPickerViewProps> = ({
                         onMouseEnter={() => selectedCourseId && prefetchWorkspace(selectedCourseId, cw.id)}
                         className={`w-full text-left p-3.5 rounded-lg border transition-all flex items-start justify-between ${
                           isSelected
-                            ? 'bg-purple-900/30 border-purple-500 text-white shadow-sm'
-                            : 'bg-[#0d1117] border-[#30363d] text-gray-200 hover:bg-[#21262d]'
+                            ? 'bg-[#D4AF37]/15 border-[#D4AF37] text-white shadow-sm'
+                            : 'bg-[#121316] border-[#333842] text-gray-200 hover:bg-[#22262C]'
                         }`}
                       >
                         <div className="min-w-0 pr-3 flex-1">
@@ -427,7 +427,7 @@ export const AssignmentPickerView: React.FC<AssignmentPickerViewProps> = ({
                           )}
                           <div className="flex items-center space-x-4 mt-2 text-[11px] text-gray-400 font-mono">
                             <span className="flex items-center space-x-1">
-                              <Award className="w-3.5 h-3.5 text-purple-400" />
+                              <Award className="w-3.5 h-3.5 text-[#D4AF37]" />
                               <span>{cw.maxPoints ?? 100} points</span>
                             </span>
                             {cw.dueDate && (
@@ -440,7 +440,7 @@ export const AssignmentPickerView: React.FC<AssignmentPickerViewProps> = ({
                             )}
                           </div>
                         </div>
-                        {isSelected && <CheckCircle className="w-4 h-4 text-purple-400 shrink-0 mt-0.5" />}
+                        {isSelected && <CheckCircle className="w-4 h-4 text-[#D4AF37] shrink-0 mt-0.5" />}
                       </button>
                     );
                   })}
@@ -451,13 +451,13 @@ export const AssignmentPickerView: React.FC<AssignmentPickerViewProps> = ({
         </div>
 
         {/* Modal Footer */}
-        <div className="px-6 py-3.5 border-t border-[#30363d] bg-[#0d1117] flex items-center justify-end space-x-2.5">
+        <div className="px-6 py-3.5 border-t border-[#333842] bg-[#121316] flex items-center justify-end space-x-2.5">
           <button
             type="button"
             data-testid="assignment-picker-cancel-button"
             onClick={onClose}
             disabled={isSubmittingCreate}
-            className="px-4 py-1.5 rounded-lg bg-[#21262d] hover:bg-[#30363d] text-gray-300 text-xs font-medium transition-colors disabled:opacity-50"
+            className="px-4 py-1.5 rounded-lg bg-[#22262C] hover:bg-[#2D323A] text-gray-300 text-xs font-medium transition-colors disabled:opacity-50"
           >
             Cancel
           </button>
@@ -466,7 +466,7 @@ export const AssignmentPickerView: React.FC<AssignmentPickerViewProps> = ({
             data-testid="assignment-picker-ok-button"
             onClick={handleConfirmSelection}
             disabled={isConfirmDisabled}
-            className="px-5 py-1.5 rounded-lg bg-purple-600 hover:bg-purple-500 text-white text-xs font-medium transition-colors disabled:opacity-40 disabled:cursor-not-allowed inline-flex items-center space-x-1.5"
+            className="px-5 py-1.5 rounded-lg bg-[#D4AF37] hover:bg-[#E5B869] text-[#121316] text-xs font-semibold transition-colors disabled:opacity-40 disabled:cursor-not-allowed inline-flex items-center space-x-1.5 cursor-pointer shadow-xs"
           >
             {isSubmittingCreate ? (
               <>

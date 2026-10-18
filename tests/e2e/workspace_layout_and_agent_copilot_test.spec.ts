@@ -235,7 +235,9 @@ test.describe('Classroom Agent - Workspace and Agent Co-Pilot Tests', () => {
     // Verify the assignment tab and chat window are mounted
     await expect(page.locator('[data-testid="chat-window"]')).toBeVisible({ timeout: 15000 });
 
-    const openTab = page.locator('[data-testid^="assignment-tab-"]').first();
+    const openTab = page
+      .locator('[data-testid^="assignment-tab-"]:not([data-testid="assignment-tab-bar"])')
+      .first();
     await expect(openTab).toBeVisible({ timeout: 15000 });
     const tabIdAttr = await openTab.getAttribute('data-testid');
     const assignmentId = tabIdAttr!.replace('assignment-tab-', '');
@@ -275,8 +277,10 @@ test.describe('Classroom Agent - Workspace and Agent Co-Pilot Tests', () => {
     });
 
     try {
-      // Assert markdown-content container renders in the chat window
-      const mdContent = page.locator('[data-testid="markdown-content"]');
+      // Assert markdown-content container renders in the chat window for the seeded bubble
+      const chatBubble = page.locator(`[data-testid="chat-bubble-${messageId}"]`);
+      await expect(chatBubble).toBeVisible({ timeout: 15000 });
+      const mdContent = chatBubble.locator('[data-testid="markdown-content"]');
       await expect(mdContent).toBeVisible({ timeout: 15000 });
 
       // Assert headings render as h3 elements
@@ -398,7 +402,7 @@ test.describe('Classroom Agent - Workspace and Agent Co-Pilot Tests', () => {
     await page.locator('[data-testid="user-menu-settings-button"]').click();
     const settingsModal = page.locator('[data-testid="settings-modal"]');
     await expect(settingsModal).toBeVisible();
-    await page.locator('[data-testid="settings-tab-display"]').click();
+    await page.locator('[data-testid="settings-tab-advanced"]').click();
     const settingSwitch = page.locator('[data-testid="toggle-extracted-text-setting"]');
     await expect(settingSwitch).toHaveAttribute('aria-checked', 'false');
     await settingSwitch.click();
@@ -412,7 +416,7 @@ test.describe('Classroom Agent - Workspace and Agent Co-Pilot Tests', () => {
     await page.locator('[data-testid="user-account-button"]').click();
     await page.locator('[data-testid="user-menu-settings-button"]').click();
     await expect(settingsModal).toBeVisible();
-    await page.locator('[data-testid="settings-tab-display"]').click();
+    await page.locator('[data-testid="settings-tab-advanced"]').click();
     await settingSwitch.click();
     await expect(settingSwitch).toHaveAttribute('aria-checked', 'false');
     await page.locator('[data-testid="close-settings-button"]').click();
@@ -1035,32 +1039,37 @@ test.describe('Classroom Agent - Workspace and Agent Co-Pilot Tests', () => {
     const modalDialog = settingsModal.locator('> div');
     await expect(modalDialog).toHaveClass(/max-w-3xl/);
 
-    // Verify all 3 section tabs exist
+    // Verify all 4 section tabs exist
     const feedbackTab = page.locator('[data-testid="settings-tab-feedback"]');
     const displayTab = page.locator('[data-testid="settings-tab-display"]');
     const advancedTab = page.locator('[data-testid="settings-tab-advanced"]');
+    const quickActionsTab = page.locator('[data-testid="settings-tab-quick-actions"]');
     await expect(feedbackTab).toBeVisible();
     await expect(displayTab).toBeVisible();
     await expect(advancedTab).toBeVisible();
+    await expect(quickActionsTab).toBeVisible();
 
-    // By default, feedback options section is active and display/advanced sections are hidden
+    // By default, feedback options section is active and display/advanced/quick-actions sections are hidden
     await expect(page.locator('[data-testid="feedback-options-section"]')).toBeVisible();
     await expect(page.locator('[data-testid="workspace-display-section"]')).toBeHidden();
     await expect(page.locator('[data-testid="advanced-options-section"]')).toBeHidden();
+    await expect(page.locator('[data-testid="quick-actions-settings-section"]')).toBeHidden();
 
     // Switch to Workspace Display tab
     await displayTab.click();
     await expect(page.locator('[data-testid="workspace-display-section"]')).toBeVisible();
     await expect(page.locator('[data-testid="feedback-options-section"]')).toBeHidden();
     await expect(page.locator('[data-testid="advanced-options-section"]')).toBeHidden();
+    await expect(page.locator('[data-testid="quick-actions-settings-section"]')).toBeHidden();
     await expect(page.locator('[data-testid="toggle-rubric-pane-setting"]')).toBeVisible();
-    await expect(page.locator('[data-testid="toggle-extracted-text-setting"]')).toBeVisible();
 
-    // Switch to Advanced tab and verify Show Tool Calls setting defaults to off (false)
+    // Switch to Advanced tab and verify Show Extracted Text Toggle and Show Tool Calls settings default to off (false)
     await advancedTab.click();
     await expect(page.locator('[data-testid="advanced-options-section"]')).toBeVisible();
     await expect(page.locator('[data-testid="workspace-display-section"]')).toBeHidden();
     await expect(page.locator('[data-testid="feedback-options-section"]')).toBeHidden();
+    await expect(page.locator('[data-testid="quick-actions-settings-section"]')).toBeHidden();
+    await expect(page.locator('[data-testid="toggle-extracted-text-setting"]')).toBeVisible();
     const showToolCallsToggle = page.locator('[data-testid="toggle-show-tool-calls-setting"]');
     await expect(showToolCallsToggle).toBeVisible();
     await expect(showToolCallsToggle).toHaveAttribute('aria-checked', 'false');
@@ -1071,11 +1080,24 @@ test.describe('Classroom Agent - Workspace and Agent Co-Pilot Tests', () => {
     await showToolCallsToggle.click();
     await expect(showToolCallsToggle).toHaveAttribute('aria-checked', 'false');
 
+    // Switch to Quick Actions tab
+    await quickActionsTab.click();
+    await expect(page.locator('[data-testid="quick-actions-settings-section"]')).toBeVisible();
+    await expect(page.locator('[data-testid="advanced-options-section"]')).toBeHidden();
+    await expect(page.locator('[data-testid="workspace-display-section"]')).toBeHidden();
+    await expect(page.locator('[data-testid="feedback-options-section"]')).toBeHidden();
+    const showQuickActionsToggle = page.locator('[data-testid="toggle-show-quick-actions-setting"]');
+    await expect(showQuickActionsToggle).toBeVisible();
+    await expect(showQuickActionsToggle).toHaveAttribute('aria-checked', 'true');
+    await expect(page.locator('[data-testid="add-quick-action-button"]')).toBeVisible();
+    await expect(page.locator('[data-testid="reset-quick-actions-button"]')).toBeVisible();
+
     // Switch back to Feedback & Grading tab
     await feedbackTab.click();
     await expect(page.locator('[data-testid="feedback-options-section"]')).toBeVisible();
     await expect(page.locator('[data-testid="workspace-display-section"]')).toBeHidden();
     await expect(page.locator('[data-testid="advanced-options-section"]')).toBeHidden();
+    await expect(page.locator('[data-testid="quick-actions-settings-section"]')).toBeHidden();
 
     // Close settings modal
     await page.locator('[data-testid="close-settings-button"]').click();
@@ -1989,7 +2011,41 @@ test.describe('Classroom Agent - Workspace and Agent Co-Pilot Tests', () => {
         { gToken: googleToken, cToken: customToken }
       );
 
-      // 2. Simulate redirect back from Stripe Checkout to SPA root
+      // 2. Open an assignment tab before going to Stripe Checkout
+      await page.goto('/');
+      await page.locator('[data-testid="new-assignment-tab-button"]').click();
+      await expect(page.locator('[data-testid="assignment-picker-modal"]')).toBeVisible({ timeout: 15000 });
+
+      const courseButtons = page.locator('[data-testid^="course-select-"]');
+      await expect(courseButtons.first()).toBeVisible({ timeout: 15000 });
+      const courseCount = await courseButtons.count();
+
+      let openedAssignmentId = '';
+      for (let i = 0; i < courseCount; i++) {
+        const courseBtn = courseButtons.nth(i);
+        const courseTestId = await courseBtn.getAttribute('data-testid');
+        const cId = courseTestId!.replace('course-select-', '');
+        await courseBtn.click();
+        await expect(page.locator('[data-testid="assignment-picker-section"]')).toBeVisible({ timeout: 5000 });
+        const assignmentCard = page.locator('[data-testid^="assignment-card-"]').first();
+        try {
+          await expect(assignmentCard).toBeVisible({ timeout: 5000 });
+          const cardTestId = await assignmentCard.getAttribute('data-testid');
+          const cwId = cardTestId!.replace('assignment-card-', '');
+          openedAssignmentId = `${cId}_${cwId}`;
+          await assignmentCard.click();
+          await page.locator('[data-testid="assignment-picker-ok-button"]').click();
+          break;
+        } catch {
+          // Try next course
+        }
+      }
+      expect(openedAssignmentId).toBeTruthy();
+      await expect(page.locator(`[data-testid="assignment-tab-${openedAssignmentId}"]`)).toBeVisible({
+        timeout: 15000,
+      });
+
+      // 3. Simulate redirect back from Stripe Checkout to SPA root
       await page.goto(`/?checkout=success&session_id=${sessionId}&credits=100`);
 
       // Verify TopUpCreditsModal opens automatically with success banner and +100 credits (25 -> 125)
@@ -2000,12 +2056,19 @@ test.describe('Classroom Agent - Workspace and Agent Co-Pilot Tests', () => {
         timeout: 15000,
       });
 
+      // Close modal and verify the previously opened assignment tab and workspace are still open!
+      await page.locator('[data-testid="close-topup-modal-button"]').click();
+      await expect(page.locator('[data-testid="topup-credits-modal"]')).toBeHidden();
+      await expect(page.locator(`[data-testid="assignment-tab-${openedAssignmentId}"]`)).toBeVisible();
+      await expect(page.locator('[data-testid="empty-workspace-state"]')).toBeHidden();
+      await expect(page.locator('[data-testid="chat-window"]')).toBeVisible();
+
       // Verify URL query params were cleaned up
       await expect
         .poll(() => page.url(), { timeout: 10000 })
         .not.toContain('session_id=');
 
-      // 3. Verify idempotency: calling verify-session again for the same sessionId does not double-credit
+      // 4. Verify idempotency: calling verify-session again for the same sessionId does not double-credit
       const secondVerifyRes = await request.post(`${API_BASE_URL}/stripe/verify-session`, {
         data: {
           sessionId,
@@ -2019,6 +2082,348 @@ test.describe('Classroom Agent - Workspace and Agent Co-Pilot Tests', () => {
     } finally {
       await seedTestUserCredits(TEACHER_UID, 100).catch(() => null);
     }
+  });
+
+  test('submissionPreviewZone_submittedAndFeedbackDocs_cachesDriveFilesAndPersistsPdfIframes_test', async ({
+    page,
+  }) => {
+    let googleToken = '';
+    let customToken = '';
+    try {
+      const { getLiveTeacherAccessToken, getLiveTestTeacherCustomToken } = await import(
+        '../helpers/classroomSandboxSeeder'
+      );
+      [googleToken, customToken] = await Promise.all([
+        getLiveTeacherAccessToken(),
+        getLiveTestTeacherCustomToken(),
+      ]);
+    } catch {
+      googleToken = '';
+      customToken = '';
+    }
+
+    await page.addInitScript(
+      ({ gToken, cToken }) => {
+        if (gToken) {
+          window.sessionStorage.setItem('classroom_agent_google_access_token', gToken);
+        }
+        if (cToken) {
+          window.sessionStorage.setItem('classroom_agent_custom_token', cToken);
+        }
+      },
+      { gToken: googleToken, cToken: customToken }
+    );
+
+    await page.goto('/');
+
+    const newAssignmentTabBtn = page.locator('[data-testid="new-assignment-tab-button"]');
+    await expect(newAssignmentTabBtn).toBeVisible({ timeout: 15000 });
+    await newAssignmentTabBtn.click();
+    await expect(page.locator('[data-testid="assignment-picker-modal"]')).toBeVisible({ timeout: 15000 });
+
+    const courseButtons = page.locator('[data-testid^="course-select-"]');
+    await expect(courseButtons.first()).toBeVisible({ timeout: 15000 });
+    const courseCount = await courseButtons.count();
+
+    let openedAssignmentId = '';
+    for (let i = 0; i < courseCount; i++) {
+      const courseBtn = courseButtons.nth(i);
+      const courseTestId = await courseBtn.getAttribute('data-testid');
+      const cId = courseTestId!.replace('course-select-', '');
+      await courseBtn.click();
+      await expect(page.locator('[data-testid="assignment-picker-section"]')).toBeVisible({ timeout: 5000 });
+      const assignmentCard = page.locator('[data-testid^="assignment-card-"]').first();
+      try {
+        await expect(assignmentCard).toBeVisible({ timeout: 5000 });
+        const cardTestId = await assignmentCard.getAttribute('data-testid');
+        const cwId = cardTestId!.replace('assignment-card-', '');
+        openedAssignmentId = `${cId}_${cwId}`;
+        await assignmentCard.click();
+        await page.locator('[data-testid="assignment-picker-ok-button"]').click();
+        break;
+      } catch {
+        // Continue to next course
+      }
+    }
+    expect(openedAssignmentId).toBeTruthy();
+
+    await expect(page.locator('[data-testid="student-roster-list"]')).toBeVisible({ timeout: 15000 });
+    const studentRows = page.locator('[data-testid^="student-row-"]');
+    await expect(studentRows.first()).toBeVisible({ timeout: 10000 });
+    const studentRowTestId = await studentRows.first().getAttribute('data-testid');
+    const activeStudentId = studentRowTestId!.replace('student-row-', '');
+
+    // Wait for initial submitted document PDF preview iframe to render
+    const activePdfFrame = page.locator('[data-testid="preview-pdf-frame"]');
+    await expect(activePdfFrame).toBeVisible({ timeout: 30000 });
+    const initialSubBlobSrc = await activePdfFrame.getAttribute('src');
+    expect(initialSubBlobSrc).toMatch(/^blob:/);
+
+    const attachmentTabs = page.locator('[data-testid^="attachment-tab-"]');
+    const firstTab = attachmentTabs.first();
+    const firstTabTestId = await firstTab.getAttribute('data-testid');
+    const submittedFileId = firstTabTestId!.replace('attachment-tab-', '');
+
+    const mockFeedbackDocId = `feedback_doc_test_${Date.now()}`;
+    let feedbackPreviewFetchCount = 0;
+    let submittedPreviewFetchCountAfterLoad = 0;
+
+    await page.route(`**/classroom/drive-file/${mockFeedbackDocId}*`, async (route) => {
+      const url = route.request().url();
+      if (url.includes('exportType=preview')) {
+        feedbackPreviewFetchCount++;
+        const minimalPdf = Buffer.from(
+          '%PDF-1.4\n1 0 obj<<>>endobj\ntrailer<<>>\n%%EOF',
+          'utf-8'
+        );
+        await route.fulfill({
+          status: 200,
+          contentType: 'application/pdf',
+          body: minimalPdf,
+        });
+      } else {
+        await route.fulfill({
+          status: 200,
+          contentType: 'text/plain',
+          body: 'Feedback Document Text Content',
+        });
+      }
+    });
+
+    await page.route(`**/classroom/drive-file/${submittedFileId}*`, async (route) => {
+      const url = route.request().url();
+      if (url.includes('exportType=preview')) {
+        submittedPreviewFetchCountAfterLoad++;
+      }
+      await route.continue();
+    });
+
+    try {
+      await seedTestSubmission(openedAssignmentId, activeStudentId, {
+        studentId: activeStudentId,
+        submissionId: `sub_${activeStudentId}`,
+        draftGrade: 92,
+        overallFeedback: '# Great Essay\n\nWell structured argument.',
+        classroomSyncStatus: 'APPROVED',
+        feedbackDocId: mockFeedbackDocId,
+        feedbackDocUrl: `https://docs.google.com/document/d/${mockFeedbackDocId}/edit`,
+      });
+
+      // Verify the Feedback Document tab appears automatically in the attachment switcher and gets prefetched!
+      const feedbackTab = page.locator(`[data-testid="attachment-tab-${mockFeedbackDocId}"]`);
+      await expect(feedbackTab).toBeVisible({ timeout: 10000 });
+
+      // Wait for background prefetch of the feedback document to complete and mount its cached iframe
+      const cachedFeedbackFrame = page.locator(
+        `[data-testid="preview-pdf-frame-cached-${mockFeedbackDocId}"]`
+      );
+      await expect(cachedFeedbackFrame).toBeAttached({ timeout: 15000 });
+      expect(feedbackPreviewFetchCount).toBe(1);
+
+      // Click the Feedback Document tab -> should switch instantaneously with 0 additional fetches
+      // while keeping the Submitted Document iframe mounted in the DOM!
+      await feedbackTab.click();
+      await expect(activePdfFrame).toBeVisible();
+      const feedbackBlobSrc = await activePdfFrame.getAttribute('src');
+      expect(feedbackBlobSrc).toMatch(/^blob:/);
+      expect(feedbackBlobSrc).not.toBe(initialSubBlobSrc);
+
+      // Verify the submitted document iframe is still mounted in the DOM (hidden, not unmounted)
+      const cachedSubmittedFrame = page.locator(
+        `[data-testid="preview-pdf-frame-cached-${submittedFileId}"]`
+      );
+      await expect(cachedSubmittedFrame).toBeAttached();
+      await expect(cachedSubmittedFrame).toHaveAttribute('src', initialSubBlobSrc!);
+
+      // Switch back to the Submitted Document tab -> instant, same blob URL, 0 new network fetches
+      await firstTab.click();
+      await expect(activePdfFrame).toBeVisible();
+      await expect(activePdfFrame).toHaveAttribute('src', initialSubBlobSrc!);
+      await expect(cachedFeedbackFrame).toBeAttached();
+      await expect(cachedFeedbackFrame).toHaveAttribute('src', feedbackBlobSrc!);
+
+      // Switch to Feedback Document tab a second time -> still 0 additional fetches
+      await feedbackTab.click();
+      await expect(activePdfFrame).toHaveAttribute('src', feedbackBlobSrc!);
+      expect(feedbackPreviewFetchCount).toBe(1);
+      expect(submittedPreviewFetchCountAfterLoad).toBe(0);
+    } finally {
+      await cleanupTestAssignment(openedAssignmentId, [activeStudentId]).catch(() => null);
+    }
+  });
+
+  test('chatQuickActions_defaultStateAndSettingsManagement_togglesPillsAndSendsPrompts_test', async ({
+    page,
+  }) => {
+    let googleToken = '';
+    let customToken = '';
+    try {
+      const { getLiveTeacherAccessToken, getLiveTestTeacherCustomToken } = await import('../helpers/classroomSandboxSeeder');
+      [googleToken, customToken] = await Promise.all([
+        getLiveTeacherAccessToken(),
+        getLiveTestTeacherCustomToken(),
+      ]);
+    } catch {
+      googleToken = '';
+      customToken = '';
+    }
+
+    // 1. Inject tokens and clear any quick actions storage
+    await page.addInitScript(
+      ({ gToken, cToken }) => {
+        if (gToken) {
+          window.sessionStorage.setItem('classroom_agent_google_access_token', gToken);
+        }
+        if (cToken) {
+          window.sessionStorage.setItem('classroom_agent_custom_token', cToken);
+        }
+        window.localStorage.removeItem('classroom_agent_show_quick_actions');
+        window.localStorage.removeItem('classroom_agent_quick_actions');
+      },
+      { gToken: googleToken, cToken: customToken }
+    );
+
+    await page.goto('/');
+
+    const newAssignmentTabBtn = page.locator('[data-testid="new-assignment-tab-button"]');
+    await expect(newAssignmentTabBtn).toBeVisible({ timeout: 15000 });
+    await newAssignmentTabBtn.click();
+
+    const assignmentPickerModal = page.locator('[data-testid="assignment-picker-modal"]');
+    await expect(assignmentPickerModal).toBeVisible({ timeout: 15000 });
+
+    const courseButtons = page.locator('[data-testid^="course-select-"]');
+    await expect(courseButtons.first()).toBeVisible({ timeout: 15000 });
+    const courseCount = await courseButtons.count();
+
+    let opened = false;
+    for (let i = 0; i < courseCount; i++) {
+      const courseBtn = courseButtons.nth(i);
+      await courseBtn.click();
+      await expect(page.locator('[data-testid="assignment-picker-section"]')).toBeVisible({ timeout: 5000 });
+      const assignmentCards = page.locator('[data-testid^="assignment-card-"]');
+      try {
+        await expect(assignmentCards.first()).toBeVisible({ timeout: 5000 });
+        await assignmentCards.first().click();
+        const okBtn = page.locator('[data-testid="assignment-picker-ok-button"]');
+        await okBtn.click();
+        opened = true;
+        break;
+      } catch {
+        // Continue to check next course
+      }
+    }
+    expect(opened).toBe(true);
+    await expect(assignmentPickerModal).toBeHidden();
+
+    // Verify ChatPanel is visible
+    const chatWindow = page.locator('[data-testid="chat-window"]');
+    await expect(chatWindow).toBeVisible({ timeout: 15000 });
+
+    // 2. Verify quick action bar and default pills are visible by default
+    const quickActionsBar = page.locator('[data-testid="chat-quick-actions-bar"]');
+    await expect(quickActionsBar).toBeVisible();
+
+    const gradeSelectedPill = page.locator('[data-testid="quick-action-pill-grade-selected"]');
+    const gradeAllPill = page.locator('[data-testid="quick-action-pill-grade-all"]');
+    const generateRubricPill = page.locator('[data-testid="quick-action-pill-generate-rubric"]');
+    const followUpPill = page.locator('[data-testid="quick-action-pill-follow-up"]');
+    const classSummaryPill = page.locator('[data-testid="quick-action-pill-class-summary"]');
+    await expect(gradeSelectedPill).toBeVisible();
+    await expect(gradeAllPill).toBeVisible();
+    await expect(generateRubricPill).toBeVisible();
+    await expect(followUpPill).toBeHidden();
+    await expect(classSummaryPill).toBeHidden();
+
+    // 3. Open Settings Modal from TopTabBar user menu
+    const userAccountBtn = page.locator('[data-testid="user-account-button"]');
+    await expect(userAccountBtn).toBeVisible({ timeout: 10000 });
+    await userAccountBtn.click();
+    const userMenuSettingsBtn = page.locator('[data-testid="user-menu-settings-button"]');
+    await expect(userMenuSettingsBtn).toBeVisible();
+    await userMenuSettingsBtn.click();
+
+    const settingsModal = page.locator('[data-testid="settings-modal"]');
+    await expect(settingsModal).toBeVisible();
+
+    // Switch to Quick Actions tab
+    const quickActionsTab = page.locator('[data-testid="settings-tab-quick-actions"]');
+    await expect(quickActionsTab).toBeVisible();
+    await quickActionsTab.click();
+    await expect(page.locator('[data-testid="quick-actions-settings-section"]')).toBeVisible();
+
+    // Verify follow-up and class-summary toggles are off by default
+    await expect(page.locator('[data-testid="toggle-quick-action-follow-up"]')).toHaveAttribute('aria-checked', 'false');
+    await expect(page.locator('[data-testid="toggle-quick-action-class-summary"]')).toHaveAttribute('aria-checked', 'false');
+
+    // 4. Master toggle: toggle off
+    const masterToggle = page.locator('[data-testid="toggle-show-quick-actions-setting"]');
+    await expect(masterToggle).toHaveAttribute('aria-checked', 'true');
+    await masterToggle.click();
+    await expect(masterToggle).toHaveAttribute('aria-checked', 'false');
+
+    // Close settings modal and verify chat quick actions bar is hidden
+    await page.locator('[data-testid="close-settings-button"]').click();
+    await expect(settingsModal).toBeHidden();
+    await expect(quickActionsBar).toBeHidden();
+
+    // 5. Re-open settings, re-enable master toggle, disable one item, and add a custom prompt
+    await userAccountBtn.click();
+    await userMenuSettingsBtn.click();
+    await expect(settingsModal).toBeVisible();
+    await quickActionsTab.click();
+    await expect(masterToggle).toHaveAttribute('aria-checked', 'false');
+    await masterToggle.click();
+    await expect(masterToggle).toHaveAttribute('aria-checked', 'true');
+
+    // Disable grade-selected pill
+    const gradeSelectedToggle = page.locator('[data-testid="toggle-quick-action-grade-selected"]');
+    await expect(gradeSelectedToggle).toHaveAttribute('aria-checked', 'true');
+    await gradeSelectedToggle.click();
+    await expect(gradeSelectedToggle).toHaveAttribute('aria-checked', 'false');
+
+    // Add custom quick action
+    const addCustomBtn = page.locator('[data-testid="add-quick-action-button"]');
+    await expect(addCustomBtn).toBeVisible();
+    await addCustomBtn.click();
+
+    await page.locator('[data-testid="custom-action-label-input"]').fill('Proofread');
+    await page.locator('[data-testid="custom-action-prompt-input"]').fill('Proofread this submission for grammar and syntax issues');
+    await page.locator('[data-testid="save-custom-action-button"]').click();
+
+    // Verify custom item appears in settings list with Custom badge
+    const customItem = page.locator('[data-testid^="quick-action-item-custom-"]');
+    await expect(customItem).toBeVisible();
+    await expect(customItem).toContainText('Proofread');
+
+    // Close settings modal
+    await page.locator('[data-testid="done-settings-button"]').click();
+    await expect(settingsModal).toBeHidden();
+
+    // 6. Verify ChatPanel pills:
+    // - quick actions bar is visible again
+    // - grade-selected pill is hidden
+    // - custom "Proofread" pill is visible
+    await expect(quickActionsBar).toBeVisible();
+    await expect(gradeSelectedPill).toBeHidden();
+    const customPill = page.locator('[data-testid^="quick-action-pill-custom-"]');
+    await expect(customPill).toBeVisible();
+    await expect(customPill).toContainText('Proofread');
+
+    // 7. Click custom pill -> immediately sends prompt
+    await customPill.click();
+
+    // Verify user chat bubble appears with prompt content
+    const userMessage = page.locator('.whitespace-pre-wrap', {
+      hasText: 'Proofread this submission for grammar and syntax issues',
+    });
+    await expect(userMessage).toBeVisible({ timeout: 10000 });
+
+    // 8. Clean up localStorage
+    await page.evaluate(() => {
+      window.localStorage.removeItem('classroom_agent_show_quick_actions');
+      window.localStorage.removeItem('classroom_agent_quick_actions');
+    });
   });
 });
 

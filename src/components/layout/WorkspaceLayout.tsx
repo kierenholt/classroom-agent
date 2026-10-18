@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { GraduationCap } from 'lucide-react';
 import { TopTabBar, TabItem } from './TopTabBar';
 import { SettingsModal } from './SettingsModal';
@@ -14,11 +14,77 @@ interface OpenAssignmentSession {
   selectedStudentId: string | null;
 }
 
+const OPEN_SESSIONS_STORAGE_KEY = 'classroom_agent_open_sessions';
+const ACTIVE_TAB_STORAGE_KEY = 'classroom_agent_active_tab_id';
+
+function loadStoredSessions(): OpenAssignmentSession[] {
+  try {
+    const saved = window.localStorage.getItem(OPEN_SESSIONS_STORAGE_KEY);
+    if (saved) {
+      const parsed = JSON.parse(saved);
+      if (Array.isArray(parsed)) {
+        return parsed
+          .filter(
+            (s): s is OpenAssignmentSession =>
+              Boolean(
+                s &&
+                  typeof s === 'object' &&
+                  typeof s.assignmentId === 'string' &&
+                  typeof s.courseName === 'string' &&
+                  typeof s.assignmentTitle === 'string'
+              )
+          )
+          .map((s) => ({
+            assignmentId: s.assignmentId,
+            courseName: s.courseName,
+            assignmentTitle: s.assignmentTitle,
+            selectedStudentId: typeof s.selectedStudentId === 'string' ? s.selectedStudentId : null,
+          }));
+      }
+    }
+  } catch {
+    // ignore corrupted localStorage data
+  }
+  return [];
+}
+
 export const WorkspaceLayout: React.FC = () => {
-  const [sessions, setSessions] = useState<OpenAssignmentSession[]>([]);
-  const [activeTabId, setActiveTabId] = useState<string | null>(null);
+  const [sessions, setSessions] = useState<OpenAssignmentSession[]>(() => loadStoredSessions());
+  const [activeTabId, setActiveTabId] = useState<string | null>(() => {
+    const initialSessions = loadStoredSessions();
+    if (initialSessions.length === 0) return null;
+    try {
+      const savedTabId = window.localStorage.getItem(ACTIVE_TAB_STORAGE_KEY);
+      if (savedTabId && initialSessions.some((s) => s.assignmentId === savedTabId)) {
+        return savedTabId;
+      }
+    } catch {
+      // ignore localStorage read errors
+    }
+    return initialSessions[initialSessions.length - 1].assignmentId;
+  });
   const [isPickerOpen, setIsPickerOpen] = useState<boolean>(false);
   const [isSettingsOpen, setIsSettingsOpen] = useState<boolean>(false);
+
+  useEffect(() => {
+    try {
+      window.localStorage.setItem(OPEN_SESSIONS_STORAGE_KEY, JSON.stringify(sessions));
+    } catch {
+      // ignore storage quota errors
+    }
+  }, [sessions]);
+
+  useEffect(() => {
+    try {
+      if (activeTabId) {
+        window.localStorage.setItem(ACTIVE_TAB_STORAGE_KEY, activeTabId);
+      } else {
+        window.localStorage.removeItem(ACTIVE_TAB_STORAGE_KEY);
+      }
+    } catch {
+      // ignore storage errors
+    }
+  }, [activeTabId]);
 
   // Derive top tabs list
   const tabs: TabItem[] = sessions.map((s) => ({
@@ -85,7 +151,7 @@ export const WorkspaceLayout: React.FC = () => {
   };
 
   return (
-    <div className="flex flex-col h-screen w-screen overflow-hidden bg-[#0d1117] text-gray-200">
+    <div className="flex flex-col h-screen w-screen overflow-hidden bg-[#121316] text-[#EDEDED]">
       {/* Top Tab Bar */}
       <TopTabBar
         tabs={tabs}
@@ -108,12 +174,12 @@ export const WorkspaceLayout: React.FC = () => {
             data-testid="empty-workspace-state"
             className="w-full h-full flex flex-col items-center justify-center text-gray-500 p-6 select-none"
           >
-            <div className="w-14 h-14 rounded-2xl bg-[#161b22] border border-[#30363d] flex items-center justify-center mb-4">
-              <GraduationCap className="w-7 h-7 text-purple-400/70" />
+            <div className="w-14 h-14 rounded-2xl bg-[#1A1D21] border border-[#333842] flex items-center justify-center mb-4">
+              <GraduationCap className="w-7 h-7 text-[#D4AF37]" />
             </div>
-            <h2 className="text-sm font-semibold text-gray-300">No Assignment Open</h2>
+            <h2 className="text-sm font-semibold text-gray-200">No Assignment Open</h2>
             <p className="text-xs text-gray-500 mt-1 text-center max-w-xs">
-              Click <span className="text-purple-300 font-medium">+ Assignment</span> in the top bar to select a class and assignment.
+              Click <span className="text-[#F3E5AB] font-medium">+ Assignment</span> in the top bar to select a class and assignment.
             </p>
           </div>
         )}

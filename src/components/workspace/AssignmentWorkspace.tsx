@@ -168,9 +168,31 @@ export const AssignmentWorkspace: React.FC<AssignmentWorkspaceProps> = ({
       if (!sidecar) return liveSub;
 
       const isReturned = sidecar.classroomSyncStatus === 'RETURNED' || liveSub.state === 'RETURNED';
+      const feedbackDocId = sidecar.feedbackDocId || liveSub.feedbackDocId;
+      const feedbackDocUrl = sidecar.feedbackDocUrl || liveSub.feedbackDocUrl;
+
+      const baseAttachments = liveSub.attachments || [];
+      const hasFeedbackAttachment = feedbackDocId
+        ? baseAttachments.some((att) => att.driveFileId === feedbackDocId || att.id === feedbackDocId)
+        : false;
+      const mergedAttachments =
+        feedbackDocId && !hasFeedbackAttachment
+          ? [
+              ...baseAttachments,
+              {
+                id: feedbackDocId,
+                title: `Feedback - ${liveAssignment?.title || 'Classroom Assignment'} - ${liveSub.studentName}`,
+                type: 'GOOGLE_DOC' as const,
+                driveFileId: feedbackDocId,
+                alternateLink: feedbackDocUrl || `https://docs.google.com/document/d/${feedbackDocId}/edit`,
+              },
+            ]
+          : baseAttachments;
+
       return {
         ...liveSub,
         state: isReturned ? 'RETURNED' : liveSub.state,
+        attachments: mergedAttachments,
         draftGrade:
           sidecar.draftGrade !== undefined && sidecar.draftGrade !== null
             ? sidecar.draftGrade
@@ -184,13 +206,13 @@ export const AssignmentWorkspace: React.FC<AssignmentWorkspaceProps> = ({
         comments: sidecar.comments || [],
         classroomSyncStatus: sidecar.classroomSyncStatus || liveSub.classroomSyncStatus,
         classroomSyncError: sidecar.classroomSyncError || liveSub.classroomSyncError,
-        feedbackDocId: sidecar.feedbackDocId || liveSub.feedbackDocId,
-        feedbackDocUrl: sidecar.feedbackDocUrl || liveSub.feedbackDocUrl,
+        feedbackDocId,
+        feedbackDocUrl,
         approvedAt: sidecar.approvedAt || liveSub.approvedAt,
         updatedAt: sidecar.updatedAt || liveSub.updatedAt,
       };
     });
-  }, [liveSubmissions, evaluationsMap]);
+  }, [liveSubmissions, evaluationsMap, liveAssignment?.title]);
 
   // 4. Merge Live Assignment with Sidecar Rubric & Dynamic Submission Stats
   const mergedAssignment: AssignmentDoc | null = useMemo(() => {
@@ -408,7 +430,7 @@ export const AssignmentWorkspace: React.FC<AssignmentWorkspaceProps> = ({
 
   if (loading) {
     return (
-      <div className="flex-1 h-full flex items-center justify-center bg-[#0d1117] text-gray-400">
+      <div className="flex-1 h-full flex items-center justify-center bg-[#121316] text-gray-400">
         Loading live assignment workspace from Google Classroom...
       </div>
     );
@@ -416,7 +438,7 @@ export const AssignmentWorkspace: React.FC<AssignmentWorkspaceProps> = ({
 
   if (error || !mergedAssignment) {
     return (
-      <div className="flex-1 h-full flex items-center justify-center bg-[#0d1117] text-red-400 p-6">
+      <div className="flex-1 h-full flex items-center justify-center bg-[#121316] text-red-400 p-6">
         <div>
           <p className="font-semibold text-base mb-1">Failed to load live assignment workspace</p>
           <p className="text-sm text-gray-400">{error || 'Assignment not found in Google Classroom.'}</p>
@@ -452,7 +474,7 @@ export const AssignmentWorkspace: React.FC<AssignmentWorkspaceProps> = ({
       />
 
       {/* Zone B: Submission Preview Canvas with Rubric Breakdown at the bottom */}
-      <SubmissionPreviewZone submission={activeSubmission}>
+      <SubmissionPreviewZone submission={activeSubmission} allSubmissions={mergedSubmissions}>
         <RubricMarkingZone
           assignment={mergedAssignment}
           submission={activeSubmission}

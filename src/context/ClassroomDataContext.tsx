@@ -2,6 +2,7 @@ import React, { createContext, useCallback, useContext, useEffect, useRef, useSt
 import { ClassroomCourse, ClassroomCoursework } from '../types/classroom';
 import { useAuth } from './AuthContext';
 import { env } from '../config/env';
+import { prefetchWorkspaceSubmissions } from '../services/driveFileCache';
 
 interface CachedWorkspaceEntry {
   data: any;
@@ -230,6 +231,13 @@ export const ClassroomDataProvider: React.FC<{ children: React.ReactNode }> = ({
               data,
               timestamp: Date.now(),
             });
+            if (Array.isArray(data.submissions) && data.submissions.length > 0) {
+              prefetchWorkspaceSubmissions(
+                data.submissions,
+                data.submissions[0]?.studentId || null,
+                getAuthHeaders
+              );
+            }
             return data;
           }
         } catch {

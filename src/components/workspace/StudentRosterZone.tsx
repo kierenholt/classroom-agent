@@ -148,11 +148,11 @@ export const StudentRosterZone: React.FC<StudentRosterZoneProps> = ({
         : 'https://classroom.google.com');
 
   return (
-    <div className="w-[22%] h-full flex flex-col border-r border-[#30363d] bg-[#161b22] text-xs select-none">
+    <div className="w-[22%] h-full flex flex-col border-r border-[#333842] bg-[#1A1D21] text-xs select-none">
       {/* Assignment Header Summary */}
-      <div className="p-3 border-b border-[#30363d] bg-[#161b22] space-y-2">
+      <div className="p-3 border-b border-[#333842] bg-[#1A1D21] space-y-2">
         <div className="flex items-center justify-between">
-          <span className="text-[10px] font-semibold uppercase tracking-wider text-purple-400 truncate max-w-[70%]">
+          <span className="text-[10px] font-semibold uppercase tracking-wider text-[#D4AF37] truncate max-w-[70%]">
             {assignment.courseName}
           </span>
           <div className="flex items-center space-x-1">
@@ -162,7 +162,7 @@ export const StudentRosterZone: React.FC<StudentRosterZoneProps> = ({
               rel="noopener noreferrer"
               data-testid="open-classroom-link"
               title="Open in Google Classroom"
-              className="p-1 rounded text-gray-400 hover:text-white hover:bg-[#21262d] transition-colors"
+              className="p-1 rounded text-gray-400 hover:text-white hover:bg-[#22262C] transition-colors"
             >
               <ExternalLink className="w-3.5 h-3.5" />
             </a>
@@ -171,9 +171,9 @@ export const StudentRosterZone: React.FC<StudentRosterZoneProps> = ({
               onClick={onSyncClassroom}
               disabled={isSyncing}
               title="Refresh from Classroom"
-              className="p-1 rounded text-gray-400 hover:text-white hover:bg-[#21262d] transition-colors disabled:opacity-50"
+              className="p-1 rounded text-gray-400 hover:text-white hover:bg-[#22262C] transition-colors disabled:opacity-50"
             >
-              <RefreshCw className={`w-3.5 h-3.5 ${isSyncing ? 'animate-spin text-blue-400' : ''}`} />
+              <RefreshCw className={`w-3.5 h-3.5 ${isSyncing ? 'animate-spin text-[#D4AF37]' : ''}`} />
             </button>
           </div>
         </div>
@@ -184,7 +184,7 @@ export const StudentRosterZone: React.FC<StudentRosterZoneProps> = ({
               href={classroomUrl}
               target="_blank"
               rel="noopener noreferrer"
-              className="hover:underline hover:text-purple-300 transition-colors"
+              className="hover:underline hover:text-[#F3E5AB] transition-colors"
               title={`Open "${assignment.title}" in Google Classroom`}
             >
               {assignment.title}
@@ -197,7 +197,7 @@ export const StudentRosterZone: React.FC<StudentRosterZoneProps> = ({
       </div>
 
       {/* Contextual Action Buttons: always visible, disabled if no student is selected */}
-      <div data-testid="grading-header" className="p-2.5 border-b border-[#30363d] bg-[#1a202c]/50 space-y-2">
+      <div data-testid="grading-header" className="p-2.5 border-b border-[#333842] bg-[#121316]/50 space-y-2">
         <div className="flex items-center justify-between">
           <span className="text-[11px] font-semibold uppercase tracking-wider text-gray-400">
             {`${checkedStudentIds.length} Selected`}
@@ -211,9 +211,9 @@ export const StudentRosterZone: React.FC<StudentRosterZoneProps> = ({
                 data-testid="save-draft-grade-button"
                 onClick={() => onSaveDraftStudents(checkedStudentIds)}
                 disabled={isSaving || checkedStudentIds.length === 0}
-                className="flex-1 flex items-center justify-center space-x-1 py-1 px-2 rounded bg-[#21262d] hover:bg-[#30363d] text-gray-200 border border-[#30363d] transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+                className="flex-1 flex items-center justify-center space-x-1 py-1 px-2 rounded bg-[#22262C] hover:bg-[#2D323A] text-gray-200 border border-[#333842] transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
               >
-                <Save className="w-3 h-3 text-purple-400" />
+                <Save className="w-3 h-3 text-[#D4AF37]" />
                 <span>{isSaving ? 'Saving...' : checkedStudentIds.length > 0 ? `Save Draft (${checkedStudentIds.length})` : 'Save Draft'}</span>
               </button>
 
@@ -242,7 +242,7 @@ export const StudentRosterZone: React.FC<StudentRosterZoneProps> = ({
       </div>
 
       {/* Filter Pills */}
-      <div className="p-2 border-b border-[#30363d] bg-[#0d1117]">
+      <div className="p-2 border-b border-[#333842] bg-[#121316]">
         <div data-testid="student-filter-pills" className="flex flex-wrap gap-1">
           {(['ALL', 'TURNED_IN', 'UNMARKED', 'DRAFT', 'RETURNED', 'MISSING'] as FilterStatus[]).map((filter) => (
             <button
@@ -250,8 +250,8 @@ export const StudentRosterZone: React.FC<StudentRosterZoneProps> = ({
               onClick={() => setStatusFilter(filter)}
               className={`px-1.5 py-0.5 rounded text-[10px] uppercase font-semibold transition-colors ${
                 statusFilter === filter
-                  ? 'bg-purple-600 text-white'
-                  : 'bg-[#21262d] text-gray-400 hover:text-gray-200 hover:bg-[#30363d]'
+                  ? 'bg-[#D4AF37] text-[#121316] font-bold'
+                  : 'bg-[#22262C] text-gray-400 hover:text-gray-200 hover:bg-[#2D323A]'
               }`}
             >
               {filter.replace('_', ' ')}
@@ -261,7 +261,7 @@ export const StudentRosterZone: React.FC<StudentRosterZoneProps> = ({
       </div>
 
       {/* Student List */}
-      <div data-testid="student-roster-list" className="flex-1 overflow-y-auto divide-y divide-[#30363d]/50">
+      <div data-testid="student-roster-list" className="flex-1 overflow-y-auto divide-y divide-[#333842]/50">
         {filteredSubmissions.length === 0 ? (
           <div className="p-6 text-center text-gray-500">
             No students found matching current filter.
@@ -284,8 +284,8 @@ export const StudentRosterZone: React.FC<StudentRosterZoneProps> = ({
                 }}
                 className={`p-2.5 flex flex-col space-y-1.5 cursor-pointer transition-colors ${
                   isSelected
-                    ? 'bg-[#1f242c] border-l-2 border-purple-500'
-                    : 'hover:bg-[#1f242c]/60'
+                    ? 'bg-[#22262C] border-l-2 border-[#D4AF37]'
+                    : 'hover:bg-[#22262C]/60'
                 }`}
               >
                 {/* Line 1: Checkbox + Avatar + Full Student Name */}
@@ -299,7 +299,7 @@ export const StudentRosterZone: React.FC<StudentRosterZoneProps> = ({
                       onSelectStudent(sub.studentId);
                     }}
                     onChange={() => onToggleCheckStudent(sub.studentId)}
-                    className="w-3.5 h-3.5 rounded border-[#30363d] bg-[#0d1117] text-purple-600 focus:ring-0 cursor-pointer shrink-0"
+                    className="w-3.5 h-3.5 rounded border-[#333842] bg-[#121316] text-[#D4AF37] focus:ring-0 cursor-pointer shrink-0"
                   />
 
                   <StudentAvatar
@@ -332,12 +332,12 @@ export const StudentRosterZone: React.FC<StudentRosterZoneProps> = ({
                         <span>Returned</span>
                       </span>
                     ) : hasDraft ? (
-                      <span className="text-purple-400 flex items-center space-x-0.5">
+                      <span className="text-amber-300 flex items-center space-x-0.5">
                         <Clock className="w-2.5 h-2.5" />
                         <span>Draft Graded</span>
                       </span>
                     ) : sub.state === 'TURNED_IN' ? (
-                      <span className="text-blue-400">Turned In</span>
+                      <span className="text-sky-400">Turned In</span>
                     ) : (
                       <span className="text-gray-500">Missing</span>
                     )}
@@ -360,11 +360,11 @@ export const StudentRosterZone: React.FC<StudentRosterZoneProps> = ({
                       }}
                       min={0}
                       max={assignment.maxPoints}
-                      className={`w-12 bg-[#0d1117] border border-[#30363d] rounded px-1.5 py-0.5 text-xs font-mono text-right focus:outline-none focus:border-purple-500 ${
+                      className={`w-12 bg-[#121316] border border-[#333842] rounded px-1.5 py-0.5 text-xs font-mono text-right focus:outline-none focus:border-[#D4AF37] ${
                         isReturned
                           ? 'text-emerald-400 font-bold'
                           : hasDraft || edit.dirty
-                          ? 'text-purple-300 font-bold'
+                          ? 'text-[#F3E5AB] font-bold'
                           : 'text-gray-300'
                       }`}
                     />

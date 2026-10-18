@@ -190,7 +190,7 @@ test.describe('Classroom Agent MVP — 7 Core User Stories (Live Classroom Batch
     await page.locator('[data-testid="user-account-button"]').click();
     await page.locator('[data-testid="user-menu-settings-button"]').click();
     await expect(page.locator('[data-testid="settings-modal"]')).toBeVisible();
-    await page.locator('[data-testid="settings-tab-display"]').click();
+    await page.locator('[data-testid="settings-tab-advanced"]').click();
     await page.locator('[data-testid="toggle-extracted-text-setting"]').click();
     await page.locator('[data-testid="close-settings-button"]').click();
     await expect(page.locator('[data-testid="settings-modal"]')).toBeHidden();

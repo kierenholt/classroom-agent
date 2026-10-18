@@ -118,6 +118,8 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     sessionStorage.removeItem(GOOGLE_TOKEN_STORAGE_KEY);
     sessionStorage.removeItem(GOOGLE_TOKEN_EXPIRY_KEY);
     sessionStorage.removeItem(CUSTOM_TOKEN_STORAGE_KEY);
+    localStorage.removeItem('classroom_agent_open_sessions');
+    localStorage.removeItem('classroom_agent_active_tab_id');
     setGoogleAccessToken(null);
     await signOut(auth);
   };

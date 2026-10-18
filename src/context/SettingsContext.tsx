@@ -10,10 +10,53 @@ const STORAGE_KEY_FEEDBACK_SHOW_SCORES = 'classroom_agent_feedback_show_scores';
 const STORAGE_KEY_CUSTOM_AGENT_INSTRUCTIONS = 'classroom_agent_custom_agent_instructions';
 const STORAGE_KEY_GRADING_MODE = 'classroom_agent_grading_mode';
 const STORAGE_KEY_SHOW_TOOL_CALLS = 'classroom_agent_show_tool_calls';
+const STORAGE_KEY_SHOW_QUICK_ACTIONS = 'classroom_agent_show_quick_actions';
+const STORAGE_KEY_QUICK_ACTIONS = 'classroom_agent_quick_actions';
 
 export type FeedbackTone = 'encouraging' | 'constructive' | 'direct' | 'formal' | 'warm';
 export type FeedbackDetailLevel = 'brief' | 'standard' | 'comprehensive';
 export type GradingMode = 'no-draft' | 'draft';
+
+export interface QuickActionItem {
+  id: string;
+  label: string;
+  prompt: string;
+  enabled: boolean;
+  isCustom?: boolean;
+}
+
+export const DEFAULT_QUICK_ACTIONS: QuickActionItem[] = [
+  {
+    id: 'grade-selected',
+    label: 'Grade Selected',
+    prompt: "Evaluate and grade the currently selected student's submission",
+    enabled: true,
+  },
+  {
+    id: 'grade-all',
+    label: 'Grade All Turn-ins',
+    prompt: 'Mark all turned-in ungraded submissions using the rubric',
+    enabled: true,
+  },
+  {
+    id: 'generate-rubric',
+    label: 'Generate Rubric',
+    prompt: 'Generate a grading rubric based on the assignment instructions',
+    enabled: true,
+  },
+  {
+    id: 'follow-up',
+    label: 'Follow-up Task',
+    prompt: 'Create a new follow-up assignment in this class',
+    enabled: false,
+  },
+  {
+    id: 'class-summary',
+    label: 'Class Summary',
+    prompt: 'Summarize class performance and identify areas of difficulty',
+    enabled: false,
+  },
+];
 
 export interface FeedbackSettings {
   tone: FeedbackTone;
@@ -35,6 +78,15 @@ interface SettingsContextValue {
   setShowRubricPane: (enabled: boolean) => void;
   showToolCalls: boolean;
   setShowToolCalls: (enabled: boolean) => void;
+  showQuickActions: boolean;
+  setShowQuickActions: (enabled: boolean) => void;
+  quickActions: QuickActionItem[];
+  setQuickActions: (actions: QuickActionItem[]) => void;
+  toggleQuickAction: (id: string) => void;
+  addQuickAction: (action: { label: string; prompt: string }) => void;
+  updateQuickAction: (id: string, updates: Partial<Omit<QuickActionItem, 'id'>>) => void;
+  deleteQuickAction: (id: string) => void;
+  resetQuickActionsToDefault: () => void;
   feedbackTone: FeedbackTone;
   setFeedbackTone: (tone: FeedbackTone) => void;
   feedbackDetailLevel: FeedbackDetailLevel;
@@ -77,6 +129,30 @@ export const SettingsProvider: React.FC<{ children: React.ReactNode }> = ({ chil
       return window.localStorage.getItem(STORAGE_KEY_SHOW_TOOL_CALLS) === 'true';
     } catch {
       return false;
+    }
+  });
+
+  const [showQuickActions, setShowQuickActionsState] = useState<boolean>(() => {
+    try {
+      const stored = window.localStorage.getItem(STORAGE_KEY_SHOW_QUICK_ACTIONS);
+      return stored === null ? true : stored === 'true';
+    } catch {
+      return true;
+    }
+  });
+
+  const [quickActions, setQuickActionsState] = useState<QuickActionItem[]>(() => {
+    try {
+      const stored = window.localStorage.getItem(STORAGE_KEY_QUICK_ACTIONS);
+      if (stored) {
+        const parsed = JSON.parse(stored);
+        if (Array.isArray(parsed) && parsed.length > 0) {
+          return parsed;
+        }
+      }
+      return DEFAULT_QUICK_ACTIONS;
+    } catch {
+      return DEFAULT_QUICK_ACTIONS;
     }
   });
 
@@ -170,6 +246,62 @@ export const SettingsProvider: React.FC<{ children: React.ReactNode }> = ({ chil
     }
   };
 
+  const setShowQuickActions = (enabled: boolean) => {
+    setShowQuickActionsState(enabled);
+    try {
+      window.localStorage.setItem(STORAGE_KEY_SHOW_QUICK_ACTIONS, String(enabled));
+    } catch (err) {
+      console.error('Failed to persist show quick actions setting to localStorage:', err);
+    }
+  };
+
+  const persistQuickActions = (actions: QuickActionItem[]) => {
+    setQuickActionsState(actions);
+    try {
+      window.localStorage.setItem(STORAGE_KEY_QUICK_ACTIONS, JSON.stringify(actions));
+    } catch (err) {
+      console.error('Failed to persist quick actions to localStorage:', err);
+    }
+  };
+
+  const setQuickActions = (actions: QuickActionItem[]) => {
+    persistQuickActions(actions);
+  };
+
+  const toggleQuickAction = (id: string) => {
+    const updated = quickActions.map((action) =>
+      action.id === id ? { ...action, enabled: !action.enabled } : action
+    );
+    persistQuickActions(updated);
+  };
+
+  const addQuickAction = ({ label, prompt }: { label: string; prompt: string }) => {
+    const newAction: QuickActionItem = {
+      id: `custom-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
+      label: label.trim(),
+      prompt: prompt.trim(),
+      enabled: true,
+      isCustom: true,
+    };
+    persistQuickActions([...quickActions, newAction]);
+  };
+
+  const updateQuickAction = (id: string, updates: Partial<Omit<QuickActionItem, 'id'>>) => {
+    const updated = quickActions.map((action) =>
+      action.id === id ? { ...action, ...updates } : action
+    );
+    persistQuickActions(updated);
+  };
+
+  const deleteQuickAction = (id: string) => {
+    const updated = quickActions.filter((action) => action.id !== id);
+    persistQuickActions(updated);
+  };
+
+  const resetQuickActionsToDefault = () => {
+    persistQuickActions(DEFAULT_QUICK_ACTIONS);
+  };
+
   const setFeedbackTone = (tone: FeedbackTone) => {
     setFeedbackToneState(tone);
     try {
@@ -251,6 +383,15 @@ export const SettingsProvider: React.FC<{ children: React.ReactNode }> = ({ chil
         setShowRubricPane,
         showToolCalls,
         setShowToolCalls,
+        showQuickActions,
+        setShowQuickActions,
+        quickActions,
+        setQuickActions,
+        toggleQuickAction,
+        addQuickAction,
+        updateQuickAction,
+        deleteQuickAction,
+        resetQuickActionsToDefault,
         feedbackTone,
         setFeedbackTone,
         feedbackDetailLevel,

@@ -20,7 +20,7 @@ export const ToolCallBadge: React.FC<ToolCallBadgeProps> = ({ tool, defaultExpan
   return (
     <div
       data-testid="tool-call-badge"
-      className="my-2 rounded-md border border-purple-800/50 bg-[#131024] text-xs font-mono overflow-hidden shadow-sm"
+      className="my-2 rounded-md border border-[#333842] bg-[#1A1D21] text-xs font-mono overflow-hidden shadow-sm"
     >
       {/* Header bar / Expander Trigger */}
       <div
@@ -29,13 +29,13 @@ export const ToolCallBadge: React.FC<ToolCallBadgeProps> = ({ tool, defaultExpan
         tabIndex={0}
         onClick={() => setIsExpanded((prev) => !prev)}
         onKeyDown={(e) => (e.key === 'Enter' || e.key === ' ') && setIsExpanded((prev) => !prev)}
-        className={`flex items-center justify-between px-3 py-1.5 bg-[#201a3b] cursor-pointer select-none hover:bg-[#28214a] transition-colors ${
-          isExpanded ? 'border-b border-purple-800/40' : ''
+        className={`flex items-center justify-between px-3 py-1.5 bg-[#22262C] cursor-pointer select-none hover:bg-[#2D323A] transition-colors ${
+          isExpanded ? 'border-b border-[#333842]' : ''
         }`}
       >
         <div className="flex items-center space-x-1.5 truncate mr-2">
-          <Wrench className="w-3.5 h-3.5 text-amber-400 shrink-0" />
-          <span className="font-semibold text-purple-100 truncate">Tool: {tool.name}</span>
+          <Wrench className="w-3.5 h-3.5 text-[#D4AF37] shrink-0" />
+          <span className="font-semibold text-[#F3E5AB] truncate">Tool: {tool.name}</span>
         </div>
 
         <div className="flex items-center space-x-2 shrink-0">
@@ -62,13 +62,13 @@ export const ToolCallBadge: React.FC<ToolCallBadgeProps> = ({ tool, defaultExpan
             type="button"
             data-testid="tool-call-expander"
             aria-expanded={isExpanded}
-            className="flex items-center space-x-1 text-[11px] font-sans text-purple-300 hover:text-white px-1.5 py-0.5 rounded hover:bg-purple-800/40 transition-colors"
+            className="flex items-center space-x-1 text-[11px] font-sans text-gray-300 hover:text-white px-1.5 py-0.5 rounded hover:bg-[#333842] transition-colors"
           >
-            <span className="text-[10px] uppercase tracking-wider text-purple-300/80">
+            <span className="text-[10px] uppercase tracking-wider text-gray-400">
               {isExpanded ? 'Hide' : 'Details'}
             </span>
             <ChevronDown
-              className={`w-3.5 h-3.5 text-purple-300 transition-transform duration-200 ${
+              className={`w-3.5 h-3.5 text-gray-400 transition-transform duration-200 ${
                 isExpanded ? 'rotate-180' : ''
               }`}
             />
@@ -78,13 +78,13 @@ export const ToolCallBadge: React.FC<ToolCallBadgeProps> = ({ tool, defaultExpan
 
       {/* Collapsible Body */}
       {isExpanded && (
-        <div data-testid="tool-call-details" className="p-2.5 space-y-2 bg-[#0f0d1e]/90">
+        <div data-testid="tool-call-details" className="p-2.5 space-y-2 bg-[#121316]">
           {tool.args && (
             <div>
-              <div className="text-[10px] text-purple-300/70 font-sans uppercase tracking-wider mb-0.5">
+              <div className="text-[10px] text-gray-400 font-sans uppercase tracking-wider mb-0.5">
                 Parameters
               </div>
-              <pre className="text-[11px] text-blue-300 bg-[#181330] p-1.5 rounded border border-purple-900/50 overflow-x-auto whitespace-pre-wrap">
+              <pre className="text-[11px] text-blue-300 bg-[#1A1D21] p-1.5 rounded border border-[#333842] overflow-x-auto whitespace-pre-wrap">
                 {JSON.stringify(tool.args, null, 2)}
               </pre>
             </div>
@@ -92,10 +92,10 @@ export const ToolCallBadge: React.FC<ToolCallBadgeProps> = ({ tool, defaultExpan
 
           {tool.result !== undefined && (
             <div>
-              <div className="text-[10px] text-purple-300/70 font-sans uppercase tracking-wider mb-0.5">
+              <div className="text-[10px] text-gray-400 font-sans uppercase tracking-wider mb-0.5">
                 Result
               </div>
-              <pre className="text-[11px] text-emerald-300 bg-[#181330] p-1.5 rounded border border-purple-900/50 overflow-x-auto whitespace-pre-wrap">
+              <pre className="text-[11px] text-emerald-300 bg-[#1A1D21] p-1.5 rounded border border-[#333842] overflow-x-auto whitespace-pre-wrap">
                 {JSON.stringify(tool.result, null, 2)}
               </pre>
             </div>

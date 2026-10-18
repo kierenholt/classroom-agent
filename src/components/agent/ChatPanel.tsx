@@ -16,6 +16,7 @@ import {
   ChevronDown,
   ChevronUp,
   CreditCard,
+  Zap,
 } from 'lucide-react';
 import { collection, query, orderBy, onSnapshot } from 'firebase/firestore';
 import { db } from '../../config/firebase';
@@ -75,7 +76,8 @@ export const ChatPanel: React.FC<ChatPanelProps> = ({
   onOpenAssignment,
 }) => {
   const { getAuthHeaders } = useAuth();
-  const { feedbackSettings, gradingMode, showToolCalls } = useSettings();
+  const { feedbackSettings, gradingMode, showToolCalls, showQuickActions, quickActions } = useSettings();
+  const enabledQuickActions = quickActions.filter((a) => a.enabled);
   const { fetchCourseworkForCourse } = useClassroomData();
   const { aiCredits, openTopUpModal } = useCredits();
   const isOutOfCredits = aiCredits !== null && aiCredits <= 0;
@@ -419,9 +421,8 @@ export const ChatPanel: React.FC<ChatPanelProps> = ({
     }
   };
 
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    const prompt = inputText.trim();
+  const sendPrompt = async (promptToSend: string) => {
+    const prompt = promptToSend.trim();
     if (!prompt || isStreaming) return;
     if (isOutOfCredits) {
       setErrorText('You have 0 AI credits remaining. Please top up to continue using the Grading Agent.');
@@ -538,15 +539,20 @@ export const ChatPanel: React.FC<ChatPanelProps> = ({
     }
   };
 
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    await sendPrompt(inputText);
+  };
+
   return (
     <div
       data-testid="chat-window"
-      className="w-full h-full flex flex-col bg-[#161b22] select-none border-l border-[#30363d]"
+      className="w-full h-full flex flex-col bg-[#1A1D21] select-none border-l border-[#333842]"
     >
       {/* Pane Header */}
-      <div className="h-10 border-b border-[#30363d] px-4 flex items-center justify-between bg-[#161b22] shrink-0">
+      <div className="h-10 border-b border-[#333842] px-4 flex items-center justify-between bg-[#1A1D21] shrink-0">
         <div className="flex items-center space-x-2 min-w-0">
-          <Sparkles className="w-4 h-4 text-purple-400 shrink-0" />
+          <Sparkles className="w-4 h-4 text-[#D4AF37] shrink-0" />
           <span className="text-xs font-semibold text-gray-300 tracking-wide uppercase truncate">
             {title}
           </span>
@@ -559,11 +565,11 @@ export const ChatPanel: React.FC<ChatPanelProps> = ({
           className={`flex items-center space-x-1.5 px-2.5 py-1 rounded-md text-[11px] font-semibold border transition-colors shrink-0 cursor-pointer ${
             isOutOfCredits
               ? 'bg-red-950/60 hover:bg-red-900/70 text-red-200 border-red-500/40'
-              : 'bg-purple-950/50 hover:bg-purple-900/60 text-purple-200 border-purple-500/30'
+              : 'bg-[#D4AF37]/15 hover:bg-[#D4AF37]/25 text-[#D4AF37] border-[#D4AF37]/30'
           }`}
           title="Top Up AI Credits"
         >
-          <CreditCard className="w-3 h-3 text-purple-400 shrink-0" />
+          <CreditCard className="w-3 h-3 text-[#D4AF37] shrink-0" />
           <span data-testid="chat-credits-count">{aiCredits !== null ? aiCredits : '—'}</span>
           <span>Credits · Top Up</span>
         </button>
@@ -578,13 +584,13 @@ export const ChatPanel: React.FC<ChatPanelProps> = ({
             <p className="text-xs text-gray-500 max-w-xs">
               Command the agent to grade submissions, configure rubrics, or create assignments:
             </p>
-            <div className="space-y-1.5 text-xs text-blue-400 text-left w-full mt-2">
+            <div className="space-y-1.5 text-xs text-gray-300 text-left w-full mt-2">
               {promptStarters.map((starter, idx) => (
                 <button
                   key={idx}
                   disabled={isOutOfCredits}
                   onClick={() => setInputText(starter)}
-                  className="w-full text-left p-2 rounded bg-[#0d1117] hover:bg-[#21262d] border border-[#30363d] transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                  className="w-full text-left p-2 rounded bg-[#121316] hover:bg-[#22262C] border border-[#333842] text-gray-300 hover:text-white transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
                 >
                   &quot;{starter}&quot;
                 </button>
@@ -607,13 +613,13 @@ export const ChatPanel: React.FC<ChatPanelProps> = ({
                   <div className="flex items-center space-x-1.5">
                     {msg.sender === 'user' ? (
                       <>
-                        <span className="font-semibold text-blue-300">Teacher</span>
-                        <User className="w-3 h-3 text-blue-400" />
+                        <span className="font-semibold text-sky-300">Teacher</span>
+                        <User className="w-3 h-3 text-sky-400" />
                       </>
                     ) : (
                       <>
-                        <Bot className="w-3 h-3 text-purple-400" />
-                        <span className="font-semibold text-purple-300">Agent</span>
+                        <Bot className="w-3 h-3 text-[#D4AF37]" />
+                        <span className="font-semibold text-[#F3E5AB]">Agent</span>
                       </>
                     )}
                   </div>
@@ -622,7 +628,7 @@ export const ChatPanel: React.FC<ChatPanelProps> = ({
                       type="button"
                       data-testid={`minimise-message-button-${msg.id}`}
                       onClick={() => toggleMinimiseMessage(msg.id)}
-                      className="text-gray-400 hover:text-purple-300 text-[10px] flex items-center space-x-0.5 transition-colors"
+                      className="text-gray-400 hover:text-[#F3E5AB] text-[10px] flex items-center space-x-0.5 transition-colors"
                       title="Minimise chat bubble"
                     >
                       <ChevronUp className="w-3 h-3" />
@@ -634,11 +640,11 @@ export const ChatPanel: React.FC<ChatPanelProps> = ({
                 {isMinimised ? (
                   <div
                     data-testid={`minimised-chat-bubble-${msg.id}`}
-                    className="max-w-[90%] w-full rounded-lg px-3 py-2 bg-[#1c1836]/90 text-gray-200 border border-purple-500/30 shadow-sm flex items-center justify-between gap-2 text-xs"
+                    className="max-w-[90%] w-full rounded-lg px-3 py-2 bg-[#22262C] text-gray-200 border border-[#333842] shadow-sm flex items-center justify-between gap-2 text-xs"
                   >
                     <div className="flex items-center space-x-2 min-w-0 truncate">
-                      <Bot className="w-3.5 h-3.5 text-purple-400 shrink-0" />
-                      <span className="font-semibold text-purple-200 shrink-0">
+                      <Bot className="w-3.5 h-3.5 text-[#D4AF37] shrink-0" />
+                      <span className="font-semibold text-[#F3E5AB] shrink-0">
                         {evaluationItems.length > 0 ? 'Evaluated:' : 'Agent:'}
                       </span>
                       <span className="truncate text-gray-300 font-medium">
@@ -667,7 +673,7 @@ export const ChatPanel: React.FC<ChatPanelProps> = ({
                       type="button"
                       data-testid={`expand-message-button-${msg.id}`}
                       onClick={() => toggleMinimiseMessage(msg.id)}
-                      className="flex items-center space-x-1 px-2 py-0.5 rounded border border-purple-400/30 bg-purple-950/50 hover:bg-purple-900/60 text-purple-200 hover:text-white text-[11px] font-medium transition-colors shrink-0"
+                      className="flex items-center space-x-1 px-2 py-0.5 rounded border border-[#333842] bg-[#1A1D21] hover:bg-[#2D323A] text-gray-300 hover:text-white text-[11px] font-medium transition-colors shrink-0"
                       title="Expand chat bubble"
                     >
                       <span>Expand</span>
@@ -679,8 +685,8 @@ export const ChatPanel: React.FC<ChatPanelProps> = ({
                     data-testid={`chat-bubble-${msg.id}`}
                     className={`max-w-[90%] rounded-lg px-3.5 py-2.5 text-xs leading-relaxed ${
                       msg.sender === 'user'
-                        ? 'bg-blue-600 text-white shadow-sm'
-                        : 'bg-[#1c1836] text-gray-100 border border-purple-500/30 shadow-sm w-full'
+                        ? 'bg-[#2D323A] text-white border border-[#333842] shadow-sm'
+                        : 'bg-[#22262C] text-gray-100 border border-[#333842] shadow-sm w-full'
                     }`}
                   >
                   {/* File Attachment Pill */}
@@ -711,13 +717,13 @@ export const ChatPanel: React.FC<ChatPanelProps> = ({
                   {createdAssignments.length > 0 && (
                     <div
                       data-testid="created-assignments-container"
-                      className="mt-3 pt-2.5 border-t border-purple-500/20 space-y-2"
+                      className="mt-3 pt-2.5 border-t border-[#333842] space-y-2"
                     >
                       {createdAssignments.map((created) => (
                         <div
                           key={created.assignmentId}
                           data-testid={`created-assignment-card-${created.courseWorkId}`}
-                          className="p-2.5 rounded-lg bg-[#121024] border border-purple-500/30 flex flex-col gap-2"
+                          className="p-2.5 rounded-lg bg-[#1A1D21] border border-[#333842] flex flex-col gap-2"
                         >
                           <div className="flex items-center justify-between gap-2">
                             <div className="min-w-0">
@@ -741,7 +747,7 @@ export const ChatPanel: React.FC<ChatPanelProps> = ({
                                 target="_blank"
                                 rel="noopener noreferrer"
                                 data-testid={`created-assignment-classroom-link-${created.courseWorkId}`}
-                                className="inline-flex items-center space-x-1 px-2 py-1 rounded border border-[#30363d] bg-[#161b22] hover:bg-[#21262d] text-gray-300 text-[11px] transition-colors"
+                                className="inline-flex items-center space-x-1 px-2 py-1 rounded border border-[#333842] bg-[#22262C] hover:bg-[#2D323A] text-gray-300 text-[11px] transition-colors"
                               >
                                 <span>Classroom</span>
                                 <ExternalLink className="w-3 h-3" />
@@ -757,7 +763,7 @@ export const ChatPanel: React.FC<ChatPanelProps> = ({
                                     assignmentTitle: created.title,
                                   })
                                 }
-                                className="inline-flex items-center space-x-1 px-2.5 py-1 rounded bg-purple-600 hover:bg-purple-500 text-white text-[11px] font-semibold transition-colors"
+                                className="inline-flex items-center space-x-1 px-2.5 py-1 rounded bg-[#D4AF37] hover:bg-[#E5B869] text-[#121316] text-[11px] font-semibold transition-colors shadow-xs cursor-pointer"
                               >
                                 <span>Open in Workspace Tab</span>
                               </button>
@@ -772,11 +778,11 @@ export const ChatPanel: React.FC<ChatPanelProps> = ({
                   {evaluationItems.length > 0 && (
                     <div
                       data-testid="evaluation-actions-container"
-                      className="mt-3 pt-2.5 border-t border-purple-500/20 space-y-2"
+                      className="mt-3 pt-2.5 border-t border-[#333842] space-y-2"
                     >
                       {evaluationItems.length > 1 && (
                         <div className="flex items-center justify-between mb-1">
-                          <span className="text-[11px] font-medium text-purple-300">
+                          <span className="text-[11px] font-medium text-[#F3E5AB]">
                             {evaluationItems.length} Student Evaluations
                           </span>
                           {unapprovedCount > 0 && (
@@ -784,7 +790,7 @@ export const ChatPanel: React.FC<ChatPanelProps> = ({
                               type="button"
                               data-testid="approve-all-evaluations-button"
                               onClick={() => handleApproveAllInMessage(evaluationItems)}
-                              className="flex items-center space-x-1 px-2.5 py-1 rounded bg-emerald-600 hover:bg-emerald-500 text-white text-[11px] font-semibold transition-colors"
+                              className="flex items-center space-x-1 px-2.5 py-1 rounded bg-[#D4AF37] hover:bg-[#E5B869] text-[#121316] text-[11px] font-semibold transition-colors shadow-xs cursor-pointer"
                             >
                               <Check className="w-3 h-3" />
                               <span>Approve All ({unapprovedCount})</span>
@@ -800,7 +806,7 @@ export const ChatPanel: React.FC<ChatPanelProps> = ({
                           <div
                             key={item.studentId}
                             data-testid={`evaluation-action-card-${item.studentId}`}
-                            className="p-2.5 rounded-lg bg-[#121024] border border-purple-500/30 flex flex-col gap-2"
+                            className="p-2.5 rounded-lg bg-[#1A1D21] border border-[#333842] flex flex-col gap-2"
                           >
                             <div className="flex items-center justify-between gap-2">
                               <div className="flex items-center space-x-2 min-w-0">
@@ -810,7 +816,7 @@ export const ChatPanel: React.FC<ChatPanelProps> = ({
                                 {item.hasScore && (
                                   <span
                                     data-testid={`evaluation-score-badge-${item.studentId}`}
-                                    className="px-1.5 py-0.5 rounded bg-purple-900/60 border border-purple-500/40 text-purple-200 font-mono text-[11px] shrink-0"
+                                    className="px-1.5 py-0.5 rounded bg-[#D4AF37]/15 border border-[#D4AF37]/30 text-[#F3E5AB] font-mono text-[11px] shrink-0"
                                   >
                                     {item.score}/{item.maxPoints}
                                   </span>
@@ -852,7 +858,7 @@ export const ChatPanel: React.FC<ChatPanelProps> = ({
                                 data-testid={`dismiss-evaluation-button-${item.studentId}`}
                                 onClick={() => toggleMinimiseMessage(msg.id)}
                                 disabled={isApproving}
-                                className="flex items-center space-x-1 px-2.5 py-1 rounded border border-gray-600/40 bg-[#161b22] hover:bg-[#21262d] text-gray-400 hover:text-gray-200 text-[11px] font-medium transition-colors disabled:opacity-50"
+                                className="flex items-center space-x-1 px-2.5 py-1 rounded border border-[#333842] bg-[#22262C] hover:bg-[#2D323A] text-gray-400 hover:text-gray-200 text-[11px] font-medium transition-colors disabled:opacity-50"
                                 title="Dismiss and minimise message"
                               >
                                 <X className="w-3 h-3" />
@@ -865,7 +871,7 @@ export const ChatPanel: React.FC<ChatPanelProps> = ({
                                   data-testid={`preview-evaluation-button-${item.studentId}`}
                                   onClick={() => setPreviewTarget(item)}
                                   disabled={isApproving}
-                                  className="flex items-center space-x-1 px-2.5 py-1 rounded border border-purple-400/40 bg-purple-950/50 hover:bg-purple-900/60 text-purple-200 text-[11px] font-medium transition-colors disabled:opacity-50"
+                                  className="flex items-center space-x-1 px-2.5 py-1 rounded border border-[#333842] bg-[#22262C] hover:bg-[#2D323A] text-gray-300 hover:text-white text-[11px] font-medium transition-colors disabled:opacity-50"
                                 >
                                   <Eye className="w-3 h-3" />
                                   <span>Preview</span>
@@ -880,7 +886,7 @@ export const ChatPanel: React.FC<ChatPanelProps> = ({
                                 className={`flex items-center space-x-1 px-2.5 py-1 rounded text-[11px] font-semibold transition-colors disabled:opacity-50 ${
                                   item.isApproved
                                     ? 'bg-emerald-900/40 hover:bg-emerald-800/50 text-emerald-300 border border-emerald-600/40'
-                                    : 'bg-emerald-600 hover:bg-emerald-500 text-white shadow-sm'
+                                    : 'bg-[#D4AF37] hover:bg-[#E5B869] text-[#121316] shadow-sm'
                                 }`}
                               >
                                 {isApproving ? (
@@ -906,8 +912,8 @@ export const ChatPanel: React.FC<ChatPanelProps> = ({
 
       {/* Floating Status Ticker */}
       {statusTicker && (
-        <div className="px-4 py-1.5 bg-[#1f1b38] border-t border-purple-900/40 flex items-center space-x-2 text-[11px] text-purple-300 animate-pulse shrink-0">
-          <Loader2 className="w-3 h-3 animate-spin text-purple-400" />
+        <div className="px-4 py-1.5 bg-[#121316] border-t border-[#333842] flex items-center space-x-2 text-[11px] text-[#D4AF37] animate-pulse shrink-0">
+          <Loader2 className="w-3 h-3 animate-spin text-[#D4AF37]" />
           <span>{statusTicker}</span>
         </div>
       )}
@@ -925,7 +931,7 @@ export const ChatPanel: React.FC<ChatPanelProps> = ({
 
       {/* Staged File Upload Pill */}
       {stagedFile && (
-        <div className="px-3 py-1 bg-[#1c2128] border-t border-[#30363d] flex items-center justify-between text-xs text-gray-300 shrink-0">
+        <div className="px-3 py-1 bg-[#121316] border-t border-[#333842] flex items-center justify-between text-xs text-gray-300 shrink-0">
           <div className="flex items-center space-x-2 truncate">
             {stagedFile.uploading ? (
               <Loader2 className="w-3.5 h-3.5 animate-spin text-blue-400 shrink-0" />
@@ -960,15 +966,41 @@ export const ChatPanel: React.FC<ChatPanelProps> = ({
             type="button"
             data-testid="out-of-credits-topup-button"
             onClick={openTopUpModal}
-            className="px-2.5 py-1 rounded bg-purple-600 hover:bg-purple-500 text-white text-[11px] font-semibold shrink-0 transition-colors cursor-pointer"
+            className="px-2.5 py-1 rounded bg-[#D4AF37] hover:bg-[#E5B869] text-[#121316] text-[11px] font-semibold shrink-0 transition-colors cursor-pointer shadow-xs"
           >
             Top Up Credits
           </button>
         </div>
       )}
 
+      {/* Quick Action Buttons Bar */}
+      {showQuickActions && enabledQuickActions.length > 0 && (
+        <div
+          data-testid="chat-quick-actions-bar"
+          className="px-3 py-2 border-t border-[#333842] bg-[#121316] flex flex-wrap items-center gap-1.5 shrink-0 max-h-28 overflow-y-auto"
+        >
+          <div className="flex items-center space-x-1 text-[#D4AF37] text-[10px] uppercase font-semibold tracking-wider shrink-0 pr-0.5">
+            <Zap className="w-3 h-3" />
+            <span className="hidden sm:inline">Actions:</span>
+          </div>
+          {enabledQuickActions.map((action) => (
+            <button
+              key={action.id}
+              type="button"
+              data-testid={`quick-action-pill-${action.id}`}
+              disabled={isStreaming || isOutOfCredits}
+              onClick={() => sendPrompt(action.prompt)}
+              className="px-2.5 py-1 rounded-full text-[11px] font-medium bg-[#22262C] hover:bg-[#2c313a] text-gray-200 hover:text-white border border-[#333842] hover:border-[#D4AF37]/50 transition-colors shrink-0 disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer shadow-xs"
+              title={action.prompt}
+            >
+              {action.label}
+            </button>
+          ))}
+        </div>
+      )}
+
       {/* Input Bar */}
-      <form onSubmit={handleSubmit} className="p-3 border-t border-[#30363d] bg-[#161b22] flex items-center space-x-2 shrink-0">
+      <form onSubmit={handleSubmit} className="p-3 border-t border-[#333842] bg-[#1A1D21] flex items-center space-x-2 shrink-0">
         <input
           ref={fileInputRef}
           type="file"
@@ -981,7 +1013,7 @@ export const ChatPanel: React.FC<ChatPanelProps> = ({
           data-testid="chat-attach-button"
           onClick={() => fileInputRef.current?.click()}
           disabled={isStreaming || isOutOfCredits}
-          className="p-2 rounded text-gray-400 hover:text-gray-200 hover:bg-[#21262d] transition-colors disabled:opacity-50"
+          className="p-2 rounded text-gray-400 hover:text-gray-200 hover:bg-[#22262C] transition-colors disabled:opacity-50"
           title="Attach rubric or mark scheme document"
         >
           <Paperclip className="w-4 h-4" />
@@ -994,16 +1026,16 @@ export const ChatPanel: React.FC<ChatPanelProps> = ({
           onChange={(e) => setInputText(e.target.value)}
           placeholder={isOutOfCredits ? 'Out of AI credits — top up to continue...' : 'Command the agent...'}
           disabled={isStreaming || isOutOfCredits}
-          className="flex-1 bg-[#0d1117] border border-[#30363d] rounded px-3 py-1.5 text-xs text-gray-200 focus:outline-none focus:border-purple-500 placeholder-gray-500 disabled:opacity-50"
+          className="flex-1 bg-[#121316] border border-[#333842] rounded px-3 py-1.5 text-xs text-gray-200 focus:outline-none focus:border-[#D4AF37] placeholder-gray-500 disabled:opacity-50"
         />
 
         <button
           type="submit"
           data-testid="chat-send-button"
           disabled={isStreaming || isOutOfCredits || !inputText.trim()}
-          className="p-2 rounded bg-purple-600 hover:bg-purple-500 text-white transition-colors disabled:opacity-40 disabled:hover:bg-purple-600"
+          className="p-2 rounded bg-[#D4AF37] hover:bg-[#E5B869] text-[#121316] font-semibold transition-colors disabled:opacity-40 disabled:hover:bg-[#D4AF37] cursor-pointer shadow-xs"
         >
-          {isStreaming ? <Loader2 className="w-4 h-4 animate-spin" /> : <Send className="w-4 h-4" />}
+          {isStreaming ? <Loader2 className="w-4 h-4 animate-spin text-[#121316]" /> : <Send className="w-4 h-4" />}
         </button>
       </form>
 
