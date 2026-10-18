@@ -3,6 +3,8 @@ import { useAuth } from './context/AuthContext';
 import { WorkspaceLayout } from './components/layout/WorkspaceLayout';
 import { GraduationCap, LogIn, ShieldAlert, Sparkles, Loader2 } from 'lucide-react';
 
+import { ClassroomDataProvider } from './context/ClassroomDataContext';
+
 export const App: React.FC = () => {
   const { user, googleAccessToken, loading, signInWithGoogle } = useAuth();
   const [authError, setAuthError] = React.useState<string | null>(null);
@@ -89,5 +91,9 @@ export const App: React.FC = () => {
     );
   }
 
-  return <WorkspaceLayout />;
+  return (
+    <ClassroomDataProvider>
+      <WorkspaceLayout />
+    </ClassroomDataProvider>
+  );
 };

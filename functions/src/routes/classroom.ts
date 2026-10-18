@@ -25,6 +25,31 @@ function getUpstreamErrorStatus(err: any): number {
   return 500;
 }
 
+// 0. Preload Courses and Coursework in Parallel for Instant UI
+classroomRouter.get('/preload', requireAuth, async (req: AuthenticatedRequest, res: Response): Promise<void> => {
+  try {
+    const courses = await listTeacherCourses(req.googleAccessToken!);
+    const courseworkByCourseId: Record<string, any[]> = {};
+
+    await Promise.all(
+      (courses || []).map(async (course) => {
+        if (!course.id) return;
+        try {
+          const cw = await listCourseWork(req.googleAccessToken!, course.id);
+          courseworkByCourseId[course.id] = cw || [];
+        } catch (err: any) {
+          logger.warn(`Failed to preload coursework for course ${course.id}: ${err.message}`, (req as any).executionId);
+          courseworkByCourseId[course.id] = [];
+        }
+      })
+    );
+
+    res.json({ courses: courses || [], courseworkByCourseId });
+  } catch (err: any) {
+    res.status(getUpstreamErrorStatus(err)).json({ error: `Failed to preload assignments: ${err.message}` });
+  }
+});
+
 // 1. List Courses (Live from Google Classroom API)
 classroomRouter.get('/courses', requireAuth, async (req: AuthenticatedRequest, res: Response): Promise<void> => {
   try {

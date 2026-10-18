@@ -104,6 +104,66 @@ test.describe('Classroom Agent - Workspace and Agent Co-Pilot Tests', () => {
     await expect(page.locator('[data-testid="assignment-picker-ok-button"]')).toBeDisabled();
   });
 
+  test('preloadAssignments_teacherAuthenticated_preloadsCoursesAndAssignmentsForInstantModalDisplay_test', async ({
+    page,
+  }) => {
+    let googleToken = '';
+    let customToken = '';
+    try {
+      const { getLiveTeacherAccessToken, getLiveTestTeacherCustomToken } = await import('../helpers/classroomSandboxSeeder');
+      [googleToken, customToken] = await Promise.all([
+        getLiveTeacherAccessToken(),
+        getLiveTestTeacherCustomToken(),
+      ]);
+    } catch {
+      googleToken = '';
+      customToken = '';
+    }
+
+    await page.addInitScript(
+      ({ gToken, cToken }) => {
+        if (gToken) {
+          window.sessionStorage.setItem('classroom_agent_google_access_token', gToken);
+        }
+        if (cToken) {
+          window.sessionStorage.setItem('classroom_agent_custom_token', cToken);
+        }
+      },
+      { gToken: googleToken, cToken: customToken }
+    );
+
+    await page.goto('/');
+
+    const newAssignmentTabBtn = page.locator('[data-testid="new-assignment-tab-button"]');
+    await expect(newAssignmentTabBtn).toBeVisible({ timeout: 15000 });
+
+    // Wait for the background preload request to complete
+    await page.waitForResponse(
+      (res) => res.url().includes('/classroom/preload') && res.status() === 200,
+      { timeout: 15000 }
+    ).catch(() => null);
+
+    // Click "+ Assignment" button
+    const startTime = Date.now();
+    await newAssignmentTabBtn.click();
+    await expect(page.locator('[data-testid="assignment-picker-modal"]')).toBeVisible({ timeout: 5000 });
+
+    // Ensure courses are immediately visible with NO "Loading classes..." spinner delay
+    const courseButtons = page.locator('[data-testid^="course-select-"]');
+    await expect(courseButtons.first()).toBeVisible({ timeout: 2000 });
+    await expect(page.locator('text=Loading classes...')).toBeHidden();
+
+    // Select the first course
+    await courseButtons.first().click();
+
+    // Ensure assignments are immediately visible with NO "Loading assignments from Classroom..." spinner delay
+    await expect(page.locator('[data-testid="assignment-picker-section"]')).toBeVisible({ timeout: 2000 });
+    await expect(page.locator('text=Loading assignments from Classroom...')).toBeHidden();
+
+    const elapsed = Date.now() - startTime;
+    console.log(`[Instant Assignment Picker] Modal open + course select elapsed: ${elapsed}ms`);
+  });
+
   test('renderAgentChatMessage_markdownFormattedResponse_rendersHeadingsListsBlockquotesAndFormattedElements_test', async ({
     page,
   }) => {
@@ -244,9 +304,13 @@ test.describe('Classroom Agent - Workspace and Agent Co-Pilot Tests', () => {
     }
   });
 
-  test('submissionComments_studentSelected_postsCommentToDialogueThreadWithoutOverallFeedbackDuplicate_test', async ({
+  test('rubricMarkingZone_studentSelected_rendersRubricCriteriaWithoutCommentsOrOverallFeedback_test', async ({
     page,
   }) => {
+    page.on('pageerror', (err) => console.error('[PAGE ERROR]', err.message));
+    page.on('console', (msg) => {
+      if (msg.type() === 'error') console.error('[BROWSER CONSOLE ERROR]', msg.text());
+    });
     let googleToken = '';
     let customToken = '';
     try {
@@ -255,7 +319,8 @@ test.describe('Classroom Agent - Workspace and Agent Co-Pilot Tests', () => {
         getLiveTeacherAccessToken(),
         getLiveTestTeacherCustomToken(),
       ]);
-    } catch {
+    } catch (err) {
+      console.error('[TEST TOKEN ERROR]', err);
       googleToken = '';
       customToken = '';
     }
@@ -310,33 +375,115 @@ test.describe('Classroom Agent - Workspace and Agent Co-Pilot Tests', () => {
     await expect(firstStudent).toBeVisible({ timeout: 10000 });
     await firstStudent.click();
 
-    // Verify Extracted Text toggle button is hidden when VITE_ENABLE_EXTRACTED_TEXT_TOGGLE=false
-    await expect(page.locator('[data-testid="toggle-extracted-text-button"]')).toBeHidden();
+    // Verify attachment tab displays a file-type specific icon (e.g. Google Doc icon with #4285F4 fill)
+    const attachmentTab = page.locator('[data-testid^="attachment-tab-"]').first();
+    await expect(attachmentTab).toBeVisible({ timeout: 10000 });
+    const tabIconSvg = attachmentTab.locator('svg').first();
+    await expect(tabIconSvg).toBeVisible();
+    await expect(tabIconSvg.locator('path[fill="#4285F4"]')).toBeVisible();
 
-    // Verify Zone C: overall feedback section is completely removed
+    // Verify Extracted Text toggle button is hidden by default (Settings modal toggle defaults to off)
+    const extractedTextBtn = page.locator('[data-testid="toggle-extracted-text-button"]');
+    await expect(extractedTextBtn).toBeHidden();
+
+    // Open Settings modal via gear icon in TopTabBar, enable Extracted Text toggle, and verify button appears
+    await page.locator('[data-testid="open-settings-button"]').click();
+    const settingsModal = page.locator('[data-testid="settings-modal"]');
+    await expect(settingsModal).toBeVisible();
+    const settingSwitch = page.locator('[data-testid="toggle-extracted-text-setting"]');
+    await expect(settingSwitch).toHaveAttribute('aria-checked', 'false');
+    await settingSwitch.click();
+    await expect(settingSwitch).toHaveAttribute('aria-checked', 'true');
+    await page.locator('[data-testid="close-settings-button"]').click();
+    await expect(settingsModal).toBeHidden();
+
+    await expect(extractedTextBtn).toBeVisible({ timeout: 15000 });
+
+    // Turn setting back off and verify button is hidden again
+    await page.locator('[data-testid="open-settings-button"]').click();
+    await expect(settingsModal).toBeVisible();
+    await settingSwitch.click();
+    await expect(settingSwitch).toHaveAttribute('aria-checked', 'false');
+    await page.locator('[data-testid="close-settings-button"]').click();
+    await expect(extractedTextBtn).toBeHidden();
+
+    // Verify rubric breakdown list is visible by default (Settings modal toggle defaults to on)
+    const rubricBreakdownList = page.locator('[data-testid="rubric-breakdown-list"]');
+    await expect(rubricBreakdownList).toBeVisible();
+
+    // Open Settings modal, verify rubric pane setting defaults to true, toggle it off, and verify rubric pane hides
+    await page.locator('[data-testid="open-settings-button"]').click();
+    await expect(settingsModal).toBeVisible();
+    const rubricSettingSwitch = page.locator('[data-testid="toggle-rubric-pane-setting"]');
+    await expect(rubricSettingSwitch).toHaveAttribute('aria-checked', 'true');
+    await rubricSettingSwitch.click();
+    await expect(rubricSettingSwitch).toHaveAttribute('aria-checked', 'false');
+    await page.locator('[data-testid="close-settings-button"]').click();
+    await expect(settingsModal).toBeHidden();
+
+    await expect(rubricBreakdownList).toBeHidden();
+
+    // Re-open Settings modal, toggle rubric pane setting back on, and verify rubric pane appears again
+    await page.locator('[data-testid="open-settings-button"]').click();
+    await expect(settingsModal).toBeVisible();
+    await rubricSettingSwitch.click();
+    await expect(rubricSettingSwitch).toHaveAttribute('aria-checked', 'true');
+    await page.locator('[data-testid="close-settings-button"]').click();
+    await expect(rubricBreakdownList).toBeVisible();
     await expect(page.locator('[data-testid="overall-feedback-section"]')).toBeHidden();
     await expect(page.locator('[data-testid="overall-feedback-input"]')).toBeHidden();
+    await expect(page.locator('[data-testid="submission-comments-section"]')).toBeHidden();
+    await expect(page.locator('[data-testid="submission-comment-input"]')).toBeHidden();
+  });
 
-    // Verify Zone C: submission comments section is visible with dialogue composer
-    const commentsSection = page.locator('[data-testid="submission-comments-section"]');
-    await expect(commentsSection).toBeVisible();
+  test('clickAccountName_authenticatedUser_togglesUserPopupMenuWithSignOutButton_test', async ({ page }) => {
+    let googleToken = '';
+    let customToken = '';
+    try {
+      const { getLiveTeacherAccessToken, getLiveTestTeacherCustomToken } = await import('../helpers/classroomSandboxSeeder');
+      [googleToken, customToken] = await Promise.all([
+        getLiveTeacherAccessToken(),
+        getLiveTestTeacherCustomToken(),
+      ]);
+    } catch {
+      googleToken = '';
+      customToken = '';
+    }
 
-    const commentInput = page.locator('[data-testid="submission-comment-input"]');
-    const sendBtn = page.locator('[data-testid="send-submission-comment-button"]');
-    await expect(commentInput).toBeVisible();
-    await expect(sendBtn).toBeVisible();
+    await page.addInitScript(({ gToken, cToken }) => {
+      if (gToken) {
+        window.sessionStorage.setItem('classroom_agent_google_access_token', gToken);
+      }
+      if (cToken) {
+        window.sessionStorage.setItem('classroom_agent_custom_token', cToken);
+      }
+    }, { gToken: googleToken, cToken: customToken });
 
-    // Post a comment in the 2-way dialogue thread
-    const commentMessage = `Teacher review note: Please verify test cases (${Date.now()})`;
-    await commentInput.fill(commentMessage);
-    await sendBtn.click();
+    await page.goto('/');
 
-    // Verify comment appears in the list with Teacher badge
-    const commentsList = page.locator('[data-testid="submission-comments-list"]');
-    await expect(commentsList).toContainText(commentMessage, { timeout: 10000 });
-    await expect(commentsList).toContainText('Teacher');
+    await expect(page.locator('[data-testid="assignment-tab-bar"]')).toBeVisible({ timeout: 15000 });
 
-    // Verify input cleared
-    await expect(commentInput).toHaveValue('');
+    // Menu should be initially hidden
+    const userMenu = page.locator('[data-testid="user-account-menu"]');
+    await expect(userMenu).toBeHidden();
+
+    // Account button should be visible
+    const accountBtn = page.locator('[data-testid="user-account-button"]');
+    await expect(accountBtn).toBeVisible({ timeout: 10000 });
+
+    // Click on the account name/button to open popup
+    await accountBtn.click();
+    await expect(userMenu).toBeVisible();
+
+    // Verify Sign Out button is visible inside the popup menu
+    const signOutBtn = page.locator('[data-testid="sign-out-button"]');
+    await expect(signOutBtn).toBeVisible();
+    await expect(signOutBtn).toHaveAttribute('title', 'Sign Out');
+    await expect(signOutBtn).toContainText('Sign Out');
+
+    // Click outside to dismiss popup
+    await page.locator('[data-testid="assignment-tab-bar"]').click({ position: { x: 50, y: 10 } });
+    await expect(userMenu).toBeHidden();
   });
 });
+

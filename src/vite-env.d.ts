@@ -17,7 +17,6 @@ interface ImportMetaEnv {
   readonly VITE_STORAGE_EMULATOR_PORT: string;
   readonly VITE_FUNCTIONS_EMULATOR_HOST: string;
   readonly VITE_FUNCTIONS_EMULATOR_PORT: string;
-  readonly VITE_ENABLE_EXTRACTED_TEXT_TOGGLE: string;
 }
 
 interface ImportMeta {

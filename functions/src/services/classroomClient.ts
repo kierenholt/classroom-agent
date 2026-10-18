@@ -206,27 +206,33 @@ export function mapLiveClassroomSubmission(
       const file = att.driveFile;
       let fileType = 'PDF';
       const title = file.title || 'Attachment';
+      const lowerTitle = title.toLowerCase();
+      const altLink = (file.alternateLink || '').toLowerCase();
 
-      if (title.endsWith('.doc') || title.endsWith('.docx') || file.alternateLink?.includes('document')) {
+      if (lowerTitle.endsWith('.doc') || lowerTitle.endsWith('.docx') || altLink.includes('document')) {
         fileType = 'GOOGLE_DOC';
-      } else if (title.endsWith('.ppt') || title.endsWith('.pptx') || file.alternateLink?.includes('presentation')) {
+      } else if (lowerTitle.endsWith('.ppt') || lowerTitle.endsWith('.pptx') || altLink.includes('presentation')) {
         fileType = 'GOOGLE_SLIDES';
-      } else if (title.endsWith('.xls') || title.endsWith('.xlsx') || file.alternateLink?.includes('spreadsheets')) {
+      } else if (lowerTitle.endsWith('.xls') || lowerTitle.endsWith('.xlsx') || lowerTitle.endsWith('.csv') || altLink.includes('spreadsheets')) {
         fileType = 'GOOGLE_SHEETS';
       } else if (
-        title.endsWith('.py') ||
-        title.endsWith('.js') ||
-        title.endsWith('.ts') ||
-        title.endsWith('.java') ||
-        title.endsWith('.cpp') ||
-        title.endsWith('.html') ||
-        title.endsWith('.css') ||
-        title.endsWith('.json') ||
-        title.endsWith('.md')
+        lowerTitle.endsWith('.py') ||
+        lowerTitle.endsWith('.js') ||
+        lowerTitle.endsWith('.ts') ||
+        lowerTitle.endsWith('.java') ||
+        lowerTitle.endsWith('.cpp') ||
+        lowerTitle.endsWith('.html') ||
+        lowerTitle.endsWith('.css') ||
+        lowerTitle.endsWith('.json') ||
+        lowerTitle.endsWith('.md')
       ) {
         fileType = 'CODE';
-      } else if (title.endsWith('.png') || title.endsWith('.jpg') || title.endsWith('.jpeg') || title.endsWith('.webp')) {
+      } else if (lowerTitle.endsWith('.png') || lowerTitle.endsWith('.jpg') || lowerTitle.endsWith('.jpeg') || lowerTitle.endsWith('.webp')) {
         fileType = 'IMAGE';
+      } else if (lowerTitle.endsWith('.pdf')) {
+        fileType = 'PDF';
+      } else if (lowerTitle.endsWith('.txt')) {
+        fileType = 'TEXT';
       }
 
       attachments.push({

@@ -12,6 +12,7 @@ import { StudentRosterZone } from './StudentRosterZone';
 import { SubmissionPreviewZone } from './SubmissionPreviewZone';
 import { RubricMarkingZone } from './RubricMarkingZone';
 import { useAuth } from '../../context/AuthContext';
+import { useClassroomData } from '../../context/ClassroomDataContext';
 import { env } from '../../config/env';
 
 interface AssignmentWorkspaceProps {
@@ -98,9 +99,26 @@ export const AssignmentWorkspace: React.FC<AssignmentWorkspaceProps> = ({
     [assignmentId, getAuthHeaders, clearGoogleAccessToken]
   );
 
+  const { getCachedWorkspace } = useClassroomData();
+
   useEffect(() => {
-    fetchLiveWorkspace(false);
-  }, [fetchLiveWorkspace]);
+    if (!assignmentId) return;
+    const cached = getCachedWorkspace(assignmentId);
+    if (cached && cached.assignment) {
+      setLiveAssignment(cached.assignment);
+      setLiveSubmissions(cached.submissions || []);
+      setLoading(false);
+      if (onAssignmentLoadedRef.current) {
+        onAssignmentLoadedRef.current({
+          courseName: cached.assignment.courseName,
+          assignmentTitle: cached.assignment.title,
+        });
+      }
+      fetchLiveWorkspace(true);
+    } else {
+      fetchLiveWorkspace(false);
+    }
+  }, [assignmentId, fetchLiveWorkspace, getCachedWorkspace]);
 
   // 2. Subscribe to Firestore Sidecar (Rubric + Per-Student AI/Teacher Evaluations)
   useEffect(() => {
@@ -424,21 +442,20 @@ export const AssignmentWorkspace: React.FC<AssignmentWorkspaceProps> = ({
         isReturning={isReturning}
       />
 
-      {/* Zone B: Submission Preview Canvas (48%) */}
-      <SubmissionPreviewZone submission={activeSubmission} />
-
-      {/* Zone C: Rubric Breakdown (30%) */}
-      <RubricMarkingZone
-        assignment={mergedAssignment}
-        submission={activeSubmission}
-        rubricBreakdown={activeEffectiveEdit?.rubricBreakdown || []}
-        overallFeedback={activeEffectiveEdit?.overallFeedback || ''}
-        onUpdateRubricAndFeedback={(breakdown, feedback, newTotalScore) => {
-          if (activeSubmission) {
-            handleUpdateStudentRubricAndFeedback(activeSubmission.studentId, breakdown, feedback, newTotalScore);
-          }
-        }}
-      />
+      {/* Zone B: Submission Preview Canvas with Rubric Breakdown at the bottom */}
+      <SubmissionPreviewZone submission={activeSubmission}>
+        <RubricMarkingZone
+          assignment={mergedAssignment}
+          submission={activeSubmission}
+          rubricBreakdown={activeEffectiveEdit?.rubricBreakdown || []}
+          overallFeedback={activeEffectiveEdit?.overallFeedback || ''}
+          onUpdateRubricAndFeedback={(breakdown, feedback, newTotalScore) => {
+            if (activeSubmission) {
+              handleUpdateStudentRubricAndFeedback(activeSubmission.studentId, breakdown, feedback, newTotalScore);
+            }
+          }}
+        />
+      </SubmissionPreviewZone>
     </div>
   );
 };

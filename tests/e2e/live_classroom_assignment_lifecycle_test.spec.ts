@@ -182,17 +182,24 @@ test.describe('Classroom Agent MVP — 7 Core User Stories (Live Classroom Batch
     await expect(pdfFrame).toBeVisible({ timeout: 30000 });
     await expect(pdfFrame).toHaveAttribute('src', /^blob:/);
 
+    // By default, the Extracted Text toggle button is hidden (setting defaults to off)
     const toggleTextBtn = page.locator('[data-testid="toggle-extracted-text-button"]');
-    if (process.env.VITE_ENABLE_EXTRACTED_TEXT_TOGGLE === 'true') {
-      await expect(toggleTextBtn).toBeVisible({ timeout: 30000 });
-      await toggleTextBtn.click();
+    await expect(toggleTextBtn).toBeHidden();
 
-      const previewTextContent = page.locator('[data-testid="preview-text-content"]');
-      await expect(previewTextContent).toBeVisible();
-      await expect(previewTextContent).toContainText(batchFixture!.googleDocContent);
-    } else {
-      await expect(toggleTextBtn).toBeHidden();
-    }
+    // Open Settings modal and enable "Show Extracted Text Toggle"
+    await page.locator('[data-testid="open-settings-button"]').click();
+    await expect(page.locator('[data-testid="settings-modal"]')).toBeVisible();
+    await page.locator('[data-testid="toggle-extracted-text-setting"]').click();
+    await page.locator('[data-testid="close-settings-button"]').click();
+    await expect(page.locator('[data-testid="settings-modal"]')).toBeHidden();
+
+    // Toggle to "Extracted Text" view in Zone B and assert the Google Document text is rendered directly in the preview canvas
+    await expect(toggleTextBtn).toBeVisible({ timeout: 30000 });
+    await toggleTextBtn.click();
+
+    const previewTextContent = page.locator('[data-testid="preview-text-content"]');
+    await expect(previewTextContent).toBeVisible();
+    await expect(previewTextContent).toContainText(batchFixture!.googleDocContent);
 
     // Prompt the Agent Co-Pilot to read the student's submitted Google Document content
     const chatInput = page.locator('[data-testid="chat-input"]');
@@ -306,8 +313,8 @@ test.describe('Classroom Agent MVP — 7 Core User Stories (Live Classroom Batch
     await expect(page.locator('[data-testid="chat-window"]')).toContainText(/evaluated|graded|score|factorial|recursion/i, {
       timeout: 30000,
     });
-    // Submission comments list remains clean for real dialogue and does not contain duplicated agent comments
-    await expect(page.locator('[data-testid="submission-comments-list"]')).not.toContainText('Evaluated by Classroom Agent');
+    // Submission comments section is removed from Zone C
+    await expect(page.locator('[data-testid="submission-comments-section"]')).toBeHidden();
   });
 
   // =========================================================================

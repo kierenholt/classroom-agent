@@ -1,8 +1,7 @@
 import React, { useState, useEffect } from 'react';
-import { BookOpen, Calendar, Award, CheckCircle, AlertCircle, Loader2, X, GraduationCap } from 'lucide-react';
-import { ClassroomCourse, ClassroomCoursework } from '../../types/classroom';
-import { useAuth } from '../../context/AuthContext';
-import { env } from '../../config/env';
+import { BookOpen, Calendar, Award, CheckCircle, AlertCircle, Loader2, X, GraduationCap, RefreshCw } from 'lucide-react';
+import { ClassroomCoursework } from '../../types/classroom';
+import { useClassroomData } from '../../context/ClassroomDataContext';
 
 interface AssignmentPickerViewProps {
   isOpen: boolean;
@@ -15,101 +14,72 @@ export const AssignmentPickerView: React.FC<AssignmentPickerViewProps> = ({
   onClose,
   onOpenAssignment,
 }) => {
-  const { getAuthHeaders, clearGoogleAccessToken } = useAuth();
-  const [courses, setCourses] = useState<ClassroomCourse[]>([]);
+  const {
+    courses,
+    courseworkByCourseId,
+    loadingCourses: globalLoadingCourses,
+    loadingCoursework: globalLoadingCoursework,
+    error: globalError,
+    preloadAssignments,
+    fetchCourseworkForCourse,
+    prefetchWorkspace,
+    refreshAll,
+  } = useClassroomData();
+
   const [selectedCourseId, setSelectedCourseId] = useState<string | null>(null);
-  const [coursework, setCoursework] = useState<ClassroomCoursework[]>([]);
   const [selectedCourseworkId, setSelectedCourseworkId] = useState<string | null>(null);
-  const [loadingCourses, setLoadingCourses] = useState(false);
-  const [loadingCoursework, setLoadingCoursework] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+  const [localError, setLocalError] = useState<string | null>(null);
+  const [isRefreshing, setIsRefreshing] = useState<boolean>(false);
 
-  // 1. Fetch Teacher's Active Courses when modal opens
-  const fetchCourses = async () => {
-    setLoadingCourses(true);
-    setError(null);
-    try {
-      const headers = await getAuthHeaders();
-      const res = await fetch(`${env.API_BASE_URL}/classroom/courses`, {
-        headers,
-      });
-
-      if (!res.ok) {
-        const errText = await res.text();
-        if (res.status === 401 || /invalid credentials/i.test(errText)) {
-          clearGoogleAccessToken();
-          return;
-        }
-        throw new Error(`Failed to fetch courses: ${errText}`);
-      }
-
-      const data = await res.json();
-      setCourses(data.courses || []);
-    } catch (err: any) {
-      console.error('Fetch courses error:', err);
-      setError(err.message || 'Failed to fetch courses');
-    } finally {
-      setLoadingCourses(false);
-    }
-  };
-
+  // When modal opens, reset selections so user starts fresh at Step 1
   useEffect(() => {
     if (isOpen) {
       setSelectedCourseId(null);
       setSelectedCourseworkId(null);
-      setCoursework([]);
-      fetchCourses();
+      setLocalError(null);
+      // If not yet preloaded or courses empty, trigger background preload
+      if (courses.length === 0) {
+        preloadAssignments(false);
+      }
     }
-  }, [isOpen]);
+  }, [isOpen, courses.length, preloadAssignments]);
 
-  // 2. Fetch Coursework when Selected Course changes (Live from Google Classroom API)
+  // When selectedCourseId changes, fetch coursework if not already cached
   useEffect(() => {
     if (!isOpen || !selectedCourseId) {
-      setCoursework([]);
       setSelectedCourseworkId(null);
       return;
     }
 
-    const fetchCoursework = async () => {
-      setLoadingCoursework(true);
-      setSelectedCourseworkId(null);
-      setError(null);
-      try {
-        const headers = await getAuthHeaders();
-        const res = await fetch(`${env.API_BASE_URL}/classroom/courses/${selectedCourseId}/coursework`, {
-          headers,
-        });
-
-        if (!res.ok) {
-          const errText = await res.text();
-          if (res.status === 401 || /invalid credentials/i.test(errText)) {
-            clearGoogleAccessToken();
-            return;
-          }
-          throw new Error(`Failed to fetch coursework: ${errText}`);
-        }
-
-        const data = await res.json();
-        setCoursework(data.coursework || []);
-      } catch (err: any) {
-        console.error('Fetch coursework error:', err);
-        setError(err.message || 'Failed to fetch coursework');
-      } finally {
-        setLoadingCoursework(false);
-      }
-    };
-
-    fetchCoursework();
-  }, [isOpen, selectedCourseId]);
+    if (!courseworkByCourseId[selectedCourseId]) {
+      fetchCourseworkForCourse(selectedCourseId).catch((err: any) => {
+        setLocalError(err.message || 'Failed to fetch coursework');
+      });
+    }
+  }, [isOpen, selectedCourseId, courseworkByCourseId, fetchCourseworkForCourse]);
 
   if (!isOpen) {
     return null;
   }
 
+  const currentCoursework: ClassroomCoursework[] = selectedCourseId ? courseworkByCourseId[selectedCourseId] || [] : [];
+  const isCourseworkLoading = selectedCourseId
+    ? !!globalLoadingCoursework[selectedCourseId] && currentCoursework.length === 0
+    : false;
+  const isCoursesLoading = globalLoadingCourses && courses.length === 0;
+  const error = localError || globalError;
+
+  const handleSelectAssignment = (cw: ClassroomCoursework) => {
+    setSelectedCourseworkId(cw.id);
+    if (selectedCourseId) {
+      prefetchWorkspace(selectedCourseId, cw.id);
+    }
+  };
+
   const handleConfirmSelection = () => {
     if (!selectedCourseId || !selectedCourseworkId) return;
     const selectedCourse = courses.find((c) => c.id === selectedCourseId);
-    const selectedCw = coursework.find((cw) => cw.id === selectedCourseworkId);
+    const selectedCw = currentCoursework.find((cw) => cw.id === selectedCourseworkId);
     if (!selectedCw) return;
 
     const assignmentId = `${selectedCourseId}_${selectedCw.id}`;
@@ -118,6 +88,18 @@ export const AssignmentPickerView: React.FC<AssignmentPickerViewProps> = ({
       assignmentTitle: selectedCw.title,
     });
     onClose();
+  };
+
+  const handleManualRefresh = async () => {
+    setIsRefreshing(true);
+    setLocalError(null);
+    try {
+      await refreshAll();
+    } catch (err: any) {
+      setLocalError(err.message || 'Failed to refresh assignments');
+    } finally {
+      setIsRefreshing(false);
+    }
   };
 
   return (
@@ -144,14 +126,26 @@ export const AssignmentPickerView: React.FC<AssignmentPickerViewProps> = ({
               </p>
             </div>
           </div>
-          <button
-            data-testid="assignment-picker-close-button"
-            onClick={onClose}
-            className="p-1.5 rounded-lg text-gray-400 hover:text-white hover:bg-[#21262d] transition-colors"
-            title="Close"
-          >
-            <X className="w-4 h-4" />
-          </button>
+          <div className="flex items-center space-x-1.5">
+            <button
+              type="button"
+              data-testid="assignment-picker-refresh-button"
+              onClick={handleManualRefresh}
+              disabled={isRefreshing || isCoursesLoading}
+              className="p-1.5 rounded-lg text-gray-400 hover:text-white hover:bg-[#21262d] transition-colors disabled:opacity-50"
+              title="Refresh classes and assignments"
+            >
+              <RefreshCw className={`w-3.5 h-3.5 ${isRefreshing ? 'animate-spin text-purple-400' : ''}`} />
+            </button>
+            <button
+              data-testid="assignment-picker-close-button"
+              onClick={onClose}
+              className="p-1.5 rounded-lg text-gray-400 hover:text-white hover:bg-[#21262d] transition-colors"
+              title="Close"
+            >
+              <X className="w-4 h-4" />
+            </button>
+          </div>
         </div>
 
         {error && (
@@ -168,7 +162,7 @@ export const AssignmentPickerView: React.FC<AssignmentPickerViewProps> = ({
             <label className="block text-[11px] font-semibold uppercase tracking-wider text-gray-400">
               1. Select a Class
             </label>
-            {loadingCourses ? (
+            {isCoursesLoading ? (
               <div className="flex items-center space-x-2 text-xs text-gray-400 p-4 bg-[#0d1117] border border-[#30363d] rounded-lg">
                 <Loader2 className="w-4 h-4 animate-spin text-purple-400" />
                 <span>Loading classes...</span>
@@ -213,26 +207,27 @@ export const AssignmentPickerView: React.FC<AssignmentPickerViewProps> = ({
               <label className="block text-[11px] font-semibold uppercase tracking-wider text-gray-400">
                 2. Select an Assignment
               </label>
-              {loadingCoursework ? (
+              {isCourseworkLoading ? (
                 <div className="flex items-center space-x-2 text-xs text-gray-400 p-6 bg-[#0d1117] border border-[#30363d] rounded-lg justify-center">
                   <Loader2 className="w-4 h-4 animate-spin text-purple-400" />
                   <span>Loading assignments from Classroom...</span>
                 </div>
-              ) : coursework.length === 0 ? (
+              ) : currentCoursework.length === 0 ? (
                 <div className="flex flex-col items-center justify-center text-gray-500 text-xs p-6 bg-[#0d1117] border border-[#30363d] rounded-lg">
                   <BookOpen className="w-8 h-8 mb-2 text-gray-600" />
                   <p>No assignments found for this class.</p>
                 </div>
               ) : (
                 <div className="space-y-2 max-h-60 overflow-y-auto pr-1">
-                  {coursework.map((cw) => {
+                  {currentCoursework.map((cw) => {
                     const isSelected = selectedCourseworkId === cw.id;
                     return (
                       <button
                         key={cw.id}
                         type="button"
                         data-testid={`assignment-card-${cw.id}`}
-                        onClick={() => setSelectedCourseworkId(cw.id)}
+                        onClick={() => handleSelectAssignment(cw)}
+                        onMouseEnter={() => selectedCourseId && prefetchWorkspace(selectedCourseId, cw.id)}
                         className={`w-full text-left p-3.5 rounded-lg border transition-all flex items-start justify-between ${
                           isSelected
                             ? 'bg-purple-900/30 border-purple-500 text-white shadow-sm'
@@ -295,4 +290,3 @@ export const AssignmentPickerView: React.FC<AssignmentPickerViewProps> = ({
     </div>
   );
 };
-
