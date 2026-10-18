@@ -11,10 +11,46 @@ import { requestLogger } from './services/logger';
 // Set global options for 2nd Gen Cloud Functions
 setGlobalOptions({ region: 'europe-west2' });
 
+import './config/env';
+import * as path from 'path';
+import * as fs from 'fs';
+
+// Ensure auth emulation is completely disabled: Firebase Admin Auth must always verify real tokens with Google
+delete process.env.FIREBASE_AUTH_EMULATOR_HOST;
+
 // Initialize Firebase Admin SDK
+// STRICT PRODUCTION POLICY: On GCP Cloud Functions, strictly initialize with zero arguments using
+// Google Cloud managed Application Default Credentials (ADC). Never load serviceAccountKey.json in production.
 if (admin.apps.length === 0) {
-  admin.initializeApp();
+  const isEmulator = process.env.FUNCTIONS_EMULATOR === 'true';
+  if (isEmulator) {
+    const candidatePaths = [
+      process.env.FIREBASE_SERVICE_ACCOUNT_PATH ? path.resolve(process.cwd(), process.env.FIREBASE_SERVICE_ACCOUNT_PATH) : '',
+      process.env.FIREBASE_SERVICE_ACCOUNT_PATH ? path.resolve(__dirname, '../..', process.env.FIREBASE_SERVICE_ACCOUNT_PATH) : '',
+      path.resolve(__dirname, '../../serviceAccountKey.json'),
+      path.resolve(process.cwd(), 'serviceAccountKey.json'),
+    ].filter(Boolean);
+
+    const saPath = candidatePaths.find((p) => fs.existsSync(p));
+    if (saPath) {
+      const serviceAccount = JSON.parse(fs.readFileSync(saPath, 'utf8'));
+      admin.initializeApp({
+        credential: admin.credential.cert(serviceAccount),
+        projectId: serviceAccount.project_id || 'classroom-agent-511917',
+      });
+      console.log(`[Firebase Admin] Initialized in emulator with service account: ${saPath}`);
+    } else {
+      console.warn('[Firebase Admin] No serviceAccountKey.json found for emulator; falling back to default admin.initializeApp()');
+      admin.initializeApp();
+    }
+  } else {
+    // Production runtime on GCP: strictly use managed GCP environment credentials
+    admin.initializeApp();
+  }
 }
+
+// Enable Firestore to ignore undefined properties
+admin.firestore().settings({ ignoreUndefinedProperties: true });
 
 const app = express();
 

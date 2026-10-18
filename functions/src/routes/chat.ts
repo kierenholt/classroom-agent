@@ -192,7 +192,7 @@ Operational Guidelines:
             args: toolArgs,
             status: success ? 'success' : 'error',
             result: resultOutput,
-            error: errorMessage,
+            error: errorMessage || null,
           });
 
           responseParts.push({

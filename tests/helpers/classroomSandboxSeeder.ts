@@ -2,6 +2,9 @@ import { Readable } from 'stream';
 import { google } from 'googleapis';
 import * as dotenv from 'dotenv';
 import * as path from 'path';
+import * as fs from 'fs';
+import { initializeApp, getApps, cert } from 'firebase-admin/app';
+import { getAuth } from 'firebase-admin/auth';
 
 dotenv.config({ path: path.resolve(process.cwd(), '.env.local') });
 
@@ -87,6 +90,31 @@ export async function getLiveTeacherAccessToken(): Promise<string> {
   cachedTeacherToken = await exchangeRefreshToken(teacherRefreshToken, 'Teacher');
   return cachedTeacherToken.accessToken;
 }
+
+/**
+ * Mints a live Firebase custom authentication token for the test teacher account using serviceAccountKey.json.
+ */
+export async function getLiveTestTeacherCustomToken(): Promise<string> {
+  const saEnv = process.env.FIREBASE_SERVICE_ACCOUNT_PATH;
+  const saPath = saEnv
+    ? path.resolve(process.cwd(), saEnv)
+    : path.resolve(process.cwd(), 'serviceAccountKey.json');
+  if (!fs.existsSync(saPath)) {
+    throw new Error(`[Classroom Sandbox Seeder] Service account file not found at: ${saPath}. Fail-fast enabled.`);
+  }
+  if (getApps().length === 0) {
+    const sa = JSON.parse(fs.readFileSync(saPath, 'utf8'));
+    initializeApp({
+      credential: cert(sa),
+      projectId: sa.project_id || 'classroom-agent-511917',
+    });
+  }
+  return getAuth().createCustomToken('teacher_live_e2e', {
+    name: 'Teacher E2E',
+    role: 'teacher',
+  });
+}
+
 
 /**
  * Returns a valid Google Access Token for the test student account (cached in-memory for the test batch).
@@ -318,6 +346,7 @@ export interface LiveBatchFixture {
   submissionId: string;
   driveFileId: string;
   teacherAccessToken: string;
+  customAuthToken: string;
 }
 
 /**
@@ -356,10 +385,11 @@ export async function setupLiveClassroomBatchFixture(options?: {
   maxPoints?: number;
   attachment?: { filename: string; mimeType: string; content: string };
 }): Promise<LiveBatchFixture> {
-  // Step 1: Warm both tokens in parallel
-  const [teacherAccessToken] = await Promise.all([
+  // Step 1: Warm both tokens and generate live Firebase custom token in parallel
+  const [teacherAccessToken, _studentToken, customAuthToken] = await Promise.all([
     getLiveTeacherAccessToken(),
     getLiveStudentAccessToken(),
+    getLiveTestTeacherCustomToken(),
   ]);
 
   // Step 2: Sweep any orphaned E2E assignments from previous crashed runs
@@ -400,6 +430,7 @@ export async function setupLiveClassroomBatchFixture(options?: {
     submissionId,
     driveFileId,
     teacherAccessToken,
+    customAuthToken,
   };
 }
 

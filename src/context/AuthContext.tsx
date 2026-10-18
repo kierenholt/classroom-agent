@@ -3,7 +3,7 @@ import {
   User,
   onAuthStateChanged,
   signInWithPopup,
-  signInWithCredential,
+  signInWithCustomToken,
   signOut,
   GoogleAuthProvider,
 } from 'firebase/auth';
@@ -21,6 +21,7 @@ interface AuthContextType {
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
 const GOOGLE_TOKEN_STORAGE_KEY = 'classroom_agent_google_access_token';
+const CUSTOM_TOKEN_STORAGE_KEY = 'classroom_agent_custom_token';
 
 export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const [user, setUser] = useState<User | null>(null);
@@ -43,21 +44,26 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         return;
       }
 
-      const storedToken = sessionStorage.getItem(GOOGLE_TOKEN_STORAGE_KEY);
-      if (storedToken && !attemptedTokenSignIn) {
-        attemptedTokenSignIn = true;
-        try {
-          const storedIdToken = sessionStorage.getItem('classroom_agent_google_id_token');
-          const credential = GoogleAuthProvider.credential(storedIdToken, storedToken);
-          const result = await signInWithCredential(auth, credential);
-          setUser(result.user);
-          setGoogleAccessToken(storedToken);
-          setLoading(false);
-          return;
-        } catch (err) {
-          console.error('Failed to restore session from Google OAuth token:', err);
-          sessionStorage.removeItem(GOOGLE_TOKEN_STORAGE_KEY);
-          setGoogleAccessToken(null);
+      // Check for test/custom token (STRICTLY for headless E2E test runner; never in production)
+      if (!import.meta.env.PROD) {
+        const customToken = sessionStorage.getItem(CUSTOM_TOKEN_STORAGE_KEY);
+        if (customToken && !attemptedTokenSignIn) {
+          attemptedTokenSignIn = true;
+          try {
+            const result = await signInWithCustomToken(auth, customToken);
+            setUser(result.user);
+            const storedToken = sessionStorage.getItem(GOOGLE_TOKEN_STORAGE_KEY);
+            if (storedToken) {
+              setGoogleAccessToken(storedToken);
+            }
+            setLoading(false);
+            return;
+          } catch (err) {
+            console.error('[AuthContext] Failed to sign in with custom token:', err);
+            sessionStorage.removeItem(CUSTOM_TOKEN_STORAGE_KEY);
+            sessionStorage.removeItem(GOOGLE_TOKEN_STORAGE_KEY);
+            setGoogleAccessToken(null);
+          }
         }
       }
 
@@ -85,6 +91,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
   const logOut = async () => {
     sessionStorage.removeItem(GOOGLE_TOKEN_STORAGE_KEY);
+    sessionStorage.removeItem(CUSTOM_TOKEN_STORAGE_KEY);
     setGoogleAccessToken(null);
     await signOut(auth);
   };

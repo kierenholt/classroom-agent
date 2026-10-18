@@ -22,13 +22,10 @@ async function openBatchAssignmentInWorkspace(page: Page, fixture: LiveBatchFixt
     }
   });
 
-  await page.addInitScript((token) => {
-    window.sessionStorage.setItem('classroom_agent_google_access_token', token);
-    window.sessionStorage.setItem(
-      'classroom_agent_google_id_token',
-      JSON.stringify({ sub: 'teacher_live_e2e', name: 'Teacher E2E' })
-    );
-  }, fixture.teacherAccessToken);
+  await page.addInitScript(({ googleToken, customToken }) => {
+    window.sessionStorage.setItem('classroom_agent_google_access_token', googleToken);
+    window.sessionStorage.setItem('classroom_agent_custom_token', customToken);
+  }, { googleToken: fixture.teacherAccessToken, customToken: fixture.customAuthToken });
 
   await page.goto('/');
 

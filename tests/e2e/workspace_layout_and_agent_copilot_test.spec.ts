@@ -61,28 +61,36 @@ test.describe('Classroom Agent - Workspace and Agent Co-Pilot Tests', () => {
   });
 
   test('mountWorkspace_authenticatedTeacherWithAssignment_rendersThreeZonesAndChatPane_test', async ({ page }) => {
-    let token = '';
+    let googleToken = '';
+    let customToken = '';
     try {
-      const { getLiveTeacherAccessToken } = await import('../helpers/classroomSandboxSeeder');
-      token = await getLiveTeacherAccessToken();
+      const { getLiveTeacherAccessToken, getLiveTestTeacherCustomToken } = await import('../helpers/classroomSandboxSeeder');
+      [googleToken, customToken] = await Promise.all([
+        getLiveTeacherAccessToken(),
+        getLiveTestTeacherCustomToken(),
+      ]);
     } catch {
-      token = '';
+      googleToken = '';
+      customToken = '';
     }
 
     // Inject session storage credentials into browser context
-    await page.addInitScript((t) => {
-      if (t) {
-        window.sessionStorage.setItem('classroom_agent_google_access_token', t);
+    await page.addInitScript(({ gToken, cToken }) => {
+      if (gToken) {
+        window.sessionStorage.setItem('classroom_agent_google_access_token', gToken);
       }
-    }, token);
+      if (cToken) {
+        window.sessionStorage.setItem('classroom_agent_custom_token', cToken);
+      }
+    }, { gToken: googleToken, cToken: customToken });
 
     await page.goto('/');
 
     // Verify top tab bar existence
-    await expect(page.locator('[data-testid="assignment-tab-bar"]')).toBeVisible();
-    await expect(page.locator('[data-testid="new-assignment-tab-button"]')).toBeVisible();
+    await expect(page.locator('[data-testid="assignment-tab-bar"]')).toBeVisible({ timeout: 15000 });
+    await expect(page.locator('[data-testid="new-assignment-tab-button"]')).toBeVisible({ timeout: 15000 });
 
     // Verify assignment picker view is loaded
-    await expect(page.locator('[data-testid="assignment-picker-view"]')).toBeVisible();
+    await expect(page.locator('[data-testid="assignment-picker-view"]')).toBeVisible({ timeout: 15000 });
   });
 });

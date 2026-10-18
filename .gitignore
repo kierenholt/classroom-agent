@@ -12,3 +12,8 @@ firestore-debug.log
 ui-debug.log
 playwright-report/
 test-results/
+serviceAccountKey.json
+*serviceAccount*.json
+*-firebase-adminsdk-*.json
+classroom-agent-511917-firebase-adminsdk-fbsvc-c0df47662f.json
+.auth/

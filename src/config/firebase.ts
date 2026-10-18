@@ -1,5 +1,5 @@
 import { initializeApp, getApps, getApp } from 'firebase/app';
-import { getAuth, connectAuthEmulator, GoogleAuthProvider } from 'firebase/auth';
+import { getAuth, GoogleAuthProvider } from 'firebase/auth';
 import { getFirestore, connectFirestoreEmulator } from 'firebase/firestore';
 import { getStorage, connectStorageEmulator } from 'firebase/storage';
 import { env } from './env';
@@ -31,15 +31,14 @@ googleAuthProvider.setCustomParameters({
   access_type: 'offline',
 });
 
-// Emulator connection with idempotency check
+// Emulator connection with idempotency check (Firestore and Storage emulators)
 let emulatorsConnected = false;
 if (env.USE_FIREBASE_EMULATORS && !emulatorsConnected) {
   try {
-    connectAuthEmulator(auth, env.AUTH_EMULATOR_URL, { disableWarnings: true });
     connectFirestoreEmulator(db, env.FIRESTORE_EMULATOR_HOST, env.FIRESTORE_EMULATOR_PORT);
     connectStorageEmulator(storage, env.STORAGE_EMULATOR_HOST, env.STORAGE_EMULATOR_PORT);
     emulatorsConnected = true;
-    console.info('[Firebase] Connected to local emulators successfully.');
+    console.info('[Firebase] Connected to local Firestore & Storage emulators (Live Firebase Auth enabled).');
   } catch (err) {
     console.warn('[Firebase] Emulator connection warning:', err);
   }
