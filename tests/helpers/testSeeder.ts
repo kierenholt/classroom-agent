@@ -221,3 +221,36 @@ export async function cleanupTestAssignment(assignmentId: string, studentIds: st
     // ignore
   }
 }
+
+export async function seedTestUserCredits(uid: string, aiCredits: number) {
+  const url = `${BASE_URL}/users/${uid}`;
+  const now = new Date().toISOString();
+  const fields: Record<string, any> = {
+    uid: { stringValue: uid },
+    aiCredits: { integerValue: String(aiCredits) },
+    updatedAt: { stringValue: now },
+  };
+
+  const res = await fetch(url, {
+    method: 'PATCH',
+    headers: EMULATOR_ADMIN_HEADERS,
+    body: JSON.stringify({ fields }),
+  });
+
+  if (!res.ok) {
+    const text = await res.text();
+    throw new Error(`Failed to seed test user credits: ${text}`);
+  }
+}
+
+export async function deleteTestUser(uid: string) {
+  try {
+    await fetch(`${BASE_URL}/users/${uid}`, {
+      method: 'DELETE',
+      headers: EMULATOR_ADMIN_HEADERS,
+    });
+  } catch {
+    // ignore
+  }
+}
+

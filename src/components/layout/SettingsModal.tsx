@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useState } from 'react';
 import {
   Settings,
   X,
@@ -10,13 +10,23 @@ import {
   ArrowRightCircle,
   Hash,
   Sparkles,
+  FileCheck,
+  Layout,
+  Wrench,
 } from 'lucide-react';
-import { useSettings, FeedbackTone, FeedbackDetailLevel } from '../../context/SettingsContext';
+import { useSettings, FeedbackTone, FeedbackDetailLevel, GradingMode } from '../../context/SettingsContext';
 
 interface SettingsModalProps {
   isOpen: boolean;
   onClose: () => void;
 }
+
+export type SettingsTab = 'feedback' | 'display' | 'advanced';
+
+const GRADING_MODE_OPTIONS: { value: GradingMode; label: string }[] = [
+  { value: 'no-draft', label: 'No Draft Mode (Direct to Final)' },
+  { value: 'draft', label: 'Draft Mode (Review Before Final)' },
+];
 
 const TONE_OPTIONS: { value: FeedbackTone; label: string }[] = [
   { value: 'encouraging', label: 'Encouraging & Supportive' },
@@ -38,6 +48,8 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose })
     setShowExtractedTextToggle,
     showRubricPane,
     setShowRubricPane,
+    showToolCalls,
+    setShowToolCalls,
     feedbackTone,
     setFeedbackTone,
     feedbackDetailLevel,
@@ -50,7 +62,11 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose })
     setShowScores,
     customAgentInstructions,
     setCustomAgentInstructions,
+    gradingMode,
+    setGradingMode,
   } = useSettings();
+
+  const [activeTab, setActiveTab] = useState<SettingsTab>('feedback');
 
   if (!isOpen) return null;
 
@@ -61,7 +77,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose })
       onClick={onClose}
     >
       <div
-        className="w-full max-w-lg max-h-[85vh] bg-[#161b22] border border-[#30363d] rounded-xl shadow-2xl overflow-hidden flex flex-col"
+        className="w-full max-w-3xl max-h-[85vh] bg-[#161b22] border border-[#30363d] rounded-xl shadow-2xl overflow-hidden flex flex-col"
         onClick={(e) => e.stopPropagation()}
       >
         {/* Header */}
@@ -80,12 +96,88 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose })
           </button>
         </div>
 
+        {/* Section Tabs Header */}
+        <div className="flex border-b border-[#30363d] bg-[#0d1117] px-5 pt-1 space-x-1 shrink-0">
+          <button
+            type="button"
+            data-testid="settings-tab-feedback"
+            onClick={() => setActiveTab('feedback')}
+            className={`flex items-center space-x-2 py-2.5 px-4 text-xs font-medium border-b-2 transition-colors cursor-pointer ${
+              activeTab === 'feedback'
+                ? 'border-purple-500 text-purple-400 font-semibold'
+                : 'border-transparent text-gray-400 hover:text-gray-200 hover:border-gray-600'
+            }`}
+          >
+            <Sparkles className="w-3.5 h-3.5" />
+            <span>Feedback &amp; Grading</span>
+          </button>
+
+          <button
+            type="button"
+            data-testid="settings-tab-display"
+            onClick={() => setActiveTab('display')}
+            className={`flex items-center space-x-2 py-2.5 px-4 text-xs font-medium border-b-2 transition-colors cursor-pointer ${
+              activeTab === 'display'
+                ? 'border-purple-500 text-purple-400 font-semibold'
+                : 'border-transparent text-gray-400 hover:text-gray-200 hover:border-gray-600'
+            }`}
+          >
+            <Layout className="w-3.5 h-3.5" />
+            <span>Workspace Display</span>
+          </button>
+
+          <button
+            type="button"
+            data-testid="settings-tab-advanced"
+            onClick={() => setActiveTab('advanced')}
+            className={`flex items-center space-x-2 py-2.5 px-4 text-xs font-medium border-b-2 transition-colors cursor-pointer ${
+              activeTab === 'advanced'
+                ? 'border-purple-500 text-purple-400 font-semibold'
+                : 'border-transparent text-gray-400 hover:text-gray-200 hover:border-gray-600'
+            }`}
+          >
+            <Wrench className="w-3.5 h-3.5" />
+            <span>Advanced</span>
+          </button>
+        </div>
+
         {/* Body */}
         <div className="p-5 space-y-5 overflow-y-auto flex-1">
-          {/* Feedback Options Section */}
-          <div data-testid="feedback-options-section" className="space-y-3">
-            <div className="text-[11px] font-semibold uppercase tracking-wider text-purple-400">
-              Feedback Options
+          {activeTab === 'feedback' && (
+            <div data-testid="feedback-options-section" className="space-y-3">
+              <div className="text-[11px] font-semibold uppercase tracking-wider text-purple-400">
+                Feedback Options
+              </div>
+
+            {/* Grading Mode Setting */}
+            <div className="flex items-center justify-between space-x-4 p-3 rounded-lg bg-[#0d1117] border border-[#30363d]">
+              <div className="flex items-start space-x-3">
+                <div className="p-2 rounded-lg bg-purple-950/50 border border-purple-800/40 text-purple-400 mt-0.5">
+                  <FileCheck className="w-4 h-4" />
+                </div>
+                <div>
+                  <label htmlFor="grading-mode-select" className="text-xs font-medium text-gray-200 block">
+                    Grading Mode
+                  </label>
+                  <p className="text-[11px] text-gray-400 mt-0.5 leading-relaxed">
+                    Choose whether approving evaluations and saving scores publishes final grades immediately or saves as drafts for review.
+                  </p>
+                </div>
+              </div>
+
+              <select
+                id="grading-mode-select"
+                data-testid="grading-mode-select"
+                value={gradingMode}
+                onChange={(e) => setGradingMode(e.target.value as GradingMode)}
+                className="bg-[#161b22] border border-[#30363d] rounded-md px-2.5 py-1.5 text-xs text-gray-200 focus:outline-hidden focus:border-purple-500 shrink-0"
+              >
+                {GRADING_MODE_OPTIONS.map((opt) => (
+                  <option key={opt.value} value={opt.value}>
+                    {opt.label}
+                  </option>
+                ))}
+              </select>
             </div>
 
             {/* Tone Setting */}
@@ -282,9 +374,10 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose })
               />
             </div>
           </div>
+        )}
 
-          {/* Workspace Interface Section */}
-          <div className="space-y-3 pt-2 border-t border-[#30363d]">
+        {activeTab === 'display' && (
+          <div data-testid="workspace-display-section" className="space-y-3">
             <div className="text-[11px] font-semibold uppercase tracking-wider text-purple-400">
               Workspace Display
             </div>
@@ -357,7 +450,50 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose })
               </button>
             </div>
           </div>
-        </div>
+        )}
+
+        {activeTab === 'advanced' && (
+          <div data-testid="advanced-options-section" className="space-y-3">
+            <div className="text-[11px] font-semibold uppercase tracking-wider text-purple-400">
+              Advanced
+            </div>
+
+            {/* Show Tool Calls Setting (Default Off) */}
+            <div className="flex items-start justify-between space-x-4 p-3 rounded-lg bg-[#0d1117] border border-[#30363d]">
+              <div className="flex items-start space-x-3">
+                <div className="p-2 rounded-lg bg-purple-950/50 border border-purple-800/40 text-purple-400 mt-0.5">
+                  <Wrench className="w-4 h-4" />
+                </div>
+                <div>
+                  <div className="text-xs font-medium text-gray-200">
+                    Show Tool Calls
+                  </div>
+                  <p className="text-[11px] text-gray-400 mt-0.5 leading-relaxed">
+                    Display collapsible agent tool execution badges and raw parameter/result telemetry inside chat messages.
+                  </p>
+                </div>
+              </div>
+
+              <button
+                type="button"
+                role="switch"
+                aria-checked={showToolCalls}
+                data-testid="toggle-show-tool-calls-setting"
+                onClick={() => setShowToolCalls(!showToolCalls)}
+                className={`relative inline-flex h-5 w-9 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-hidden ${
+                  showToolCalls ? 'bg-purple-600' : 'bg-[#30363d]'
+                }`}
+              >
+                <span
+                  className={`pointer-events-none inline-block h-4 w-4 transform rounded-full bg-white shadow-sm ring-0 transition duration-200 ease-in-out ${
+                    showToolCalls ? 'translate-x-4' : 'translate-x-0'
+                  }`}
+                />
+              </button>
+            </div>
+          </div>
+        )}
+      </div>
 
         {/* Footer */}
         <div className="px-5 py-3 border-t border-[#30363d] bg-[#0d1117] flex justify-end shrink-0">

@@ -5,6 +5,7 @@ import { AuthenticatedRequest, requireAuth } from '../middleware/auth';
 import { serverEnv } from '../config/env';
 import { gradingToolDeclarations, executeGradingTool, ToolExecutionContext } from '../tools/gradingTools';
 import { getCourse, getCourseWork, parseAssignmentId } from '../services/classroomClient';
+import { ensureUserCredits } from '../services/creditsService';
 import { logger } from '../services/logger';
 
 export const chatRouter = Router();
@@ -61,6 +62,21 @@ chatRouter.post('/', requireAuth, async (req: AuthenticatedRequest, res: Respons
   }
   if (!req.googleAccessToken) {
     res.status(401).json({ error: '[Chat Error] Missing Google OAuth access token. Fail-fast enabled.' });
+    return;
+  }
+  if (!req.user?.uid) {
+    res.status(401).json({ error: '[Chat Error] Missing authenticated teacher uid. Fail-fast enabled.' });
+    return;
+  }
+
+  // Enforce non-zero AI credits before the agent can respond
+  const currentCredits = await ensureUserCredits(req.user.uid, req.user.email);
+  if (currentCredits <= 0) {
+    res.status(402).json({
+      error: 'You have 0 AI credits remaining. Please top up your AI credits to continue using the Grading Agent.',
+      code: 'OUT_OF_CREDITS',
+      aiCredits: 0,
+    });
     return;
   }
 

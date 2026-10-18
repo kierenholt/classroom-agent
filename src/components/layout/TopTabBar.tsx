@@ -1,7 +1,8 @@
 import React, { useState, useRef, useEffect } from 'react';
-import { Plus, X, GraduationCap, LogOut, User, ChevronDown, Settings } from 'lucide-react';
+import { Plus, X, GraduationCap, LogOut, User, ChevronDown, Settings, CreditCard } from 'lucide-react';
 import { useAuth } from '../../context/AuthContext';
 import { useClassroomData } from '../../context/ClassroomDataContext';
+import { useCredits } from '../../context/CreditsContext';
 
 export interface TabItem {
   id: string; // assignmentId
@@ -30,6 +31,7 @@ export const TopTabBar: React.FC<TopTabBarProps> = ({
 }) => {
   const { user, logOut } = useAuth();
   const { preloadAssignments } = useClassroomData();
+  const { aiCredits, openTopUpModal } = useCredits();
   const [isMenuOpen, setIsMenuOpen] = useState(false);
   const menuRef = useRef<HTMLDivElement>(null);
 
@@ -173,7 +175,7 @@ export const TopTabBar: React.FC<TopTabBarProps> = ({
             {isMenuOpen && (
               <div
                 data-testid="user-account-menu"
-                className="absolute right-0 top-full mt-1.5 w-48 bg-[#161b22] border border-[#30363d] rounded-lg shadow-xl py-1 z-50 select-none animate-in fade-in zoom-in-95 duration-100"
+                className="absolute right-0 top-full mt-1.5 w-52 bg-[#161b22] border border-[#30363d] rounded-lg shadow-xl py-1 z-50 select-none animate-in fade-in zoom-in-95 duration-100"
               >
                 <div className="px-3 py-2 border-b border-[#30363d]">
                   <p className="text-xs font-medium text-gray-200 truncate">
@@ -187,6 +189,33 @@ export const TopTabBar: React.FC<TopTabBarProps> = ({
                 </div>
 
                 <div className="p-1 space-y-0.5">
+                  <button
+                    type="button"
+                    data-testid="user-menu-topup-credits-button"
+                    onClick={() => {
+                      setIsMenuOpen(false);
+                      openTopUpModal();
+                    }}
+                    className="w-full flex items-center justify-between px-2.5 py-1.5 rounded text-xs text-gray-300 hover:text-white hover:bg-[#21262d] transition-colors text-left group"
+                    title="Top up credits"
+                  >
+                    <div className="flex items-center space-x-2">
+                      <CreditCard className="w-3.5 h-3.5 text-gray-400 group-hover:text-purple-400 transition-colors" />
+                      <span>Top up credits</span>
+                    </div>
+                    {aiCredits !== null && (
+                      <span
+                        data-testid="user-menu-credits-badge"
+                        className={`text-[10px] font-semibold px-1.5 py-0.5 rounded border ${
+                          aiCredits > 0
+                            ? 'bg-purple-950/50 text-purple-300 border-purple-500/30'
+                            : 'bg-red-950/50 text-red-300 border-red-500/30'
+                        }`}
+                      >
+                        {aiCredits}
+                      </span>
+                    )}
+                  </button>
                   {onOpenSettings && (
                     <button
                       type="button"

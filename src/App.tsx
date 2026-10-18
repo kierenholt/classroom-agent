@@ -4,6 +4,8 @@ import { WorkspaceLayout } from './components/layout/WorkspaceLayout';
 import { GraduationCap, LogIn, ShieldAlert, Sparkles, Loader2 } from 'lucide-react';
 
 import { ClassroomDataProvider } from './context/ClassroomDataContext';
+import { SettingsProvider } from './context/SettingsContext';
+import { CreditsProvider } from './context/CreditsContext';
 
 export const App: React.FC = () => {
   const { user, googleAccessToken, loading, signInWithGoogle } = useAuth();
@@ -92,8 +94,12 @@ export const App: React.FC = () => {
   }
 
   return (
-    <ClassroomDataProvider>
-      <WorkspaceLayout />
-    </ClassroomDataProvider>
+    <SettingsProvider>
+      <CreditsProvider>
+        <ClassroomDataProvider>
+          <WorkspaceLayout />
+        </ClassroomDataProvider>
+      </CreditsProvider>
+    </SettingsProvider>
   );
 };

@@ -187,8 +187,10 @@ test.describe('Classroom Agent MVP — 7 Core User Stories (Live Classroom Batch
     await expect(toggleTextBtn).toBeHidden();
 
     // Open Settings modal and enable "Show Extracted Text Toggle"
-    await page.locator('[data-testid="open-settings-button"]').click();
+    await page.locator('[data-testid="user-account-button"]').click();
+    await page.locator('[data-testid="user-menu-settings-button"]').click();
     await expect(page.locator('[data-testid="settings-modal"]')).toBeVisible();
+    await page.locator('[data-testid="settings-tab-display"]').click();
     await page.locator('[data-testid="toggle-extracted-text-setting"]').click();
     await page.locator('[data-testid="close-settings-button"]').click();
     await expect(page.locator('[data-testid="settings-modal"]')).toBeHidden();
@@ -210,13 +212,29 @@ test.describe('Classroom Agent MVP — 7 Core User Stories (Live Classroom Batch
     );
     await chatSendBtn.click();
 
-    // Wait for get_student_submission_content tool call to succeed and streaming to complete
+    // Wait for streaming to complete and verify tool call badge is hidden by default
+    await expect(page.locator('[data-testid="chat-window"]')).toContainText(
+      'Recursive factorial algorithms operate in O(n) linear time complexity',
+      { timeout: 60000 }
+    );
+    await expect(chatInput).toBeEnabled({ timeout: 60000 });
+
     const toolBadge = page.locator('[data-testid="tool-call-badge"]', {
       hasText: 'Tool: get_student_submission_content',
     });
-    await expect(toolBadge).toBeVisible({ timeout: 60000 });
-    await expect(toolBadge).toContainText('success', { timeout: 60000 });
-    await expect(chatInput).toBeEnabled({ timeout: 60000 });
+    await expect(toolBadge).toBeHidden();
+
+    // Enable "Show Tool Calls" in Settings -> Advanced
+    await page.locator('[data-testid="user-account-button"]').click();
+    await page.locator('[data-testid="user-menu-settings-button"]').click();
+    await expect(page.locator('[data-testid="settings-modal"]')).toBeVisible();
+    await page.locator('[data-testid="settings-tab-advanced"]').click();
+    await page.locator('[data-testid="toggle-show-tool-calls-setting"]').click();
+    await page.locator('[data-testid="close-settings-button"]').click();
+    await expect(page.locator('[data-testid="settings-modal"]')).toBeHidden();
+
+    await expect(toolBadge).toBeVisible({ timeout: 10000 });
+    await expect(toolBadge).toContainText('success');
 
     // Expand the tool call badge details if collapsed after Firestore reconciliation
     const toolDetails = toolBadge.locator('[data-testid="tool-call-details"]');
@@ -243,6 +261,9 @@ test.describe('Classroom Agent MVP — 7 Core User Stories (Live Classroom Batch
     page,
   }) => {
     expect(batchFixture).not.toBeNull();
+    await page.addInitScript(() => {
+      window.localStorage.setItem('classroom_agent_show_tool_calls', 'true');
+    });
     await openBatchAssignmentInWorkspace(page, batchFixture!);
 
     const chatInput = page.locator('[data-testid="chat-input"]');
@@ -283,6 +304,9 @@ test.describe('Classroom Agent MVP — 7 Core User Stories (Live Classroom Batch
       },
     });
 
+    await page.addInitScript(() => {
+      window.localStorage.setItem('classroom_agent_show_tool_calls', 'true');
+    });
     await openBatchAssignmentInWorkspace(page, batchFixture!);
 
     // Select the student in Zone A

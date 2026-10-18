@@ -6,6 +6,7 @@ import cors from 'cors';
 import { chatRouter } from './routes/chat';
 import { classroomRouter } from './routes/classroom';
 import { uploadRouter } from './routes/upload';
+import { stripeRouter } from './routes/stripe';
 import { requestLogger } from './services/logger';
 
 // Set global options for 2nd Gen Cloud Functions
@@ -54,9 +55,15 @@ admin.firestore().settings({ ignoreUndefinedProperties: true });
 
 const app = express();
 
-// Middleware
+// Middleware (preserve rawBody for Stripe Webhook signature verification)
 app.use(cors({ origin: true }));
-app.use(express.json());
+app.use(
+  express.json({
+    verify: (req: any, _res, buf) => {
+      req.rawBody = buf;
+    },
+  })
+);
 app.use(requestLogger);
 
 // Routes mounted under the `api` Cloud Function (e.g., .../europe-west2/api/chat, .../europe-west2/api/classroom)
@@ -64,6 +71,7 @@ app.use('/chat', chatRouter);
 app.use('/classroom', classroomRouter);
 app.use('/upload', uploadRouter);
 app.use('/assignments', classroomRouter);
+app.use('/stripe', stripeRouter);
 
 // Health check endpoint
 app.get('/health', (_req, res) => {

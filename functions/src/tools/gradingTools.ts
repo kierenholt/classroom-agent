@@ -9,6 +9,7 @@ import {
   returnSubmission,
 } from '../services/classroomClient';
 import { extractDriveFile } from '../services/driveExtractor';
+import { deductUserCredit } from '../services/creditsService';
 
 export interface ToolExecutionContext {
   assignmentId: string;
@@ -395,6 +396,12 @@ export async function executeGradingTool(
         throw new Error(`Student submission ${studentId} not found in Google Classroom.`);
       }
 
+      // Each time the agent fetches a student's work, deduct 1 AI credit (clamped at 0)
+      let remainingAiCredits: number | undefined;
+      if (context.teacherUserId) {
+        remainingAiCredits = await deductUserCredit(context.teacherUserId, 1);
+      }
+
       const attachments = subData.attachments || [];
       const extractedItems: any[] = [];
 
@@ -435,6 +442,7 @@ export async function executeGradingTool(
         state: subData.state,
         late: subData.late,
         attachments: extractedItems,
+        ...(remainingAiCredits !== undefined ? { remainingAiCredits } : {}),
       };
     }
 

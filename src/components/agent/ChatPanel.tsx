@@ -13,6 +13,9 @@ import {
   Check,
   CheckCircle2,
   ExternalLink,
+  ChevronDown,
+  ChevronUp,
+  CreditCard,
 } from 'lucide-react';
 import { collection, query, orderBy, onSnapshot } from 'firebase/firestore';
 import { db } from '../../config/firebase';
@@ -24,6 +27,7 @@ import { PersistedChatMessage, ToolCallItem, StudentEvaluationSidecarDoc } from 
 import { useAuth } from '../../context/AuthContext';
 import { useSettings } from '../../context/SettingsContext';
 import { useClassroomData } from '../../context/ClassroomDataContext';
+import { useCredits } from '../../context/CreditsContext';
 import { env } from '../../config/env';
 
 interface ChatPanelProps {
@@ -71,8 +75,10 @@ export const ChatPanel: React.FC<ChatPanelProps> = ({
   onOpenAssignment,
 }) => {
   const { getAuthHeaders } = useAuth();
-  const { feedbackSettings } = useSettings();
+  const { feedbackSettings, gradingMode, showToolCalls } = useSettings();
   const { fetchCourseworkForCourse } = useClassroomData();
+  const { aiCredits, openTopUpModal } = useCredits();
+  const isOutOfCredits = aiCredits !== null && aiCredits <= 0;
   const [persistedMessages, setPersistedMessages] = useState<PersistedChatMessage[]>([]);
   const [messages, setMessages] = useState<PersistedChatMessage[]>([]);
   const [evaluationsMap, setEvaluationsMap] = useState<Record<string, StudentEvaluationSidecarDoc>>({});
@@ -86,6 +92,55 @@ export const ChatPanel: React.FC<ChatPanelProps> = ({
   const [previewTarget, setPreviewTarget] = useState<ExtractedEvaluationItem | null>(null);
   const [savingStudentId, setSavingStudentId] = useState<string | null>(null);
   const [approvingStudentIds, setApprovingStudentIds] = useState<Record<string, boolean>>({});
+
+  // Minimised chat messages tracking (persisted to localStorage)
+  const [minimisedMessageIds, setMinimisedMessageIds] = useState<Set<string>>(() => {
+    if (typeof window === 'undefined' || !assignmentId) return new Set();
+    try {
+      const stored = window.localStorage.getItem(`classroom_agent_minimised_messages_${assignmentId}`);
+      if (stored) {
+        return new Set(JSON.parse(stored));
+      }
+    } catch (err) {
+      console.error('Failed to load minimised messages from localStorage:', err);
+    }
+    return new Set();
+  });
+
+  useEffect(() => {
+    if (!assignmentId) return;
+    try {
+      const stored = window.localStorage.getItem(`classroom_agent_minimised_messages_${assignmentId}`);
+      if (stored) {
+        setMinimisedMessageIds(new Set(JSON.parse(stored)));
+      } else {
+        setMinimisedMessageIds(new Set());
+      }
+    } catch (err) {
+      console.error('Failed to load minimised messages from localStorage:', err);
+      setMinimisedMessageIds(new Set());
+    }
+  }, [assignmentId]);
+
+  const toggleMinimiseMessage = (messageId: string) => {
+    setMinimisedMessageIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(messageId)) {
+        next.delete(messageId);
+      } else {
+        next.add(messageId);
+      }
+      try {
+        window.localStorage.setItem(
+          `classroom_agent_minimised_messages_${assignmentId}`,
+          JSON.stringify(Array.from(next))
+        );
+      } catch (err) {
+        console.error('Failed to save minimised messages to localStorage:', err);
+      }
+      return next;
+    });
+  };
 
   const scrollRef = useRef<HTMLDivElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -298,6 +353,7 @@ export const ChatPanel: React.FC<ChatPanelProps> = ({
             studentName: item.studentName,
             draftGrade: scoreToSend,
             overallFeedback: feedbackToSend,
+            gradingMode,
           }),
         }
       );
@@ -367,6 +423,11 @@ export const ChatPanel: React.FC<ChatPanelProps> = ({
     e.preventDefault();
     const prompt = inputText.trim();
     if (!prompt || isStreaming) return;
+    if (isOutOfCredits) {
+      setErrorText('You have 0 AI credits remaining. Please top up to continue using the Grading Agent.');
+      openTopUpModal();
+      return;
+    }
     if (stagedFile?.uploading) {
       setErrorText('Please wait for file upload to finish.');
       return;
@@ -484,12 +545,28 @@ export const ChatPanel: React.FC<ChatPanelProps> = ({
     >
       {/* Pane Header */}
       <div className="h-10 border-b border-[#30363d] px-4 flex items-center justify-between bg-[#161b22] shrink-0">
-        <div className="flex items-center space-x-2">
-          <Sparkles className="w-4 h-4 text-purple-400" />
-          <span className="text-xs font-semibold text-gray-300 tracking-wide uppercase">
+        <div className="flex items-center space-x-2 min-w-0">
+          <Sparkles className="w-4 h-4 text-purple-400 shrink-0" />
+          <span className="text-xs font-semibold text-gray-300 tracking-wide uppercase truncate">
             {title}
           </span>
         </div>
+
+        <button
+          type="button"
+          data-testid="top-up-credits-button"
+          onClick={openTopUpModal}
+          className={`flex items-center space-x-1.5 px-2.5 py-1 rounded-md text-[11px] font-semibold border transition-colors shrink-0 cursor-pointer ${
+            isOutOfCredits
+              ? 'bg-red-950/60 hover:bg-red-900/70 text-red-200 border-red-500/40'
+              : 'bg-purple-950/50 hover:bg-purple-900/60 text-purple-200 border-purple-500/30'
+          }`}
+          title="Top Up AI Credits"
+        >
+          <CreditCard className="w-3 h-3 text-purple-400 shrink-0" />
+          <span data-testid="chat-credits-count">{aiCredits !== null ? aiCredits : '—'}</span>
+          <span>Credits · Top Up</span>
+        </button>
       </div>
 
       {/* Message List */}
@@ -505,8 +582,9 @@ export const ChatPanel: React.FC<ChatPanelProps> = ({
               {promptStarters.map((starter, idx) => (
                 <button
                   key={idx}
+                  disabled={isOutOfCredits}
                   onClick={() => setInputText(starter)}
-                  className="w-full text-left p-2 rounded bg-[#0d1117] hover:bg-[#21262d] border border-[#30363d] transition-colors"
+                  className="w-full text-left p-2 rounded bg-[#0d1117] hover:bg-[#21262d] border border-[#30363d] transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
                 >
                   &quot;{starter}&quot;
                 </button>
@@ -518,33 +596,93 @@ export const ChatPanel: React.FC<ChatPanelProps> = ({
             const evaluationItems = extractEvaluationsFromMessage(msg);
             const createdAssignments = extractCreatedAssignmentsFromMessage(msg);
             const unapprovedCount = evaluationItems.filter((i) => !i.isApproved).length;
+            const isMinimised = msg.sender === 'agent' && minimisedMessageIds.has(msg.id);
 
             return (
               <div
                 key={msg.id}
                 className={`flex flex-col ${msg.sender === 'user' ? 'items-end' : 'items-start'}`}
               >
-                <div className="flex items-center space-x-1.5 text-[11px] text-gray-400 mb-1 px-1">
-                  {msg.sender === 'user' ? (
-                    <>
-                      <span className="font-semibold text-blue-300">Teacher</span>
-                      <User className="w-3 h-3 text-blue-400" />
-                    </>
-                  ) : (
-                    <>
-                      <Bot className="w-3 h-3 text-purple-400" />
-                      <span className="font-semibold text-purple-300">Agent</span>
-                    </>
+                <div className="flex items-center justify-between w-full max-w-[90%] text-[11px] text-gray-400 mb-1 px-1">
+                  <div className="flex items-center space-x-1.5">
+                    {msg.sender === 'user' ? (
+                      <>
+                        <span className="font-semibold text-blue-300">Teacher</span>
+                        <User className="w-3 h-3 text-blue-400" />
+                      </>
+                    ) : (
+                      <>
+                        <Bot className="w-3 h-3 text-purple-400" />
+                        <span className="font-semibold text-purple-300">Agent</span>
+                      </>
+                    )}
+                  </div>
+                  {msg.sender === 'agent' && !isMinimised && (
+                    <button
+                      type="button"
+                      data-testid={`minimise-message-button-${msg.id}`}
+                      onClick={() => toggleMinimiseMessage(msg.id)}
+                      className="text-gray-400 hover:text-purple-300 text-[10px] flex items-center space-x-0.5 transition-colors"
+                      title="Minimise chat bubble"
+                    >
+                      <ChevronUp className="w-3 h-3" />
+                      <span>Minimise</span>
+                    </button>
                   )}
                 </div>
 
-                <div
-                  className={`max-w-[90%] rounded-lg px-3.5 py-2.5 text-xs leading-relaxed ${
-                    msg.sender === 'user'
-                      ? 'bg-blue-600 text-white shadow-sm'
-                      : 'bg-[#1c1836] text-gray-100 border border-purple-500/30 shadow-sm w-full'
-                  }`}
-                >
+                {isMinimised ? (
+                  <div
+                    data-testid={`minimised-chat-bubble-${msg.id}`}
+                    className="max-w-[90%] w-full rounded-lg px-3 py-2 bg-[#1c1836]/90 text-gray-200 border border-purple-500/30 shadow-sm flex items-center justify-between gap-2 text-xs"
+                  >
+                    <div className="flex items-center space-x-2 min-w-0 truncate">
+                      <Bot className="w-3.5 h-3.5 text-purple-400 shrink-0" />
+                      <span className="font-semibold text-purple-200 shrink-0">
+                        {evaluationItems.length > 0 ? 'Evaluated:' : 'Agent:'}
+                      </span>
+                      <span className="truncate text-gray-300 font-medium">
+                        {evaluationItems.length > 0
+                          ? evaluationItems
+                              .map(
+                                (item) =>
+                                  `${item.studentName}${item.hasScore ? ` (${item.score}/${item.maxPoints})` : ''}`
+                              )
+                              .join(', ')
+                          : (msg.content?.slice(0, 60) || 'Response')}
+                      </span>
+                      {evaluationItems.length > 0 && unapprovedCount > 0 && (
+                        <span className="text-[10px] font-medium text-amber-300/90 bg-amber-950/50 border border-amber-700/40 px-1.5 py-0.5 rounded shrink-0">
+                          {unapprovedCount} Pending
+                        </span>
+                      )}
+                      {evaluationItems.length > 0 && unapprovedCount === 0 && (
+                        <span className="text-[10px] font-medium text-emerald-400 bg-emerald-950/50 border border-emerald-700/40 px-1.5 py-0.5 rounded shrink-0">
+                          Approved
+                        </span>
+                      )}
+                    </div>
+
+                    <button
+                      type="button"
+                      data-testid={`expand-message-button-${msg.id}`}
+                      onClick={() => toggleMinimiseMessage(msg.id)}
+                      className="flex items-center space-x-1 px-2 py-0.5 rounded border border-purple-400/30 bg-purple-950/50 hover:bg-purple-900/60 text-purple-200 hover:text-white text-[11px] font-medium transition-colors shrink-0"
+                      title="Expand chat bubble"
+                    >
+                      <span>Expand</span>
+                      <ChevronDown className="w-3 h-3" />
+                    </button>
+                  </div>
+                ) : (
+                  <div
+                    data-testid={`chat-bubble-${msg.id}`}
+                    className={`max-w-[90%] rounded-lg px-3.5 py-2.5 text-xs leading-relaxed ${
+                      msg.sender === 'user'
+                        ? 'bg-blue-600 text-white shadow-sm'
+                        : 'bg-[#1c1836] text-gray-100 border border-purple-500/30 shadow-sm w-full'
+                    }`}
+                  >
                   {/* File Attachment Pill */}
                   {msg.fileAttachment && (
                     <div className="mb-2 flex items-center space-x-1.5 bg-black/20 px-2 py-1 rounded text-[11px] border border-white/10">
@@ -554,7 +692,7 @@ export const ChatPanel: React.FC<ChatPanelProps> = ({
                   )}
 
                   {/* Collapsible Tool Call Badges */}
-                  {msg.toolCalls && msg.toolCalls.length > 0 && (
+                  {showToolCalls && msg.toolCalls && msg.toolCalls.length > 0 && (
                     <div className="space-y-1 mb-2">
                       {msg.toolCalls.map((tool, idx) => (
                         <ToolCallBadge key={tool.id || idx} tool={tool} />
@@ -709,6 +847,18 @@ export const ChatPanel: React.FC<ChatPanelProps> = ({
                             )}
 
                             <div className="flex items-center justify-end space-x-2 pt-0.5">
+                              <button
+                                type="button"
+                                data-testid={`dismiss-evaluation-button-${item.studentId}`}
+                                onClick={() => toggleMinimiseMessage(msg.id)}
+                                disabled={isApproving}
+                                className="flex items-center space-x-1 px-2.5 py-1 rounded border border-gray-600/40 bg-[#161b22] hover:bg-[#21262d] text-gray-400 hover:text-gray-200 text-[11px] font-medium transition-colors disabled:opacity-50"
+                                title="Dismiss and minimise message"
+                              >
+                                <X className="w-3 h-3" />
+                                <span>Dismiss</span>
+                              </button>
+
                               {item.hasFeedbackDoc && (
                                 <button
                                   type="button"
@@ -747,6 +897,7 @@ export const ChatPanel: React.FC<ChatPanelProps> = ({
                     </div>
                   )}
                 </div>
+                )}
               </div>
             );
           })
@@ -793,6 +944,29 @@ export const ChatPanel: React.FC<ChatPanelProps> = ({
         </div>
       )}
 
+      {/* Out of Credits Banner */}
+      {isOutOfCredits && (
+        <div
+          data-testid="out-of-credits-banner"
+          className="px-4 py-2.5 bg-red-950/70 border-t border-red-700/50 flex items-center justify-between gap-2 text-xs text-red-200 shrink-0"
+        >
+          <div className="flex items-center space-x-2 min-w-0">
+            <AlertCircle className="w-4 h-4 text-red-400 shrink-0" />
+            <span className="truncate font-medium">
+              0 AI credits remaining. Top up to use the agent.
+            </span>
+          </div>
+          <button
+            type="button"
+            data-testid="out-of-credits-topup-button"
+            onClick={openTopUpModal}
+            className="px-2.5 py-1 rounded bg-purple-600 hover:bg-purple-500 text-white text-[11px] font-semibold shrink-0 transition-colors cursor-pointer"
+          >
+            Top Up Credits
+          </button>
+        </div>
+      )}
+
       {/* Input Bar */}
       <form onSubmit={handleSubmit} className="p-3 border-t border-[#30363d] bg-[#161b22] flex items-center space-x-2 shrink-0">
         <input
@@ -806,7 +980,7 @@ export const ChatPanel: React.FC<ChatPanelProps> = ({
           type="button"
           data-testid="chat-attach-button"
           onClick={() => fileInputRef.current?.click()}
-          disabled={isStreaming}
+          disabled={isStreaming || isOutOfCredits}
           className="p-2 rounded text-gray-400 hover:text-gray-200 hover:bg-[#21262d] transition-colors disabled:opacity-50"
           title="Attach rubric or mark scheme document"
         >
@@ -818,15 +992,15 @@ export const ChatPanel: React.FC<ChatPanelProps> = ({
           data-testid="chat-input"
           value={inputText}
           onChange={(e) => setInputText(e.target.value)}
-          placeholder="Command the agent..."
-          disabled={isStreaming}
+          placeholder={isOutOfCredits ? 'Out of AI credits — top up to continue...' : 'Command the agent...'}
+          disabled={isStreaming || isOutOfCredits}
           className="flex-1 bg-[#0d1117] border border-[#30363d] rounded px-3 py-1.5 text-xs text-gray-200 focus:outline-none focus:border-purple-500 placeholder-gray-500 disabled:opacity-50"
         />
 
         <button
           type="submit"
           data-testid="chat-send-button"
-          disabled={isStreaming || !inputText.trim()}
+          disabled={isStreaming || isOutOfCredits || !inputText.trim()}
           className="p-2 rounded bg-purple-600 hover:bg-purple-500 text-white transition-colors disabled:opacity-40 disabled:hover:bg-purple-600"
         >
           {isStreaming ? <Loader2 className="w-4 h-4 animate-spin" /> : <Send className="w-4 h-4" />}

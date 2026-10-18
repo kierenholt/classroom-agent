@@ -8,9 +8,12 @@ const STORAGE_KEY_FEEDBACK_USE_RUBRIC = 'classroom_agent_feedback_use_rubric';
 const STORAGE_KEY_FEEDBACK_PROVIDE_NEXT_STEPS = 'classroom_agent_feedback_provide_next_steps';
 const STORAGE_KEY_FEEDBACK_SHOW_SCORES = 'classroom_agent_feedback_show_scores';
 const STORAGE_KEY_CUSTOM_AGENT_INSTRUCTIONS = 'classroom_agent_custom_agent_instructions';
+const STORAGE_KEY_GRADING_MODE = 'classroom_agent_grading_mode';
+const STORAGE_KEY_SHOW_TOOL_CALLS = 'classroom_agent_show_tool_calls';
 
 export type FeedbackTone = 'encouraging' | 'constructive' | 'direct' | 'formal' | 'warm';
 export type FeedbackDetailLevel = 'brief' | 'standard' | 'comprehensive';
+export type GradingMode = 'no-draft' | 'draft';
 
 export interface FeedbackSettings {
   tone: FeedbackTone;
@@ -23,12 +26,15 @@ export interface FeedbackSettings {
 
 const VALID_TONES: FeedbackTone[] = ['encouraging', 'constructive', 'direct', 'formal', 'warm'];
 const VALID_DETAIL_LEVELS: FeedbackDetailLevel[] = ['brief', 'standard', 'comprehensive'];
+const VALID_GRADING_MODES: GradingMode[] = ['no-draft', 'draft'];
 
 interface SettingsContextValue {
   showExtractedTextToggle: boolean;
   setShowExtractedTextToggle: (enabled: boolean) => void;
   showRubricPane: boolean;
   setShowRubricPane: (enabled: boolean) => void;
+  showToolCalls: boolean;
+  setShowToolCalls: (enabled: boolean) => void;
   feedbackTone: FeedbackTone;
   setFeedbackTone: (tone: FeedbackTone) => void;
   feedbackDetailLevel: FeedbackDetailLevel;
@@ -41,6 +47,8 @@ interface SettingsContextValue {
   setShowScores: (enabled: boolean) => void;
   customAgentInstructions: string;
   setCustomAgentInstructions: (instructions: string) => void;
+  gradingMode: GradingMode;
+  setGradingMode: (mode: GradingMode) => void;
   feedbackSettings: FeedbackSettings;
 }
 
@@ -61,6 +69,14 @@ export const SettingsProvider: React.FC<{ children: React.ReactNode }> = ({ chil
       return stored === null ? true : stored === 'true';
     } catch {
       return true;
+    }
+  });
+
+  const [showToolCalls, setShowToolCallsState] = useState<boolean>(() => {
+    try {
+      return window.localStorage.getItem(STORAGE_KEY_SHOW_TOOL_CALLS) === 'true';
+    } catch {
+      return false;
     }
   });
 
@@ -118,6 +134,15 @@ export const SettingsProvider: React.FC<{ children: React.ReactNode }> = ({ chil
     }
   });
 
+  const [gradingMode, setGradingModeState] = useState<GradingMode>(() => {
+    try {
+      const stored = window.localStorage.getItem(STORAGE_KEY_GRADING_MODE) as GradingMode | null;
+      return stored && VALID_GRADING_MODES.includes(stored) ? stored : 'no-draft';
+    } catch {
+      return 'no-draft';
+    }
+  });
+
   const setShowExtractedTextToggle = (enabled: boolean) => {
     setShowExtractedTextToggleState(enabled);
     try {
@@ -133,6 +158,15 @@ export const SettingsProvider: React.FC<{ children: React.ReactNode }> = ({ chil
       window.localStorage.setItem(STORAGE_KEY_RUBRIC_PANE, String(enabled));
     } catch (err) {
       console.error('Failed to persist rubric pane setting to localStorage:', err);
+    }
+  };
+
+  const setShowToolCalls = (enabled: boolean) => {
+    setShowToolCallsState(enabled);
+    try {
+      window.localStorage.setItem(STORAGE_KEY_SHOW_TOOL_CALLS, String(enabled));
+    } catch (err) {
+      console.error('Failed to persist show tool calls setting to localStorage:', err);
     }
   };
 
@@ -190,6 +224,15 @@ export const SettingsProvider: React.FC<{ children: React.ReactNode }> = ({ chil
     }
   };
 
+  const setGradingMode = (mode: GradingMode) => {
+    setGradingModeState(mode);
+    try {
+      window.localStorage.setItem(STORAGE_KEY_GRADING_MODE, mode);
+    } catch (err) {
+      console.error('Failed to persist grading mode to localStorage:', err);
+    }
+  };
+
   const feedbackSettings: FeedbackSettings = {
     tone: feedbackTone,
     detailLevel: feedbackDetailLevel,
@@ -206,6 +249,8 @@ export const SettingsProvider: React.FC<{ children: React.ReactNode }> = ({ chil
         setShowExtractedTextToggle,
         showRubricPane,
         setShowRubricPane,
+        showToolCalls,
+        setShowToolCalls,
         feedbackTone,
         setFeedbackTone,
         feedbackDetailLevel,
@@ -218,6 +263,8 @@ export const SettingsProvider: React.FC<{ children: React.ReactNode }> = ({ chil
         setShowScores,
         customAgentInstructions,
         setCustomAgentInstructions,
+        gradingMode,
+        setGradingMode,
         feedbackSettings,
       }}
     >

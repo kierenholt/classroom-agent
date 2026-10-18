@@ -1,5 +1,12 @@
 import { test, expect } from '../helpers/logHelper';
-import { seedTestAssignment, seedTestSubmission, cleanupTestAssignment, seedTestChatMessage } from '../helpers/testSeeder';
+import {
+  seedTestAssignment,
+  seedTestSubmission,
+  cleanupTestAssignment,
+  seedTestChatMessage,
+  seedTestUserCredits,
+  deleteTestUser,
+} from '../helpers/testSeeder';
 
 const TEST_ASSIGNMENT_ID = 'test_course_101_assignment_999';
 const TEST_STUDENT_ID = 'student_test_user_42';
@@ -391,6 +398,7 @@ test.describe('Classroom Agent - Workspace and Agent Co-Pilot Tests', () => {
     await page.locator('[data-testid="user-menu-settings-button"]').click();
     const settingsModal = page.locator('[data-testid="settings-modal"]');
     await expect(settingsModal).toBeVisible();
+    await page.locator('[data-testid="settings-tab-display"]').click();
     const settingSwitch = page.locator('[data-testid="toggle-extracted-text-setting"]');
     await expect(settingSwitch).toHaveAttribute('aria-checked', 'false');
     await settingSwitch.click();
@@ -404,6 +412,7 @@ test.describe('Classroom Agent - Workspace and Agent Co-Pilot Tests', () => {
     await page.locator('[data-testid="user-account-button"]').click();
     await page.locator('[data-testid="user-menu-settings-button"]').click();
     await expect(settingsModal).toBeVisible();
+    await page.locator('[data-testid="settings-tab-display"]').click();
     await settingSwitch.click();
     await expect(settingSwitch).toHaveAttribute('aria-checked', 'false');
     await page.locator('[data-testid="close-settings-button"]').click();
@@ -417,6 +426,7 @@ test.describe('Classroom Agent - Workspace and Agent Co-Pilot Tests', () => {
     await page.locator('[data-testid="user-account-button"]').click();
     await page.locator('[data-testid="user-menu-settings-button"]').click();
     await expect(settingsModal).toBeVisible();
+    await page.locator('[data-testid="settings-tab-display"]').click();
     const rubricSettingSwitch = page.locator('[data-testid="toggle-rubric-pane-setting"]');
     await expect(rubricSettingSwitch).toHaveAttribute('aria-checked', 'true');
     await rubricSettingSwitch.click();
@@ -430,6 +440,7 @@ test.describe('Classroom Agent - Workspace and Agent Co-Pilot Tests', () => {
     await page.locator('[data-testid="user-account-button"]').click();
     await page.locator('[data-testid="user-menu-settings-button"]').click();
     await expect(settingsModal).toBeVisible();
+    await page.locator('[data-testid="settings-tab-display"]').click();
     await rubricSettingSwitch.click();
     await expect(rubricSettingSwitch).toHaveAttribute('aria-checked', 'true');
     await page.locator('[data-testid="close-settings-button"]').click();
@@ -512,6 +523,7 @@ test.describe('Classroom Agent - Workspace and Agent Co-Pilot Tests', () => {
         if (cToken) {
           window.sessionStorage.setItem('classroom_agent_custom_token', cToken);
         }
+        window.localStorage.setItem('classroom_agent_grading_mode', 'draft');
       },
       { gToken: googleToken, cToken: customToken }
     );
@@ -778,6 +790,7 @@ test.describe('Classroom Agent - Workspace and Agent Co-Pilot Tests', () => {
     await expect(settingsModal).toBeVisible();
     await expect(page.locator('[data-testid="feedback-options-section"]')).toBeVisible();
 
+    const gradingModeSelect = page.locator('[data-testid="grading-mode-select"]');
     const toneSelect = page.locator('[data-testid="feedback-tone-select"]');
     const detailSelect = page.locator('[data-testid="feedback-detail-level-select"]');
     const useRubricSwitch = page.locator('[data-testid="toggle-use-rubric-feedback-setting"]');
@@ -786,6 +799,7 @@ test.describe('Classroom Agent - Workspace and Agent Co-Pilot Tests', () => {
     const customInstructionsInput = page.locator('[data-testid="custom-agent-instructions-input"]');
 
     // Verify default values
+    await expect(gradingModeSelect).toHaveValue('no-draft');
     await expect(toneSelect).toHaveValue('encouraging');
     await expect(detailSelect).toHaveValue('standard');
     await expect(useRubricSwitch).toHaveAttribute('aria-checked', 'true');
@@ -794,6 +808,9 @@ test.describe('Classroom Agent - Workspace and Agent Co-Pilot Tests', () => {
     await expect(customInstructionsInput).toHaveValue('');
 
     // Update each feedback option
+    await gradingModeSelect.selectOption('draft');
+    await expect(gradingModeSelect).toHaveValue('draft');
+
     await toneSelect.selectOption('formal');
     await expect(toneSelect).toHaveValue('formal');
 
@@ -815,6 +832,7 @@ test.describe('Classroom Agent - Workspace and Agent Co-Pilot Tests', () => {
 
     // Verify localStorage persistence
     const storedPrefs = await page.evaluate(() => ({
+      gradingMode: window.localStorage.getItem('classroom_agent_grading_mode'),
       tone: window.localStorage.getItem('classroom_agent_feedback_tone'),
       detail: window.localStorage.getItem('classroom_agent_feedback_detail_level'),
       useRubric: window.localStorage.getItem('classroom_agent_feedback_use_rubric'),
@@ -824,6 +842,7 @@ test.describe('Classroom Agent - Workspace and Agent Co-Pilot Tests', () => {
     }));
 
     expect(storedPrefs).toEqual({
+      gradingMode: 'draft',
       tone: 'formal',
       detail: 'comprehensive',
       useRubric: 'false',
@@ -840,6 +859,7 @@ test.describe('Classroom Agent - Workspace and Agent Co-Pilot Tests', () => {
     await expect(userMenuSettingsBtn).toBeVisible();
     await userMenuSettingsBtn.click();
     await expect(settingsModal).toBeVisible();
+    await expect(gradingModeSelect).toHaveValue('draft');
     await expect(toneSelect).toHaveValue('formal');
     await expect(detailSelect).toHaveValue('comprehensive');
     await expect(useRubricSwitch).toHaveAttribute('aria-checked', 'false');
@@ -849,6 +869,7 @@ test.describe('Classroom Agent - Workspace and Agent Co-Pilot Tests', () => {
 
     // Clean up localStorage back to defaults
     await page.evaluate(() => {
+      window.localStorage.removeItem('classroom_agent_grading_mode');
       window.localStorage.removeItem('classroom_agent_feedback_tone');
       window.localStorage.removeItem('classroom_agent_feedback_detail_level');
       window.localStorage.removeItem('classroom_agent_feedback_use_rubric');
@@ -856,6 +877,209 @@ test.describe('Classroom Agent - Workspace and Agent Co-Pilot Tests', () => {
       window.localStorage.removeItem('classroom_agent_feedback_show_scores');
       window.localStorage.removeItem('classroom_agent_custom_agent_instructions');
     });
+  });
+
+  test('gradingMode_toggleSetting_switchesActionButtonsAndDraftMode_test', async ({ page }) => {
+    let googleToken = '';
+    let customToken = '';
+    try {
+      const { getLiveTeacherAccessToken, getLiveTestTeacherCustomToken } = await import('../helpers/classroomSandboxSeeder');
+      [googleToken, customToken] = await Promise.all([
+        getLiveTeacherAccessToken(),
+        getLiveTestTeacherCustomToken(),
+      ]);
+    } catch {
+      googleToken = '';
+      customToken = '';
+    }
+
+    await page.addInitScript(
+      ({ gToken, cToken }) => {
+        if (gToken) {
+          window.sessionStorage.setItem('classroom_agent_google_access_token', gToken);
+        }
+        if (cToken) {
+          window.sessionStorage.setItem('classroom_agent_custom_token', cToken);
+        }
+        // Ensure starting at default no-draft mode
+        window.localStorage.removeItem('classroom_agent_grading_mode');
+      },
+      { gToken: googleToken, cToken: customToken }
+    );
+
+    await page.goto('/');
+
+    // Open an assignment tab
+    const newAssignmentTabBtn = page.locator('[data-testid="new-assignment-tab-button"]');
+    await expect(newAssignmentTabBtn).toBeVisible({ timeout: 15000 });
+    await newAssignmentTabBtn.click();
+    await expect(page.locator('[data-testid="assignment-picker-modal"]')).toBeVisible({ timeout: 15000 });
+
+    const courseButtons = page.locator('[data-testid^="course-select-"]');
+    await expect(courseButtons.first()).toBeVisible({ timeout: 15000 });
+    const courseCount = await courseButtons.count();
+    let opened = false;
+    for (let i = 0; i < courseCount; i++) {
+      await courseButtons.nth(i).click();
+      await expect(page.locator('[data-testid="assignment-picker-section"]')).toBeVisible({ timeout: 5000 });
+      const assignmentCard = page.locator('[data-testid^="assignment-card-"]').first();
+      try {
+        await expect(assignmentCard).toBeVisible({ timeout: 5000 });
+        await assignmentCard.click();
+        const okBtn = page.locator('[data-testid="assignment-picker-ok-button"]');
+        await expect(okBtn).toBeEnabled();
+        await okBtn.click();
+        opened = true;
+        break;
+      } catch {
+        // Continue to check next course
+      }
+    }
+    expect(opened).toBe(true);
+    await expect(page.locator('[data-testid="assignment-picker-modal"]')).toBeHidden();
+    await expect(page.locator('[data-testid="student-roster-list"]')).toBeVisible({ timeout: 15000 });
+
+    // 1. In default 'no-draft' mode:
+    // Only the single Return / Publish button should exist, and Save Draft should NOT be in the DOM
+    const saveDraftBtn = page.locator('[data-testid="save-draft-grade-button"]');
+    const returnBtn = page.locator('[data-testid="return-submission-button"]');
+    await expect(saveDraftBtn).toBeHidden();
+    await expect(returnBtn).toBeVisible();
+    await expect(returnBtn).toContainText('Return / Publish');
+
+    // 2. Open Settings modal and switch to 'draft' mode
+    const userAccountBtn = page.locator('[data-testid="user-account-button"]');
+    await expect(userAccountBtn).toBeVisible();
+    await userAccountBtn.click();
+    const userMenuSettingsBtn = page.locator('[data-testid="user-menu-settings-button"]');
+    await expect(userMenuSettingsBtn).toBeVisible();
+    await userMenuSettingsBtn.click();
+
+    const settingsModal = page.locator('[data-testid="settings-modal"]');
+    await expect(settingsModal).toBeVisible();
+
+    const gradingModeSelect = page.locator('[data-testid="grading-mode-select"]');
+    await expect(gradingModeSelect).toHaveValue('no-draft');
+    await gradingModeSelect.selectOption('draft');
+    await expect(gradingModeSelect).toHaveValue('draft');
+
+    await page.locator('[data-testid="done-settings-button"]').click();
+    await expect(settingsModal).toBeHidden();
+
+    // 3. In 'draft' mode:
+    // Both Save Draft and Return buttons should now be visible
+    await expect(saveDraftBtn).toBeVisible();
+    await expect(saveDraftBtn).toContainText('Save Draft');
+    await expect(returnBtn).toBeVisible();
+    await expect(returnBtn).toContainText('Return');
+
+    // 4. Switch back to 'no-draft' mode to verify dynamic reversal
+    await userAccountBtn.click();
+    await expect(userMenuSettingsBtn).toBeVisible();
+    await userMenuSettingsBtn.click();
+    await expect(settingsModal).toBeVisible();
+    await gradingModeSelect.selectOption('no-draft');
+    await page.locator('[data-testid="done-settings-button"]').click();
+    await expect(settingsModal).toBeHidden();
+
+    await expect(saveDraftBtn).toBeHidden();
+    await expect(returnBtn).toBeVisible();
+    await expect(returnBtn).toContainText('Return / Publish');
+
+    // Clean up
+    await page.evaluate(() => {
+      window.localStorage.removeItem('classroom_agent_grading_mode');
+    });
+  });
+
+  test('settingsModal_openModal_rendersWiderLayoutAndSwitchesTabs_test', async ({ page }) => {
+    let googleToken = '';
+    let customToken = '';
+    try {
+      const { getLiveTeacherAccessToken, getLiveTestTeacherCustomToken } = await import('../helpers/classroomSandboxSeeder');
+      [googleToken, customToken] = await Promise.all([
+        getLiveTeacherAccessToken(),
+        getLiveTestTeacherCustomToken(),
+      ]);
+    } catch {
+      googleToken = '';
+      customToken = '';
+    }
+
+    await page.addInitScript(
+      ({ gToken, cToken }) => {
+        if (gToken) {
+          window.sessionStorage.setItem('classroom_agent_google_access_token', gToken);
+        }
+        if (cToken) {
+          window.sessionStorage.setItem('classroom_agent_custom_token', cToken);
+        }
+      },
+      { gToken: googleToken, cToken: customToken }
+    );
+
+    await page.goto('/');
+
+    // Open Settings Modal from TopTabBar user menu
+    const userAccountBtn = page.locator('[data-testid="user-account-button"]');
+    await expect(userAccountBtn).toBeVisible({ timeout: 15000 });
+    await userAccountBtn.click();
+    const userMenuSettingsBtn = page.locator('[data-testid="user-menu-settings-button"]');
+    await expect(userMenuSettingsBtn).toBeVisible();
+    await userMenuSettingsBtn.click();
+
+    const settingsModal = page.locator('[data-testid="settings-modal"]');
+    await expect(settingsModal).toBeVisible();
+
+    // Verify wider layout (max-w-3xl)
+    const modalDialog = settingsModal.locator('> div');
+    await expect(modalDialog).toHaveClass(/max-w-3xl/);
+
+    // Verify all 3 section tabs exist
+    const feedbackTab = page.locator('[data-testid="settings-tab-feedback"]');
+    const displayTab = page.locator('[data-testid="settings-tab-display"]');
+    const advancedTab = page.locator('[data-testid="settings-tab-advanced"]');
+    await expect(feedbackTab).toBeVisible();
+    await expect(displayTab).toBeVisible();
+    await expect(advancedTab).toBeVisible();
+
+    // By default, feedback options section is active and display/advanced sections are hidden
+    await expect(page.locator('[data-testid="feedback-options-section"]')).toBeVisible();
+    await expect(page.locator('[data-testid="workspace-display-section"]')).toBeHidden();
+    await expect(page.locator('[data-testid="advanced-options-section"]')).toBeHidden();
+
+    // Switch to Workspace Display tab
+    await displayTab.click();
+    await expect(page.locator('[data-testid="workspace-display-section"]')).toBeVisible();
+    await expect(page.locator('[data-testid="feedback-options-section"]')).toBeHidden();
+    await expect(page.locator('[data-testid="advanced-options-section"]')).toBeHidden();
+    await expect(page.locator('[data-testid="toggle-rubric-pane-setting"]')).toBeVisible();
+    await expect(page.locator('[data-testid="toggle-extracted-text-setting"]')).toBeVisible();
+
+    // Switch to Advanced tab and verify Show Tool Calls setting defaults to off (false)
+    await advancedTab.click();
+    await expect(page.locator('[data-testid="advanced-options-section"]')).toBeVisible();
+    await expect(page.locator('[data-testid="workspace-display-section"]')).toBeHidden();
+    await expect(page.locator('[data-testid="feedback-options-section"]')).toBeHidden();
+    const showToolCallsToggle = page.locator('[data-testid="toggle-show-tool-calls-setting"]');
+    await expect(showToolCallsToggle).toBeVisible();
+    await expect(showToolCallsToggle).toHaveAttribute('aria-checked', 'false');
+
+    // Toggle Show Tool Calls on and back off to verify state and localStorage persistence
+    await showToolCallsToggle.click();
+    await expect(showToolCallsToggle).toHaveAttribute('aria-checked', 'true');
+    await showToolCallsToggle.click();
+    await expect(showToolCallsToggle).toHaveAttribute('aria-checked', 'false');
+
+    // Switch back to Feedback & Grading tab
+    await feedbackTab.click();
+    await expect(page.locator('[data-testid="feedback-options-section"]')).toBeVisible();
+    await expect(page.locator('[data-testid="workspace-display-section"]')).toBeHidden();
+    await expect(page.locator('[data-testid="advanced-options-section"]')).toBeHidden();
+
+    // Close settings modal
+    await page.locator('[data-testid="close-settings-button"]').click();
+    await expect(settingsModal).toBeHidden();
   });
 
   test('createAssignment_classSelectedInModal_createsCourseworkInClassroomAndOpensWorkspaceTab_test', async ({
@@ -910,9 +1134,7 @@ test.describe('Classroom Agent - Workspace and Agent Co-Pilot Tests', () => {
       await expect(assignmentSection).toBeVisible({ timeout: 10000 });
 
       const createBtn = page.locator('[data-testid="create-new-assignment-button"]');
-      const createCard = page.locator('[data-testid="create-new-assignment-card"]');
       await expect(createBtn).toBeVisible();
-      await expect(createCard).toBeVisible({ timeout: 10000 });
 
       // Click "+ New Assignment" to switch to the creation form
       await createBtn.click();
@@ -920,12 +1142,12 @@ test.describe('Classroom Agent - Workspace and Agent Co-Pilot Tests', () => {
       const createForm = page.locator('[data-testid="create-assignment-form"]');
       await expect(createForm).toBeVisible();
 
-      // Verify back button returns to existing assignments view and card re-opens form
+      // Verify back button returns to existing assignments view and button re-opens form
       const cancelCreateBtn = page.locator('[data-testid="cancel-create-assignment-button"]');
       await expect(cancelCreateBtn).toBeVisible();
       await cancelCreateBtn.click();
       await expect(createForm).toBeHidden();
-      await createCard.click();
+      await createBtn.click();
       await expect(createForm).toBeVisible();
 
       const okBtn = page.locator('[data-testid="assignment-picker-ok-button"]');
@@ -1135,10 +1357,11 @@ test.describe('Classroom Agent - Workspace and Agent Co-Pilot Tests', () => {
         ],
       });
 
-      // 1. Verify Student 1 (Both Score & Feedback Doc): has BOTH "Preview" and "Approve" buttons + Score Badge
+      // 1. Verify Student 1 (Both Score & Feedback Doc): has "Preview", "Approve", and "Dismiss" buttons + Score Badge
       const cardBoth = page.locator(`[data-testid="evaluation-action-card-${studentBothId}"]`);
       await expect(cardBoth).toBeVisible({ timeout: 15000 });
       await expect(page.locator(`[data-testid="evaluation-score-badge-${studentBothId}"]`)).toHaveText('88/100');
+      await expect(page.locator(`[data-testid="dismiss-evaluation-button-${studentBothId}"]`)).toBeVisible();
       await expect(page.locator(`[data-testid="preview-evaluation-button-${studentBothId}"]`)).toBeVisible();
       await expect(page.locator(`[data-testid="approve-evaluation-button-${studentBothId}"]`)).toBeVisible();
 
@@ -1207,6 +1430,196 @@ test.describe('Classroom Agent - Workspace and Agent Co-Pilot Tests', () => {
         studentScoreOnlyId,
         studentDocOnlyId,
       ]).catch(() => null);
+    }
+  });
+
+  test('dismissEvaluation_activeEvaluationCard_minimisesChatBubbleAndHidesButtons_test', async ({ page }) => {
+    const { getLiveTeacherAccessToken, getLiveTestTeacherCustomToken } = await import(
+      '../helpers/classroomSandboxSeeder'
+    );
+
+    const [googleToken, customToken] = await Promise.all([
+      getLiveTeacherAccessToken(),
+      getLiveTestTeacherCustomToken(),
+    ]);
+
+    await page.addInitScript(
+      ({ gToken, cToken }) => {
+        if (gToken) {
+          window.sessionStorage.setItem('classroom_agent_google_access_token', gToken);
+        }
+        if (cToken) {
+          window.sessionStorage.setItem('classroom_agent_custom_token', cToken);
+        }
+      },
+      { gToken: googleToken, cToken: customToken }
+    );
+
+    await page.goto('/');
+
+    // Open existing assignment tab to mount the Chat Panel
+    const newAssignmentTabBtn = page.locator('[data-testid="new-assignment-tab-button"]');
+    await expect(newAssignmentTabBtn).toBeVisible({ timeout: 15000 });
+    await newAssignmentTabBtn.click();
+
+    const modal = page.locator('[data-testid="assignment-picker-modal"]');
+    await expect(modal).toBeVisible({ timeout: 15000 });
+
+    const courseButtons = page.locator('[data-testid^="course-select-"]');
+    await expect(courseButtons.first()).toBeVisible({ timeout: 15000 });
+    const courseCount = await courseButtons.count();
+
+    let opened = false;
+    for (let i = 0; i < courseCount; i++) {
+      const courseBtn = courseButtons.nth(i);
+      await courseBtn.click();
+      await expect(page.locator('[data-testid="assignment-picker-section"]')).toBeVisible({ timeout: 5000 });
+      const assignmentCard = page.locator('[data-testid^="assignment-card-"]').first();
+      try {
+        await expect(assignmentCard).toBeVisible({ timeout: 5000 });
+        await assignmentCard.click();
+        const okBtn = page.locator('[data-testid="assignment-picker-ok-button"]');
+        await expect(okBtn).toBeEnabled();
+        await okBtn.click();
+        opened = true;
+        break;
+      } catch {
+        // continue
+      }
+    }
+    expect(opened).toBe(true);
+    await expect(page.locator('[data-testid="chat-window"]')).toBeVisible({ timeout: 15000 });
+
+    const openTab = page
+      .locator('[data-testid^="assignment-tab-"]:not([data-testid="assignment-tab-bar"])')
+      .first();
+    await expect(openTab).toBeVisible({ timeout: 15000 });
+    const tabIdAttr = await openTab.getAttribute('data-testid');
+    const assignmentId = tabIdAttr!.replace('assignment-tab-', '');
+
+    const studentId = 'student_dismiss_test_1';
+    const messageId = `test_dismiss_msg_${Date.now()}`;
+
+    try {
+      // Seed staged evaluation in Firestore sidecar
+      await seedTestSubmission(assignmentId, studentId, {
+        submissionId: 'sub_dismiss_1',
+        studentName: 'Casey Dismiss',
+        draftGrade: 92,
+        overallFeedback: 'Excellent performance and detailed solutions.',
+        classroomSyncStatus: 'PENDING_APPROVAL',
+      });
+
+      // Seed agent message with evaluate_and_grade_submission tool result
+      await seedTestChatMessage(assignmentId, messageId, {
+        sender: 'agent',
+        content: 'I have evaluated Casey Dismiss and staged the results for approval.',
+        toolCalls: [
+          {
+            id: 'call_dismiss_1',
+            name: 'evaluate_and_grade_submission',
+            args: {
+              studentId,
+              draftGrade: 92,
+              overallFeedback: 'Excellent performance and detailed solutions.',
+            },
+            status: 'success',
+            result: {
+              success: true,
+              studentId,
+              studentName: 'Casey Dismiss',
+              submissionId: 'sub_dismiss_1',
+              grade: 92,
+              maxPoints: 100,
+              feedback: 'Excellent performance and detailed solutions.',
+              hasScore: true,
+              hasFeedbackDoc: true,
+              classroomSyncStatus: 'PENDING_APPROVAL',
+            },
+          },
+        ],
+      });
+
+      // 1. Verify card and buttons are initially visible
+      const card = page.locator(`[data-testid="evaluation-action-card-${studentId}"]`);
+      await expect(card).toBeVisible({ timeout: 15000 });
+      const dismissBtn = page.locator(`[data-testid="dismiss-evaluation-button-${studentId}"]`);
+      const previewBtn = page.locator(`[data-testid="preview-evaluation-button-${studentId}"]`);
+      const approveBtn = page.locator(`[data-testid="approve-evaluation-button-${studentId}"]`);
+      await expect(dismissBtn).toBeVisible();
+      await expect(previewBtn).toBeVisible();
+      await expect(approveBtn).toBeVisible();
+
+      // 2. Click "Dismiss" on the evaluation action card
+      await dismissBtn.click();
+
+      // 3. Verify the chat bubble is minimised and buttons are removed from view
+      const minimisedBubble = page.locator(`[data-testid="minimised-chat-bubble-${messageId}"]`);
+      await expect(minimisedBubble).toBeVisible({ timeout: 5000 });
+      await expect(minimisedBubble).toContainText('Casey Dismiss');
+      await expect(minimisedBubble).toContainText('92/100');
+
+      // The other buttons (Preview & Approve) and card are removed from view
+      await expect(card).toBeHidden();
+      await expect(previewBtn).toBeHidden();
+      await expect(approveBtn).toBeHidden();
+
+      // 4. Click "Expand" to restore the chat bubble
+      const expandBtn = page.locator(`[data-testid="expand-message-button-${messageId}"]`);
+      await expect(expandBtn).toBeVisible();
+      await expandBtn.click();
+
+      // 5. Verify the chat bubble expands and buttons are restored
+      await expect(card).toBeVisible({ timeout: 5000 });
+      await expect(previewBtn).toBeVisible();
+      await expect(approveBtn).toBeVisible();
+      await expect(dismissBtn).toBeVisible();
+
+      // 6. Dismiss again and test localStorage persistence across page reload
+      await dismissBtn.click();
+      await expect(minimisedBubble).toBeVisible();
+
+      // Verify stored in localStorage
+      const storedMinimised = await page.evaluate((asgnId) => {
+        return window.localStorage.getItem(`classroom_agent_minimised_messages_${asgnId}`);
+      }, assignmentId);
+      expect(storedMinimised).toBeTruthy();
+      expect(JSON.parse(storedMinimised!)).toContain(messageId);
+
+      await page.reload();
+
+      // Re-open assignment tab from picker after page reload
+      const reopenTabBtn = page.locator('[data-testid="new-assignment-tab-button"]');
+      await expect(reopenTabBtn).toBeVisible({ timeout: 15000 });
+      await reopenTabBtn.click();
+
+      const reopenModal = page.locator('[data-testid="assignment-picker-modal"]');
+      await expect(reopenModal).toBeVisible({ timeout: 15000 });
+
+      for (let i = 0; i < courseCount; i++) {
+        const courseBtn = page.locator('[data-testid^="course-select-"]').nth(i);
+        await courseBtn.click();
+        await expect(page.locator('[data-testid="assignment-picker-section"]')).toBeVisible({ timeout: 5000 });
+        const assignmentCard = page.locator('[data-testid^="assignment-card-"]').first();
+        try {
+          await expect(assignmentCard).toBeVisible({ timeout: 5000 });
+          await assignmentCard.click();
+          const okBtn = page.locator('[data-testid="assignment-picker-ok-button"]');
+          await expect(okBtn).toBeEnabled();
+          await okBtn.click();
+          break;
+        } catch {
+          // continue
+        }
+      }
+
+      await expect(page.locator('[data-testid="chat-window"]')).toBeVisible({ timeout: 15000 });
+      await expect(page.locator(`[data-testid="minimised-chat-bubble-${messageId}"]`)).toBeVisible({
+        timeout: 15000,
+      });
+      await expect(page.locator(`[data-testid="evaluation-action-card-${studentId}"]`)).toBeHidden();
+    } finally {
+      await cleanupTestAssignment(assignmentId, [studentId]).catch(() => null);
     }
   });
 
@@ -1295,18 +1708,29 @@ test.describe('Classroom Agent - Workspace and Agent Co-Pilot Tests', () => {
       );
       await chatSendBtn.click();
 
-      // Verify tool call badge for create_classroom_assignment appears and succeeds
+      // Verify the Created Assignment action card renders in the chat message
+      const createdCard = page.locator('[data-testid^="created-assignment-card-"]').first();
+      await expect(createdCard).toBeVisible({ timeout: 45000 });
+      await expect(createdCard).toContainText(uniqueTitle);
+      await expect(createdCard).toContainText('40 pts');
+
+      // By default, tool call badges are hidden (Show Tool Calls setting is off)
       const createToolBadge = page
         .locator('[data-testid="tool-call-badge"]', { hasText: 'Tool: create_classroom_assignment' })
         .first();
-      await expect(createToolBadge).toBeVisible({ timeout: 45000 });
-      await expect(createToolBadge).toContainText('success', { timeout: 45000 });
+      await expect(createToolBadge).toBeHidden();
 
-      // Verify the Created Assignment action card renders in the chat message
-      const createdCard = page.locator('[data-testid^="created-assignment-card-"]').first();
-      await expect(createdCard).toBeVisible({ timeout: 15000 });
-      await expect(createdCard).toContainText(uniqueTitle);
-      await expect(createdCard).toContainText('40 pts');
+      // Enable Show Tool Calls in Settings -> Advanced and verify the tool call badge appears
+      await page.locator('[data-testid="user-account-button"]').click();
+      await page.locator('[data-testid="user-menu-settings-button"]').click();
+      await expect(page.locator('[data-testid="settings-modal"]')).toBeVisible();
+      await page.locator('[data-testid="settings-tab-advanced"]').click();
+      await page.locator('[data-testid="toggle-show-tool-calls-setting"]').click();
+      await page.locator('[data-testid="close-settings-button"]').click();
+      await expect(page.locator('[data-testid="settings-modal"]')).toBeHidden();
+
+      await expect(createToolBadge).toBeVisible({ timeout: 10000 });
+      await expect(createToolBadge).toContainText('success');
 
       const cardTestId = await createdCard.getAttribute('data-testid');
       createdCourseWorkId = cardTestId!.replace('created-assignment-card-', '');
@@ -1333,7 +1757,272 @@ test.describe('Classroom Agent - Workspace and Agent Co-Pilot Tests', () => {
       }
     }
   });
+
+  test('topUpCreditsModal_openFromChatHeaderAndUserMenu_displays100InitialCreditsAndLiveStripePrice_test', async ({
+    page,
+  }) => {
+    const TEACHER_UID = 'teacher_live_e2e';
+    await deleteTestUser(TEACHER_UID);
+
+    try {
+      const { getLiveTeacherAccessToken, getLiveTestTeacherCustomToken } = await import(
+        '../helpers/classroomSandboxSeeder'
+      );
+      const [googleToken, customToken] = await Promise.all([
+        getLiveTeacherAccessToken(),
+        getLiveTestTeacherCustomToken(),
+      ]);
+
+      await page.addInitScript(
+        ({ gToken, cToken }) => {
+          window.sessionStorage.setItem('classroom_agent_google_access_token', gToken);
+          window.sessionStorage.setItem('classroom_agent_custom_token', cToken);
+        },
+        { gToken: googleToken, cToken: customToken }
+      );
+
+      await page.goto('/');
+      await expect(page.locator('[data-testid="assignment-tab-bar"]')).toBeVisible({ timeout: 15000 });
+
+      // 1. Open User Account Menu and verify "Top up credits" with 100 initial credits badge
+      await page.locator('[data-testid="user-account-button"]').click();
+      await expect(page.locator('[data-testid="user-account-menu"]')).toBeVisible();
+      const menuTopUpBtn = page.locator('[data-testid="user-menu-topup-credits-button"]');
+      await expect(menuTopUpBtn).toBeVisible();
+      await expect(menuTopUpBtn).toContainText('Top up credits');
+      await expect(page.locator('[data-testid="user-menu-credits-badge"]')).toHaveText('100', { timeout: 15000 });
+
+      // Click "Top up credits" in user menu to open the modal
+      await menuTopUpBtn.click();
+      const topUpModal = page.locator('[data-testid="topup-credits-modal"]');
+      await expect(topUpModal).toBeVisible();
+      await expect(page.locator('[data-testid="topup-modal-current-credits"]')).toContainText('100');
+      await expect(page.locator('[data-testid="topup-promo-code-input"]')).toBeVisible();
+      await expect(page.locator('[data-testid="topup-checkout-button"]')).toBeVisible();
+
+      // Wait for live Stripe product price to load
+      await expect(page.locator('[data-testid="topup-modal-price"]')).not.toContainText('Loading...', {
+        timeout: 15000,
+      });
+
+      // Close modal
+      await page.locator('[data-testid="close-topup-modal-button"]').click();
+      await expect(topUpModal).toBeHidden();
+
+      // 2. Open an assignment tab and verify the top-up button in the ChatPanel header
+      await page.locator('[data-testid="new-assignment-tab-button"]').click();
+      const pickerModal = page.locator('[data-testid="assignment-picker-modal"]');
+      await expect(pickerModal).toBeVisible({ timeout: 15000 });
+
+      const courseButtons = page.locator('[data-testid^="course-select-"]');
+      await expect(courseButtons.first()).toBeVisible({ timeout: 15000 });
+      const courseCount = await courseButtons.count();
+
+      let opened = false;
+      for (let i = 0; i < courseCount; i++) {
+        await courseButtons.nth(i).click();
+        await expect(page.locator('[data-testid="assignment-picker-section"]')).toBeVisible({ timeout: 5000 });
+        const assignmentCard = page.locator('[data-testid^="assignment-card-"]').first();
+        try {
+          await expect(assignmentCard).toBeVisible({ timeout: 5000 });
+          await assignmentCard.click();
+          await page.locator('[data-testid="assignment-picker-ok-button"]').click();
+          opened = true;
+          break;
+        } catch {
+          // Try next course
+        }
+      }
+      expect(opened).toBe(true);
+
+      const chatTopUpBtn = page.locator('[data-testid="top-up-credits-button"]');
+      await expect(chatTopUpBtn).toBeVisible({ timeout: 15000 });
+      await expect(page.locator('[data-testid="chat-credits-count"]')).toHaveText('100');
+
+      await chatTopUpBtn.click();
+      await expect(topUpModal).toBeVisible();
+      await page.locator('[data-testid="close-topup-modal-button"]').click();
+      await expect(topUpModal).toBeHidden();
+    } finally {
+      await seedTestUserCredits(TEACHER_UID, 100).catch(() => null);
+    }
+  });
+
+  test('enforceAiCreditsAndDeduct_zeroCreditsBlocksAgentAndFetchingStudentWorkDeductsOneCredit_test', async ({
+    page,
+  }) => {
+    test.setTimeout(120000);
+    const TEACHER_UID = 'teacher_live_e2e';
+    let assignmentId = '';
+
+    try {
+      const { getLiveTeacherAccessToken, getLiveTestTeacherCustomToken } = await import(
+        '../helpers/classroomSandboxSeeder'
+      );
+      const [googleToken, customToken] = await Promise.all([
+        getLiveTeacherAccessToken(),
+        getLiveTestTeacherCustomToken(),
+      ]);
+
+      // Start with 0 credits to verify the zero-credit gate
+      await seedTestUserCredits(TEACHER_UID, 0);
+
+      await page.addInitScript(
+        ({ gToken, cToken }) => {
+          window.sessionStorage.setItem('classroom_agent_google_access_token', gToken);
+          window.sessionStorage.setItem('classroom_agent_custom_token', cToken);
+        },
+        { gToken: googleToken, cToken: customToken }
+      );
+
+      await page.goto('/');
+      await page.locator('[data-testid="new-assignment-tab-button"]').click();
+      await expect(page.locator('[data-testid="assignment-picker-modal"]')).toBeVisible({ timeout: 15000 });
+
+      const courseButtons = page.locator('[data-testid^="course-select-"]');
+      await expect(courseButtons.first()).toBeVisible({ timeout: 15000 });
+      const courseCount = await courseButtons.count();
+
+      let opened = false;
+      for (let i = 0; i < courseCount; i++) {
+        await courseButtons.nth(i).click();
+        await expect(page.locator('[data-testid="assignment-picker-section"]')).toBeVisible({ timeout: 5000 });
+        const assignmentCard = page.locator('[data-testid^="assignment-card-"]').first();
+        try {
+          await expect(assignmentCard).toBeVisible({ timeout: 5000 });
+          const cardTestId = await assignmentCard.getAttribute('data-testid');
+          assignmentId = cardTestId!.replace('assignment-card-', '');
+          await assignmentCard.click();
+          await page.locator('[data-testid="assignment-picker-ok-button"]').click();
+          opened = true;
+          break;
+        } catch {
+          // Try next course
+        }
+      }
+      expect(opened).toBe(true);
+
+      // Verify 0 credits state in ChatPanel
+      await expect(page.locator('[data-testid="chat-credits-count"]')).toHaveText('0', { timeout: 15000 });
+      await expect(page.locator('[data-testid="out-of-credits-banner"]')).toBeVisible();
+      await expect(page.locator('[data-testid="chat-input"]')).toBeDisabled();
+      await expect(page.locator('[data-testid="chat-send-button"]')).toBeDisabled();
+
+      // Clicking "Top Up Credits" on the out-of-credits banner opens the modal
+      await page.locator('[data-testid="out-of-credits-topup-button"]').click();
+      await expect(page.locator('[data-testid="topup-credits-modal"]')).toBeVisible();
+      await page.locator('[data-testid="close-topup-modal-button"]').click();
+
+      // Now top up user credits to 50 and verify real-time onSnapshot re-enables the chat input
+      await seedTestUserCredits(TEACHER_UID, 50);
+      await expect(page.locator('[data-testid="chat-credits-count"]')).toHaveText('50', { timeout: 15000 });
+      await expect(page.locator('[data-testid="out-of-credits-banner"]')).toBeHidden();
+      await expect(page.locator('[data-testid="chat-input"]')).toBeEnabled();
+
+      // Wait for at least one student row to load in the roster and select that student
+      const firstStudentRow = page.locator('[data-testid^="student-row-"]').first();
+      await expect(firstStudentRow).toBeVisible({ timeout: 20000 });
+      const rowTestId = await firstStudentRow.getAttribute('data-testid');
+      const targetStudentId = rowTestId!.replace('student-row-', '');
+      await firstStudentRow.click();
+
+      // Command the agent to fetch the selected student's submission content
+      const chatInput = page.locator('[data-testid="chat-input"]');
+      await chatInput.fill(
+        `Call get_student_submission_content for studentId "${targetStudentId}" and briefly summarize what files or content they submitted in 1 sentence. Do not grade it.`
+      );
+      await page.locator('[data-testid="chat-send-button"]').click();
+
+      // Verify that fetching the student's work deducts 1 credit (50 -> 49)
+      await expect(page.locator('[data-testid="chat-credits-count"]')).toHaveText('49', { timeout: 45000 });
+    } finally {
+      await seedTestUserCredits(TEACHER_UID, 100).catch(() => null);
+      if (assignmentId) {
+        await cleanupTestAssignment(assignmentId, []).catch(() => null);
+      }
+    }
+  });
+
+  test('stripeCheckoutAndVerifySession_sandboxPurchase_adds100AiCreditsIdempotently_test', async ({
+    page,
+    request,
+  }) => {
+    const TEACHER_UID = 'teacher_live_e2e';
+    const API_BASE_URL =
+      process.env.VITE_API_BASE_URL || 'http://127.0.0.1:5001/classroom-agent-511917/europe-west2/api';
+
+    try {
+      const { getLiveTeacherAccessToken, getLiveTestTeacherCustomToken } = await import(
+        '../helpers/classroomSandboxSeeder'
+      );
+      const [googleToken, customToken] = await Promise.all([
+        getLiveTeacherAccessToken(),
+        getLiveTestTeacherCustomToken(),
+      ]);
+
+      // Start user with 25 AI credits
+      await seedTestUserCredits(TEACHER_UID, 25);
+
+      // 1. Create a real Stripe Checkout session in sandbox mode
+      const createRes = await request.post(`${API_BASE_URL}/stripe/checkout-session`, {
+        data: {
+          ownerUid: TEACHER_UID,
+          email: 'teacher_e2e@classroom-agent.test',
+          creditsCount: 100,
+          successUrl: 'http://127.0.0.1:5173/?checkout=success&session_id={CHECKOUT_SESSION_ID}&credits=100',
+          cancelUrl: 'http://127.0.0.1:5173/?checkout=canceled',
+        },
+      });
+      expect(createRes.ok()).toBe(true);
+      const createData = await createRes.json();
+      expect(createData.success).toBe(true);
+      expect(createData.sessionId).toMatch(/^cs_test_/);
+      expect(createData.url).toContain('stripe.com');
+
+      const sessionId = createData.sessionId;
+
+      await page.addInitScript(
+        ({ gToken, cToken }) => {
+          window.sessionStorage.setItem('classroom_agent_google_access_token', gToken);
+          window.sessionStorage.setItem('classroom_agent_custom_token', cToken);
+        },
+        { gToken: googleToken, cToken: customToken }
+      );
+
+      // 2. Simulate redirect back from Stripe Checkout to SPA root
+      await page.goto(`/?checkout=success&session_id=${sessionId}&credits=100`);
+
+      // Verify TopUpCreditsModal opens automatically with success banner and +100 credits (25 -> 125)
+      await expect(page.locator('[data-testid="topup-credits-modal"]')).toBeVisible({ timeout: 15000 });
+      await expect(page.locator('[data-testid="topup-success-banner"]')).toBeVisible({ timeout: 15000 });
+      await expect(page.locator('[data-testid="topup-success-banner"]')).toContainText('+100 AI credits');
+      await expect(page.locator('[data-testid="topup-modal-current-credits"]')).toContainText('125', {
+        timeout: 15000,
+      });
+
+      // Verify URL query params were cleaned up
+      await expect
+        .poll(() => page.url(), { timeout: 10000 })
+        .not.toContain('session_id=');
+
+      // 3. Verify idempotency: calling verify-session again for the same sessionId does not double-credit
+      const secondVerifyRes = await request.post(`${API_BASE_URL}/stripe/verify-session`, {
+        data: {
+          sessionId,
+          ownerUid: TEACHER_UID,
+        },
+      });
+      expect(secondVerifyRes.ok()).toBe(true);
+      const secondVerifyData = await secondVerifyRes.json();
+      expect(secondVerifyData.alreadyFulfilled).toBe(true);
+      expect(secondVerifyData.aiCredits).toBe(125);
+    } finally {
+      await seedTestUserCredits(TEACHER_UID, 100).catch(() => null);
+    }
+  });
 });
+
+
 
 
 

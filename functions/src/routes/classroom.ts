@@ -319,6 +319,7 @@ classroomRouter.post(
       submissionId: bodySubmissionId,
       studentName: bodyStudentName,
       assignmentTitle: bodyAssignmentTitle,
+      gradingMode: bodyGradingMode,
     } = req.body;
 
     try {
@@ -328,6 +329,8 @@ classroomRouter.post(
       const evalRef = db.collection('assignments').doc(assignmentId).collection('evaluations').doc(studentId);
       const evalSnap = await evalRef.get();
       const existingEval = evalSnap.exists ? evalSnap.data() : null;
+
+      const isDraftMode = bodyGradingMode === 'draft';
 
       const effectiveGrade =
         bodyDraftGrade !== undefined
@@ -380,10 +383,10 @@ classroomRouter.post(
 
       let feedbackDocId: string | undefined = existingEval?.feedbackDocId;
       let feedbackDocUrl: string | undefined = existingEval?.feedbackDocUrl;
-      let syncStatus = 'APPROVED';
+      let syncStatus = isDraftMode ? 'DRAFT' : 'APPROVED';
       const syncWarnings: string[] = [];
 
-      // 1. If a feedback document is present, create a formatted Google Doc in Drive & attach to the Classroom submission
+      // 1. If a feedback document is present, create a formatted Google Doc in Drive & attach to the Classroom submission (always final)
       if (hasFeedbackDoc) {
         const docTitle = `Feedback - ${assignmentTitle} - ${studentName}`;
         try {
@@ -407,15 +410,22 @@ classroomRouter.post(
         }
       }
 
-      // 2. If a numerical score is present, patch draftGrade + assignedGrade and return the submission in Google Classroom
+      // 2. If a numerical score is present, patch grade according to gradingMode
       if (hasScore) {
         try {
-          await patchSubmissionGrade(token, courseId, courseWorkId, submissionId, effectiveGrade, effectiveGrade);
-          try {
-            await returnSubmission(token, courseId, courseWorkId, submissionId);
-            syncStatus = 'RETURNED';
-          } catch {
-            syncStatus = 'APPROVED';
+          if (isDraftMode) {
+            // Draft Mode: patch draftGrade only, do NOT return submission to student
+            await patchSubmissionGrade(token, courseId, courseWorkId, submissionId, effectiveGrade, undefined);
+            syncStatus = 'DRAFT';
+          } else {
+            // No Draft Mode (default): patch draftGrade + assignedGrade and return submission
+            await patchSubmissionGrade(token, courseId, courseWorkId, submissionId, effectiveGrade, effectiveGrade);
+            try {
+              await returnSubmission(token, courseId, courseWorkId, submissionId);
+              syncStatus = 'RETURNED';
+            } catch {
+              syncStatus = 'APPROVED';
+            }
           }
         } catch (gradeErr: any) {
           if (gradeErr.message && gradeErr.message.includes('403')) {
@@ -443,7 +453,7 @@ classroomRouter.post(
           studentId,
           submissionId,
           draftGrade: hasScore ? effectiveGrade : null,
-          ...(hasScore ? { assignedGrade: effectiveGrade } : {}),
+          ...(hasScore && !isDraftMode ? { assignedGrade: effectiveGrade } : {}),
           rubricBreakdown: effectiveRubricBreakdown,
           overallFeedback: cleanFeedback,
           comments,
@@ -462,7 +472,7 @@ classroomRouter.post(
         studentId,
         submissionId,
         draftGrade: hasScore ? effectiveGrade : null,
-        assignedGrade: hasScore ? effectiveGrade : null,
+        assignedGrade: hasScore && !isDraftMode ? effectiveGrade : null,
         overallFeedback: cleanFeedback,
         feedbackDocId: feedbackDocId || null,
         feedbackDocUrl: feedbackDocUrl || null,

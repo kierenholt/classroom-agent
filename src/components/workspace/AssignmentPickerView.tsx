@@ -403,24 +403,6 @@ export const AssignmentPickerView: React.FC<AssignmentPickerViewProps> = ({
                 </div>
               ) : (
                 <div className="space-y-2 max-h-60 overflow-y-auto pr-1">
-                  {/* Option card to create a new assignment alongside existing assignments */}
-                  <button
-                    type="button"
-                    data-testid="create-new-assignment-card"
-                    onClick={handleOpenCreateForm}
-                    className="w-full text-left p-3 rounded-lg border border-dashed border-purple-500/40 bg-purple-950/15 hover:bg-purple-900/25 text-purple-300 transition-all flex items-center justify-between"
-                  >
-                    <div className="flex items-center space-x-2.5">
-                      <PlusCircle className="w-4 h-4 text-purple-400 shrink-0" />
-                      <div>
-                        <div className="font-semibold text-xs text-purple-200">Create New Assignment</div>
-                        <div className="text-[11px] text-gray-400">
-                          Publish a new assignment directly to this Google Classroom course
-                        </div>
-                      </div>
-                    </div>
-                  </button>
-
                   {currentCoursework.map((cw) => {
                     const isSelected = selectedCourseworkId === cw.id;
                     return (
