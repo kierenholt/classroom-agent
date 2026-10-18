@@ -119,10 +119,42 @@ export async function seedTestSubmission(assignmentId: string, studentId: string
   }
 }
 
+function toFirestoreValue(val: any): Record<string, any> {
+  if (val === null || val === undefined) {
+    return { nullValue: null };
+  }
+  if (typeof val === 'boolean') {
+    return { booleanValue: val };
+  }
+  if (typeof val === 'number') {
+    return Number.isInteger(val) ? { integerValue: String(val) } : { doubleValue: val };
+  }
+  if (typeof val === 'string') {
+    return { stringValue: val };
+  }
+  if (Array.isArray(val)) {
+    return {
+      arrayValue: {
+        values: val.map((item) => toFirestoreValue(item)),
+      },
+    };
+  }
+  if (typeof val === 'object') {
+    const fields: Record<string, any> = {};
+    for (const [k, v] of Object.entries(val)) {
+      if (v !== undefined) {
+        fields[k] = toFirestoreValue(v);
+      }
+    }
+    return { mapValue: { fields } };
+  }
+  return { stringValue: String(val) };
+}
+
 export async function seedTestChatMessage(
   assignmentId: string,
   messageId: string,
-  message: { sender: 'user' | 'agent'; content: string; timestamp?: string }
+  message: { sender: 'user' | 'agent'; content: string; timestamp?: string; toolCalls?: any[] }
 ) {
   const url = `${BASE_URL}/assignments/${assignmentId}/messages/${messageId}`;
   const fields: Record<string, any> = {
@@ -130,6 +162,10 @@ export async function seedTestChatMessage(
     content: { stringValue: message.content },
     timestamp: { stringValue: message.timestamp || new Date().toISOString() },
   };
+
+  if (message.toolCalls) {
+    fields.toolCalls = toFirestoreValue(message.toolCalls);
+  }
 
   const res = await fetch(url, {
     method: 'PATCH',

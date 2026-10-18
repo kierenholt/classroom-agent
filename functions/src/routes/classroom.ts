@@ -4,12 +4,15 @@ import { AuthenticatedRequest, requireAuth } from '../middleware/auth';
 import {
   listTeacherCourses,
   listCourseWork,
+  createCourseWork,
   cloneCourseWorkUnderApp,
   listCourseWorkSubmissions,
   fetchLiveWorkspaceFromClassroom,
   parseAssignmentId,
   patchSubmissionGrade,
   returnSubmission,
+  createFeedbackGoogleDoc,
+  attachDriveFileToSubmission,
 } from '../services/classroomClient';
 import { extractDriveFile } from '../services/driveExtractor';
 import { logger } from '../services/logger';
@@ -68,6 +71,38 @@ classroomRouter.get('/courses/:courseId/coursework', requireAuth, async (req: Au
     res.json({ coursework });
   } catch (err: any) {
     res.status(getUpstreamErrorStatus(err)).json({ error: `Failed to list coursework: ${err.message}` });
+  }
+});
+
+// 2b. Create New Coursework for Course (Live in Google Classroom API)
+classroomRouter.post('/courses/:courseId/coursework', requireAuth, async (req: AuthenticatedRequest, res: Response): Promise<void> => {
+  const { courseId } = req.params;
+  const { title, description, maxPoints, dueDate, state } = req.body || {};
+
+  if (!courseId || !courseId.trim()) {
+    res.status(400).json({ error: 'courseId is required to create coursework. Fail-fast enabled.' });
+    return;
+  }
+  if (!title || !String(title).trim()) {
+    res.status(400).json({ error: 'Assignment title is required to create coursework. Fail-fast enabled.' });
+    return;
+  }
+
+  try {
+    const created = await createCourseWork(req.googleAccessToken!, courseId, {
+      title: String(title).trim(),
+      description: description ? String(description).trim() : undefined,
+      maxPoints: maxPoints !== undefined ? Number(maxPoints) : 100,
+      dueDate: dueDate ? String(dueDate).trim() : undefined,
+      state: state === 'DRAFT' ? 'DRAFT' : 'PUBLISHED',
+    });
+    res.json({ success: true, courseWork: created });
+  } catch (err: any) {
+    logger.error(`Failed to create coursework in course ${courseId}: ${err.message}`, (req as any).executionId, {
+      error: err.message,
+      stack: err.stack,
+    });
+    res.status(getUpstreamErrorStatus(err)).json({ error: `Failed to create assignment: ${err.message}` });
   }
 });
 
@@ -182,7 +217,7 @@ classroomRouter.get('/drive-file/:fileId', requireAuth, async (req: Authenticate
   }
 });
 
-// 7. Manual Grade Endpoint (Writes draftGrade to Google Classroom API + rubric/comments to Firestore Sidecar)
+// 7. Manual Grade / Draft Save Endpoint (Writes draftGrade to Google Classroom API if numeric + rubric/feedback to Firestore Sidecar)
 classroomRouter.post(
   '/assignments/:assignmentId/submissions/:studentId/grade',
   requireAuth,
@@ -190,8 +225,11 @@ classroomRouter.post(
     const { assignmentId, studentId } = req.params;
     const { draftGrade, rubricBreakdown, overallFeedback, submissionId: bodySubmissionId } = req.body;
 
-    if (draftGrade === undefined) {
-      res.status(400).json({ error: 'draftGrade is required. Fail-fast enabled.' });
+    const hasNumericGrade = typeof draftGrade === 'number' && !Number.isNaN(draftGrade);
+    const hasFeedback = typeof overallFeedback === 'string';
+
+    if (!hasNumericGrade && !hasFeedback) {
+      res.status(400).json({ error: 'draftGrade or overallFeedback is required. Fail-fast enabled.' });
       return;
     }
 
@@ -199,8 +237,13 @@ classroomRouter.post(
       const { courseId, courseWorkId } = parseAssignmentId(assignmentId);
       const token = req.googleAccessToken!;
 
-      let submissionId = bodySubmissionId;
-      if (!submissionId) {
+      const db = admin.firestore();
+      const evalRef = db.collection('assignments').doc(assignmentId).collection('evaluations').doc(studentId);
+      const evalSnap = await evalRef.get();
+      const existingEval = evalSnap.exists ? evalSnap.data() : null;
+
+      let submissionId = bodySubmissionId || existingEval?.submissionId;
+      if (!submissionId && hasNumericGrade) {
         const rawSubs = await listCourseWorkSubmissions(token, courseId, courseWorkId);
         const matched = rawSubs.find((s) => s.userId === studentId || s.id === studentId);
         if (!matched || !matched.id) {
@@ -210,35 +253,38 @@ classroomRouter.post(
         submissionId = matched.id;
       }
 
-      let syncStatus = 'SYNCED_DRAFT';
+      let syncStatus = existingEval?.classroomSyncStatus || 'PENDING_APPROVAL';
       let syncError: string | undefined;
 
-      try {
-        await patchSubmissionGrade(token, courseId, courseWorkId, submissionId, draftGrade, undefined);
-      } catch (err: any) {
-        if (err.message && err.message.includes('403')) {
-          syncStatus = 'LOCAL_ONLY_PERMISSION_DENIED';
-          syncError = 'Google Classroom API draftGrade write-back requires coursework created by this app.';
-        } else {
-          syncStatus = 'ERROR';
-          syncError = err.message;
+      if (hasNumericGrade && submissionId) {
+        syncStatus = 'SYNCED_DRAFT';
+        try {
+          await patchSubmissionGrade(token, courseId, courseWorkId, submissionId, draftGrade, undefined);
+        } catch (err: any) {
+          if (err.message && err.message.includes('403')) {
+            syncStatus = 'LOCAL_ONLY_PERMISSION_DENIED';
+            syncError = 'Google Classroom API draftGrade write-back requires coursework created by this app.';
+          } else {
+            syncStatus = 'ERROR';
+            syncError = err.message;
+          }
         }
       }
 
-      const db = admin.firestore();
-      const evalRef = db.collection('assignments').doc(assignmentId).collection('evaluations').doc(studentId);
-      const evalSnap = await evalRef.get();
-      const existingEval = evalSnap.exists ? evalSnap.data() : null;
-
       const comments = existingEval?.comments ? [...existingEval.comments] : [];
+      const effectiveDraftGrade = hasNumericGrade
+        ? draftGrade
+        : draftGrade === null
+        ? null
+        : existingEval?.draftGrade ?? null;
 
       await evalRef.set(
         {
           studentId,
-          submissionId,
-          draftGrade,
-          rubricBreakdown: rubricBreakdown || [],
-          overallFeedback: overallFeedback || '',
+          ...(submissionId ? { submissionId } : {}),
+          draftGrade: effectiveDraftGrade,
+          rubricBreakdown: rubricBreakdown !== undefined ? rubricBreakdown : existingEval?.rubricBreakdown || [],
+          overallFeedback: overallFeedback !== undefined ? overallFeedback : existingEval?.overallFeedback || '',
           comments,
           classroomSyncStatus: syncStatus,
           classroomSyncError: syncError || null,
@@ -249,12 +295,187 @@ classroomRouter.post(
 
       res.json({
         success: true,
-        draftGrade,
+        draftGrade: effectiveDraftGrade,
+        overallFeedback: overallFeedback !== undefined ? overallFeedback : existingEval?.overallFeedback || '',
         classroomSyncStatus: syncStatus,
         classroomSyncError: syncError,
       });
     } catch (err: any) {
       res.status(getUpstreamErrorStatus(err)).json({ error: `Failed to save grade: ${err.message}` });
+    }
+  }
+);
+
+// 7b. Approve Evaluation Endpoint (Creates & attaches Google Doc for feedback document + patches & returns grade in Google Classroom API)
+classroomRouter.post(
+  '/assignments/:assignmentId/submissions/:studentId/approve',
+  requireAuth,
+  async (req: AuthenticatedRequest, res: Response): Promise<void> => {
+    const { assignmentId, studentId } = req.params;
+    const {
+      draftGrade: bodyDraftGrade,
+      overallFeedback: bodyFeedback,
+      rubricBreakdown: bodyRubricBreakdown,
+      submissionId: bodySubmissionId,
+      studentName: bodyStudentName,
+      assignmentTitle: bodyAssignmentTitle,
+    } = req.body;
+
+    try {
+      const { courseId, courseWorkId } = parseAssignmentId(assignmentId);
+      const token = req.googleAccessToken!;
+      const db = admin.firestore();
+      const evalRef = db.collection('assignments').doc(assignmentId).collection('evaluations').doc(studentId);
+      const evalSnap = await evalRef.get();
+      const existingEval = evalSnap.exists ? evalSnap.data() : null;
+
+      const effectiveGrade =
+        bodyDraftGrade !== undefined
+          ? bodyDraftGrade
+          : existingEval?.draftGrade !== undefined
+          ? existingEval.draftGrade
+          : null;
+      const hasScore = typeof effectiveGrade === 'number' && !Number.isNaN(effectiveGrade);
+
+      const rawFeedback =
+        bodyFeedback !== undefined
+          ? bodyFeedback
+          : existingEval?.overallFeedback !== undefined
+          ? existingEval.overallFeedback
+          : '';
+      const cleanFeedback = typeof rawFeedback === 'string' ? rawFeedback.trim() : '';
+      const hasFeedbackDoc = cleanFeedback.length > 0;
+
+      if (!hasScore && !hasFeedbackDoc) {
+        res.status(400).json({
+          error: 'Nothing to approve: neither a score nor a feedback document was provided.',
+        });
+        return;
+      }
+
+      let submissionId = bodySubmissionId || existingEval?.submissionId;
+      let studentName = bodyStudentName || existingEval?.studentName || studentId;
+      let assignmentTitle = bodyAssignmentTitle || 'Classroom Assignment';
+
+      if (!submissionId) {
+        try {
+          const workspace = await fetchLiveWorkspaceFromClassroom(token, courseId, courseWorkId);
+          assignmentTitle = workspace.assignment.title || assignmentTitle;
+          const matchedSub = workspace.submissions.find(
+            (s) => s.studentId === studentId || s.submissionId === studentId
+          );
+          if (matchedSub) {
+            submissionId = matchedSub.submissionId;
+            studentName = matchedSub.studentName || studentName;
+          }
+        } catch (err: any) {
+          logger.warn(`Approve workspace lookup fallback warning: ${err.message}`, (req as any).executionId);
+        }
+      }
+
+      if (!submissionId) {
+        res.status(404).json({ error: `Student submission for ${studentId} not found in Google Classroom.` });
+        return;
+      }
+
+      let feedbackDocId: string | undefined = existingEval?.feedbackDocId;
+      let feedbackDocUrl: string | undefined = existingEval?.feedbackDocUrl;
+      let syncStatus = 'APPROVED';
+      const syncWarnings: string[] = [];
+
+      // 1. If a feedback document is present, create a formatted Google Doc in Drive & attach to the Classroom submission
+      if (hasFeedbackDoc) {
+        const docTitle = `Feedback - ${assignmentTitle} - ${studentName}`;
+        try {
+          const createdDoc = await createFeedbackGoogleDoc(token, docTitle, cleanFeedback);
+          feedbackDocId = createdDoc.fileId;
+          feedbackDocUrl = createdDoc.webViewLink;
+
+          try {
+            await attachDriveFileToSubmission(token, courseId, courseWorkId, submissionId, createdDoc.fileId);
+          } catch (attachErr: any) {
+            if (attachErr.message && attachErr.message.includes('403')) {
+              syncWarnings.push(
+                'Feedback Google Doc created in Drive, but attaching directly to Classroom submission requires coursework created by this app.'
+              );
+            } else {
+              syncWarnings.push(`Feedback Doc created, but Classroom attachment failed: ${attachErr.message}`);
+            }
+          }
+        } catch (docErr: any) {
+          syncWarnings.push(`Failed to create Google Doc in Drive: ${docErr.message}`);
+        }
+      }
+
+      // 2. If a numerical score is present, patch draftGrade + assignedGrade and return the submission in Google Classroom
+      if (hasScore) {
+        try {
+          await patchSubmissionGrade(token, courseId, courseWorkId, submissionId, effectiveGrade, effectiveGrade);
+          try {
+            await returnSubmission(token, courseId, courseWorkId, submissionId);
+            syncStatus = 'RETURNED';
+          } catch {
+            syncStatus = 'APPROVED';
+          }
+        } catch (gradeErr: any) {
+          if (gradeErr.message && gradeErr.message.includes('403')) {
+            syncStatus = 'LOCAL_ONLY_PERMISSION_DENIED';
+            syncWarnings.push(
+              'Google Classroom API grade write-back requires coursework created by this app. Grade approved in Classroom Agent sidecar.'
+            );
+          } else {
+            syncStatus = 'ERROR';
+            syncWarnings.push(gradeErr.message || 'Failed to patch grade in Google Classroom.');
+          }
+        }
+      } else if (syncWarnings.length > 0 && syncWarnings.some((w) => w.includes('requires coursework created by this app'))) {
+        syncStatus = 'LOCAL_ONLY_PERMISSION_DENIED';
+      }
+
+      const approvedAt = new Date().toISOString();
+      const effectiveRubricBreakdown =
+        bodyRubricBreakdown !== undefined ? bodyRubricBreakdown : existingEval?.rubricBreakdown || [];
+      const comments = existingEval?.comments ? [...existingEval.comments] : [];
+      const syncError = syncWarnings.length > 0 ? syncWarnings.join(' ') : null;
+
+      await evalRef.set(
+        {
+          studentId,
+          submissionId,
+          draftGrade: hasScore ? effectiveGrade : null,
+          ...(hasScore ? { assignedGrade: effectiveGrade } : {}),
+          rubricBreakdown: effectiveRubricBreakdown,
+          overallFeedback: cleanFeedback,
+          comments,
+          ...(feedbackDocId ? { feedbackDocId } : {}),
+          ...(feedbackDocUrl ? { feedbackDocUrl } : {}),
+          approvedAt,
+          classroomSyncStatus: syncStatus,
+          classroomSyncError: syncError,
+          updatedAt: approvedAt,
+        },
+        { merge: true }
+      );
+
+      res.json({
+        success: true,
+        studentId,
+        submissionId,
+        draftGrade: hasScore ? effectiveGrade : null,
+        assignedGrade: hasScore ? effectiveGrade : null,
+        overallFeedback: cleanFeedback,
+        feedbackDocId: feedbackDocId || null,
+        feedbackDocUrl: feedbackDocUrl || null,
+        approvedAt,
+        classroomSyncStatus: syncStatus,
+        classroomSyncError: syncError,
+      });
+    } catch (err: any) {
+      logger.error(`Approve evaluation error: ${err.message}`, (req as any).executionId, {
+        error: err.message,
+        stack: err.stack,
+      });
+      res.status(getUpstreamErrorStatus(err)).json({ error: `Failed to approve evaluation: ${err.message}` });
     }
   }
 );

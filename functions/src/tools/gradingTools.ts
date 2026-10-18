@@ -1,5 +1,8 @@
 import * as admin from 'firebase-admin';
 import {
+  listTeacherCourses,
+  getCourse,
+  createCourseWork,
   fetchLiveWorkspaceFromClassroom,
   parseAssignmentId,
   patchSubmissionGrade,
@@ -22,6 +25,72 @@ export const gradingToolDeclarations = [
       type: 'object',
       properties: {},
       required: [],
+    },
+  },
+  {
+    name: 'list_teacher_courses',
+    description:
+      'Lists all active Google Classroom courses where the authenticated teacher teaches, returning course IDs, names, and sections.',
+    parameters: {
+      type: 'object',
+      properties: {},
+      required: [],
+    },
+  },
+  {
+    name: 'create_classroom_assignment',
+    description:
+      'Creates a new assignment (coursework) in Google Classroom. By default, creates the assignment in the currently open course unless a specific courseId is provided. Optionally attaches an initial grading rubric in the Firestore sidecar.',
+    parameters: {
+      type: 'object',
+      properties: {
+        courseId: {
+          type: 'string',
+          description:
+            'Optional Google Classroom courseId to create the assignment in. If omitted, defaults to the courseId of the currently open assignment.',
+        },
+        title: {
+          type: 'string',
+          description: 'Title of the new assignment (required).',
+        },
+        description: {
+          type: 'string',
+          description: 'Assignment instructions, prompt, or description for students.',
+        },
+        maxPoints: {
+          type: 'number',
+          description: 'Maximum points for the assignment (defaults to 100).',
+        },
+        dueDate: {
+          type: 'string',
+          description: 'Optional due date in YYYY-MM-DD format (must be a future date if provided).',
+        },
+        state: {
+          type: 'string',
+          enum: ['PUBLISHED', 'DRAFT'],
+          description: 'Whether to publish the assignment immediately or save as draft (defaults to PUBLISHED).',
+        },
+        rubricTitle: {
+          type: 'string',
+          description: 'Optional title for an initial grading rubric to attach to the new assignment.',
+        },
+        rubricCriteria: {
+          type: 'array',
+          description:
+            'Optional list of rubric criteria to initialize for the newly created assignment in the Firestore sidecar.',
+          items: {
+            type: 'object',
+            properties: {
+              id: { type: 'string', description: 'Unique identifier for the criterion (e.g. crit_1, thesis, syntax)' },
+              title: { type: 'string', description: 'Criterion title' },
+              description: { type: 'string', description: 'Description of expectations for this criterion' },
+              maxPoints: { type: 'number', description: 'Maximum points awarded for this criterion' },
+            },
+            required: ['id', 'title', 'maxPoints'],
+          },
+        },
+      },
+      required: ['title'],
     },
   },
   {
@@ -80,11 +149,11 @@ export const gradingToolDeclarations = [
   {
     name: 'evaluate_and_grade_submission',
     description:
-      'Grades an individual student submission. Writes the grade directly to Google Classroom API and saves the evaluation breakdown to the Firestore sidecar. Explains comprehensive critique and rationale directly in the co-pilot chat for the teacher. Call once per student.',
+      'Evaluates an individual student submission and stages a proposed score, a feedback document, or both in the Firestore sidecar for teacher preview and approval in the chat panel. Call once per student.',
     parameters: {
       type: 'object',
       properties: {
-        studentId: { type: 'string', description: 'Unique identifier of the student being graded' },
+        studentId: { type: 'string', description: 'Unique identifier of the student being evaluated' },
         rubricScores: {
           type: 'array',
           description: 'Breakdown of scores and comments for each criterion in the rubric (pass empty array [] if rubric evaluation is disabled)',
@@ -98,10 +167,16 @@ export const gradingToolDeclarations = [
             required: ['criterionId', 'score', 'comment'],
           },
         },
-        draftGrade: { type: 'number', description: 'Total grade out of assignment maxPoints to assign to the student' },
-        overallFeedback: { type: 'string', description: 'Comprehensive constructive feedback for the teacher to review in chat' },
+        draftGrade: {
+          type: 'number',
+          description: 'Total numerical grade out of assignment maxPoints to propose for the student. Omit if only generating a written feedback document without a score.',
+        },
+        overallFeedback: {
+          type: 'string',
+          description: 'Comprehensive constructive feedback document for the teacher to preview, edit, and approve. Omit or pass empty string if only proposing a numerical score.',
+        },
       },
-      required: ['studentId', 'draftGrade', 'overallFeedback'],
+      required: ['studentId'],
     },
   },
   {
@@ -156,6 +231,78 @@ export async function executeGradingTool(
       };
     }
 
+    case 'list_teacher_courses': {
+      const courses = await listTeacherCourses(googleAccessToken);
+      return {
+        count: courses.length,
+        courses: courses.map((c) => ({
+          id: c.id,
+          name: c.name,
+          section: c.section || undefined,
+          courseState: c.courseState || 'ACTIVE',
+        })),
+      };
+    }
+
+    case 'create_classroom_assignment': {
+      const targetCourseId = args.courseId && String(args.courseId).trim() ? String(args.courseId).trim() : courseId;
+      const title = args.title ? String(args.title).trim() : '';
+      if (!title) {
+        throw new Error('Assignment title is required for create_classroom_assignment.');
+      }
+
+      const [created, targetCourse] = await Promise.all([
+        createCourseWork(googleAccessToken, targetCourseId, {
+          title,
+          description: args.description ? String(args.description).trim() : undefined,
+          maxPoints: args.maxPoints !== undefined ? Number(args.maxPoints) : 100,
+          dueDate: args.dueDate ? String(args.dueDate).trim() : undefined,
+          state: args.state === 'DRAFT' ? 'DRAFT' : 'PUBLISHED',
+        }),
+        getCourse(googleAccessToken, targetCourseId).catch(() => null),
+      ]);
+
+      if (!created.id) {
+        throw new Error('Google Classroom API did not return a courseWork id.');
+      }
+
+      const newAssignmentId = `${targetCourseId}_${created.id}`;
+      let savedRubric: any = null;
+
+      if (Array.isArray(args.rubricCriteria) && args.rubricCriteria.length > 0) {
+        savedRubric = {
+          id: `rubric_${Date.now()}`,
+          title: args.rubricTitle || `${title} Rubric`,
+          criteria: args.rubricCriteria,
+          updatedAt: new Date().toISOString(),
+        };
+        await db
+          .collection('assignments')
+          .doc(newAssignmentId)
+          .set(
+            {
+              rubric: savedRubric,
+              updatedAt: new Date().toISOString(),
+            },
+            { merge: true }
+          );
+      }
+
+      return {
+        success: true,
+        assignmentId: newAssignmentId,
+        courseId: targetCourseId,
+        courseName: targetCourse?.name || 'Classroom Course',
+        courseWorkId: created.id,
+        title: created.title || title,
+        description: created.description || '',
+        maxPoints: created.maxPoints ?? 100,
+        state: created.state || 'PUBLISHED',
+        alternateLink: created.alternateLink || undefined,
+        rubric: savedRubric || undefined,
+      };
+    }
+
     case 'set_assignment_rubric': {
       const { title, criteria } = args;
       if (!Array.isArray(criteria) || criteria.length === 0) {
@@ -199,8 +346,8 @@ export async function executeGradingTool(
         const evalData = evalMap.get(sub.studentId);
         return {
           ...sub,
-          draftGrade: evalData?.draftGrade !== undefined ? evalData.draftGrade : sub.draftGrade,
-          assignedGrade: evalData?.assignedGrade !== undefined ? evalData.assignedGrade : sub.assignedGrade,
+          draftGrade: evalData?.draftGrade !== undefined && evalData?.draftGrade !== null ? evalData.draftGrade : sub.draftGrade,
+          assignedGrade: evalData?.assignedGrade !== undefined && evalData?.assignedGrade !== null ? evalData.assignedGrade : sub.assignedGrade,
         };
       });
 
@@ -294,7 +441,14 @@ export async function executeGradingTool(
     case 'evaluate_and_grade_submission': {
       const { studentId, rubricScores, draftGrade, overallFeedback } = args;
       if (!studentId) throw new Error('studentId is required for evaluate_and_grade_submission.');
-      if (draftGrade === undefined) throw new Error('draftGrade is required.');
+
+      const hasScore = typeof draftGrade === 'number' && !Number.isNaN(draftGrade);
+      const cleanFeedback = typeof overallFeedback === 'string' ? overallFeedback.trim() : '';
+      const hasFeedbackDoc = cleanFeedback.length > 0;
+
+      if (!hasScore && !hasFeedbackDoc) {
+        throw new Error('At least one of draftGrade (score) or overallFeedback (feedback document) is required.');
+      }
 
       const { assignment, submissions } = await fetchLiveWorkspaceFromClassroom(
         googleAccessToken,
@@ -306,60 +460,25 @@ export async function executeGradingTool(
         throw new Error(`Student ${studentId} submission does not exist in Google Classroom.`);
       }
 
-      let syncStatus = 'SYNCED_GRADE';
-      let syncError: string | undefined;
-
-      // 1. Write grade directly to Google Classroom API immediately (assignedGrade + draftGrade)
-      try {
-        await patchSubmissionGrade(
-          googleAccessToken,
-          courseId,
-          courseWorkId,
-          liveSub.submissionId,
-          draftGrade,
-          draftGrade
-        );
-        try {
-          await returnSubmission(
-            googleAccessToken,
-            courseId,
-            courseWorkId,
-            liveSub.submissionId
-          );
-          syncStatus = 'RETURNED';
-        } catch {
-          syncStatus = 'SYNCED_GRADE';
-        }
-      } catch (err: any) {
-        if (err.message && err.message.includes('403')) {
-          syncStatus = 'LOCAL_ONLY_PERMISSION_DENIED';
-          syncError =
-            'Google Classroom API grade write-back requires coursework created by this app. Grade saved in Classroom Agent sidecar.';
-        } else {
-          syncStatus = 'ERROR';
-          syncError = err.message || 'Failed to patch grade in Google Classroom.';
-        }
-      }
-
-      // 2. Persist evaluation to Firestore Sidecar (evaluations/{studentId})
-      // NOTE: Submission comments are reserved strictly for genuine 2-way dialogue with the student.
-      // Agent feedback is delivered exclusively in the Co-Pilot Chat Panel and NOT duplicated into comments.
+      // Stage evaluation in Firestore Sidecar (evaluations/{studentId}) as PENDING_APPROVAL.
+      // Writes to Google Classroom API only happen when the teacher clicks "Approve" in the Chat Panel.
       const evalRef = assignRef.collection('evaluations').doc(liveSub.studentId);
       const evalSnap = await evalRef.get();
       const existingEval = evalSnap.exists ? evalSnap.data() : null;
       const existingComments = existingEval?.comments || [];
 
+      const stagedGrade = hasScore ? Number(draftGrade) : null;
+
       await evalRef.set(
         {
           studentId: liveSub.studentId,
           submissionId: liveSub.submissionId,
-          draftGrade,
-          assignedGrade: draftGrade,
+          draftGrade: stagedGrade,
           rubricBreakdown: rubricScores || [],
-          overallFeedback: overallFeedback || '',
+          overallFeedback: cleanFeedback,
           comments: existingComments,
-          classroomSyncStatus: syncStatus,
-          classroomSyncError: syncError || null,
+          classroomSyncStatus: 'PENDING_APPROVAL',
+          classroomSyncError: null,
           updatedAt: new Date().toISOString(),
         },
         { merge: true }
@@ -369,13 +488,14 @@ export async function executeGradingTool(
         success: true,
         studentId: liveSub.studentId,
         studentName: liveSub.studentName,
-        grade: draftGrade,
-        assignedGrade: draftGrade,
+        submissionId: liveSub.submissionId,
+        grade: stagedGrade,
         maxPoints: assignment.maxPoints,
         rubricScores: rubricScores || [],
-        feedback: overallFeedback || '',
-        classroomSyncStatus: syncStatus,
-        syncNotice: syncError,
+        feedback: cleanFeedback,
+        hasScore,
+        hasFeedbackDoc,
+        classroomSyncStatus: 'PENDING_APPROVAL',
       };
     }
 

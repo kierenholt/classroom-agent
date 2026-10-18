@@ -553,28 +553,34 @@ test.describe('Classroom Agent - Workspace and Agent Co-Pilot Tests', () => {
     await expect(firstStudentRow).toBeVisible({ timeout: 10000 });
     const studentCheckbox = firstStudentRow.locator('input[type="checkbox"]');
 
-    // Initially, the student checkbox is unchecked
+    // Initially, the student checkbox is unchecked and action buttons are disabled
     await expect(studentCheckbox).not.toBeChecked();
+    await expect(page.locator('[data-testid="save-draft-grade-button"]')).toBeDisabled();
+    await expect(page.locator('[data-testid="return-submission-button"]')).toBeDisabled();
 
     // 1. Click anywhere on the student row (e.g. on the row container) -> toggles checkbox to checked
     await firstStudentRow.click();
     await expect(studentCheckbox).toBeChecked();
-    await expect(page.locator('[data-testid="save-draft-grade-button"]')).toBeVisible();
+    await expect(page.locator('[data-testid="save-draft-grade-button"]')).toBeEnabled();
+    await expect(page.locator('[data-testid="return-submission-button"]')).toBeEnabled();
 
     // 2. Click the row again -> toggles checkbox to unchecked
     await firstStudentRow.click();
     await expect(studentCheckbox).not.toBeChecked();
-    await expect(page.locator('[data-testid="save-draft-grade-button"]')).toBeHidden();
+    await expect(page.locator('[data-testid="save-draft-grade-button"]')).toBeDisabled();
+    await expect(page.locator('[data-testid="return-submission-button"]')).toBeDisabled();
 
     // 3. Click directly on the checkbox -> toggles checkbox to checked
     await studentCheckbox.click();
     await expect(studentCheckbox).toBeChecked();
-    await expect(page.locator('[data-testid="save-draft-grade-button"]')).toBeVisible();
+    await expect(page.locator('[data-testid="save-draft-grade-button"]')).toBeEnabled();
+    await expect(page.locator('[data-testid="return-submission-button"]')).toBeEnabled();
 
     // 4. Click directly on the checkbox again -> toggles checkbox to unchecked
     await studentCheckbox.click();
     await expect(studentCheckbox).not.toBeChecked();
-    await expect(page.locator('[data-testid="save-draft-grade-button"]')).toBeHidden();
+    await expect(page.locator('[data-testid="save-draft-grade-button"]')).toBeDisabled();
+    await expect(page.locator('[data-testid="return-submission-button"]')).toBeDisabled();
   });
 
   test('openClassroomLink_workspaceMounted_rendersGoogleClassroomLinksWithValidUrl_test', async ({ page }) => {
@@ -851,5 +857,484 @@ test.describe('Classroom Agent - Workspace and Agent Co-Pilot Tests', () => {
       window.localStorage.removeItem('classroom_agent_custom_agent_instructions');
     });
   });
+
+  test('createAssignment_classSelectedInModal_createsCourseworkInClassroomAndOpensWorkspaceTab_test', async ({
+    page,
+  }) => {
+    const {
+      getLiveTeacherAccessToken,
+      getLiveTestTeacherCustomToken,
+      deleteLiveClassroomAssignmentFixture,
+      sweepOrphanedTestAssignments,
+    } = await import('../helpers/classroomSandboxSeeder');
+
+    const [googleToken, customToken] = await Promise.all([
+      getLiveTeacherAccessToken(),
+      getLiveTestTeacherCustomToken(),
+    ]);
+
+    await page.addInitScript(
+      ({ gToken, cToken }) => {
+        if (gToken) {
+          window.sessionStorage.setItem('classroom_agent_google_access_token', gToken);
+        }
+        if (cToken) {
+          window.sessionStorage.setItem('classroom_agent_custom_token', cToken);
+        }
+      },
+      { gToken: googleToken, cToken: customToken }
+    );
+
+    let createdCourseId = '';
+    let createdCourseWorkId = '';
+
+    try {
+      await page.goto('/');
+
+      const newAssignmentTabBtn = page.locator('[data-testid="new-assignment-tab-button"]');
+      await expect(newAssignmentTabBtn).toBeVisible({ timeout: 15000 });
+      await newAssignmentTabBtn.click();
+
+      const modal = page.locator('[data-testid="assignment-picker-modal"]');
+      await expect(modal).toBeVisible({ timeout: 15000 });
+
+      // Select the first active class
+      const firstCourseBtn = page.locator('[data-testid^="course-select-"]').first();
+      await expect(firstCourseBtn).toBeVisible({ timeout: 15000 });
+      const courseTestId = await firstCourseBtn.getAttribute('data-testid');
+      createdCourseId = courseTestId!.replace('course-select-', '');
+      await firstCourseBtn.click();
+
+      // Step 2 section should now be visible with the option to create a new assignment alongside existing assignments
+      const assignmentSection = page.locator('[data-testid="assignment-picker-section"]');
+      await expect(assignmentSection).toBeVisible({ timeout: 10000 });
+
+      const createBtn = page.locator('[data-testid="create-new-assignment-button"]');
+      const createCard = page.locator('[data-testid="create-new-assignment-card"]');
+      await expect(createBtn).toBeVisible();
+      await expect(createCard).toBeVisible({ timeout: 10000 });
+
+      // Click "+ New Assignment" to switch to the creation form
+      await createBtn.click();
+
+      const createForm = page.locator('[data-testid="create-assignment-form"]');
+      await expect(createForm).toBeVisible();
+
+      // Verify back button returns to existing assignments view and card re-opens form
+      const cancelCreateBtn = page.locator('[data-testid="cancel-create-assignment-button"]');
+      await expect(cancelCreateBtn).toBeVisible();
+      await cancelCreateBtn.click();
+      await expect(createForm).toBeHidden();
+      await createCard.click();
+      await expect(createForm).toBeVisible();
+
+      const okBtn = page.locator('[data-testid="assignment-picker-ok-button"]');
+      await expect(okBtn).toBeDisabled();
+      await expect(okBtn).toContainText('Create & Open');
+
+      const uniqueTitle = `[E2E Test] Modal Created Assignment ${Date.now()}`;
+      await page.locator('[data-testid="new-assignment-title-input"]').fill(uniqueTitle);
+      await page
+        .locator('[data-testid="new-assignment-description-input"]')
+        .fill('Complete the lab exercises and submit your Google Doc.');
+      await page.locator('[data-testid="new-assignment-max-points-input"]').fill('50');
+
+      await expect(okBtn).toBeEnabled();
+      await okBtn.click();
+
+      // Modal should close and the newly created assignment tab should open in the workspace
+      await expect(modal).toBeHidden({ timeout: 20000 });
+
+      const openTab = page.locator(`[data-testid^="assignment-tab-${createdCourseId}_"]`).first();
+      await expect(openTab).toBeVisible({ timeout: 15000 });
+      await expect(openTab).toContainText(uniqueTitle);
+
+      const tabTestId = await openTab.getAttribute('data-testid');
+      const fullAssignmentId = tabTestId!.replace('assignment-tab-', '');
+      createdCourseWorkId = fullAssignmentId.replace(`${createdCourseId}_`, '');
+
+      // Re-open "+ Assignment" and select the same class to verify the newly created assignment is in the existing assignments list
+      await newAssignmentTabBtn.click();
+      await expect(modal).toBeVisible({ timeout: 10000 });
+      await page.locator(`[data-testid="course-select-${createdCourseId}"]`).click();
+      await expect(page.locator(`[data-testid="assignment-card-${createdCourseWorkId}"]`)).toBeVisible({
+        timeout: 10000,
+      });
+      await page.locator('[data-testid="assignment-picker-close-button"]').click();
+    } finally {
+      if (createdCourseId && createdCourseWorkId) {
+        await deleteLiveClassroomAssignmentFixture(createdCourseId, createdCourseWorkId).catch(() => null);
+        await cleanupTestAssignment(`${createdCourseId}_${createdCourseWorkId}`, []).catch(() => null);
+      }
+      if (createdCourseId) {
+        await sweepOrphanedTestAssignments(createdCourseId).catch(() => null);
+      }
+    }
+  });
+
+  test('previewAndApproveEvaluation_agentReturnsScoreOrFeedbackDocument_rendersPreviewModalAndApprovesToClassroom_test', async ({
+    page,
+  }) => {
+    const { getLiveTeacherAccessToken, getLiveTestTeacherCustomToken } = await import(
+      '../helpers/classroomSandboxSeeder'
+    );
+    const [googleToken, customToken] = await Promise.all([
+      getLiveTeacherAccessToken(),
+      getLiveTestTeacherCustomToken(),
+    ]);
+
+    await page.addInitScript(
+      ({ gToken, cToken }) => {
+        if (gToken) {
+          window.sessionStorage.setItem('classroom_agent_google_access_token', gToken);
+        }
+        if (cToken) {
+          window.sessionStorage.setItem('classroom_agent_custom_token', cToken);
+        }
+      },
+      { gToken: googleToken, cToken: customToken }
+    );
+
+    await page.goto('/');
+
+    // Open an assignment workspace
+    const newAssignmentTabBtn = page.locator('[data-testid="new-assignment-tab-button"]');
+    await expect(newAssignmentTabBtn).toBeVisible({ timeout: 15000 });
+    await newAssignmentTabBtn.click();
+    await expect(page.locator('[data-testid="assignment-picker-modal"]')).toBeVisible({ timeout: 15000 });
+
+    const courseButtons = page.locator('[data-testid^="course-select-"]');
+    await expect(courseButtons.first()).toBeVisible({ timeout: 15000 });
+    const courseCount = await courseButtons.count();
+    let opened = false;
+    for (let i = 0; i < courseCount; i++) {
+      await courseButtons.nth(i).click();
+      await expect(page.locator('[data-testid="assignment-picker-section"]')).toBeVisible({ timeout: 5000 });
+      const assignmentCard = page.locator('[data-testid^="assignment-card-"]').first();
+      try {
+        await expect(assignmentCard).toBeVisible({ timeout: 5000 });
+        await assignmentCard.click();
+        const okBtn = page.locator('[data-testid="assignment-picker-ok-button"]');
+        await expect(okBtn).toBeEnabled();
+        await okBtn.click();
+        opened = true;
+        break;
+      } catch {
+        // continue
+      }
+    }
+    expect(opened).toBe(true);
+    await expect(page.locator('[data-testid="chat-window"]')).toBeVisible({ timeout: 15000 });
+
+    const openTab = page
+      .locator('[data-testid^="assignment-tab-"]:not([data-testid="assignment-tab-bar"])')
+      .first();
+    await expect(openTab).toBeVisible({ timeout: 15000 });
+    const tabIdAttr = await openTab.getAttribute('data-testid');
+    const assignmentId = tabIdAttr!.replace('assignment-tab-', '');
+
+    const studentBothId = 'student_eval_both_1';
+    const studentScoreOnlyId = 'student_eval_score_only_2';
+    const studentDocOnlyId = 'student_eval_doc_only_3';
+    const messageId = `test_eval_actions_msg_${Date.now()}`;
+
+    try {
+      // Seed staged evaluations in Firestore sidecar
+      await seedTestSubmission(assignmentId, studentBothId, {
+        submissionId: 'sub_both_1',
+        studentName: 'Jordan Both',
+        draftGrade: 88,
+        overallFeedback: '### Strengths\nGreat recursive base case and clean code structure.',
+        classroomSyncStatus: 'PENDING_APPROVAL',
+      });
+
+      await seedTestSubmission(assignmentId, studentScoreOnlyId, {
+        submissionId: 'sub_score_2',
+        studentName: 'Taylor ScoreOnly',
+        draftGrade: 95,
+        overallFeedback: '',
+        classroomSyncStatus: 'PENDING_APPROVAL',
+      });
+
+      await seedTestSubmission(assignmentId, studentDocOnlyId, {
+        submissionId: 'sub_doc_3',
+        studentName: 'Morgan DocOnly',
+        overallFeedback: '### Detailed Review\nFocus on edge cases when the list is empty.',
+        classroomSyncStatus: 'PENDING_APPROVAL',
+      });
+
+      // Seed agent message with 3 evaluate_and_grade_submission tool results (both, score-only, feedback-doc-only)
+      await seedTestChatMessage(assignmentId, messageId, {
+        sender: 'agent',
+        content: 'I have evaluated the three student submissions and staged their results for your review.',
+        toolCalls: [
+          {
+            id: 'call_both_1',
+            name: 'evaluate_and_grade_submission',
+            args: {
+              studentId: studentBothId,
+              draftGrade: 88,
+              overallFeedback: '### Strengths\nGreat recursive base case and clean code structure.',
+            },
+            status: 'success',
+            result: {
+              success: true,
+              studentId: studentBothId,
+              studentName: 'Jordan Both',
+              submissionId: 'sub_both_1',
+              grade: 88,
+              maxPoints: 100,
+              feedback: '### Strengths\nGreat recursive base case and clean code structure.',
+              hasScore: true,
+              hasFeedbackDoc: true,
+              classroomSyncStatus: 'PENDING_APPROVAL',
+            },
+          },
+          {
+            id: 'call_score_2',
+            name: 'evaluate_and_grade_submission',
+            args: {
+              studentId: studentScoreOnlyId,
+              draftGrade: 95,
+            },
+            status: 'success',
+            result: {
+              success: true,
+              studentId: studentScoreOnlyId,
+              studentName: 'Taylor ScoreOnly',
+              submissionId: 'sub_score_2',
+              grade: 95,
+              maxPoints: 100,
+              feedback: '',
+              hasScore: true,
+              hasFeedbackDoc: false,
+              classroomSyncStatus: 'PENDING_APPROVAL',
+            },
+          },
+          {
+            id: 'call_doc_3',
+            name: 'evaluate_and_grade_submission',
+            args: {
+              studentId: studentDocOnlyId,
+              overallFeedback: '### Detailed Review\nFocus on edge cases when the list is empty.',
+            },
+            status: 'success',
+            result: {
+              success: true,
+              studentId: studentDocOnlyId,
+              studentName: 'Morgan DocOnly',
+              submissionId: 'sub_doc_3',
+              grade: null,
+              maxPoints: 100,
+              feedback: '### Detailed Review\nFocus on edge cases when the list is empty.',
+              hasScore: false,
+              hasFeedbackDoc: true,
+              classroomSyncStatus: 'PENDING_APPROVAL',
+            },
+          },
+        ],
+      });
+
+      // 1. Verify Student 1 (Both Score & Feedback Doc): has BOTH "Preview" and "Approve" buttons + Score Badge
+      const cardBoth = page.locator(`[data-testid="evaluation-action-card-${studentBothId}"]`);
+      await expect(cardBoth).toBeVisible({ timeout: 15000 });
+      await expect(page.locator(`[data-testid="evaluation-score-badge-${studentBothId}"]`)).toHaveText('88/100');
+      await expect(page.locator(`[data-testid="preview-evaluation-button-${studentBothId}"]`)).toBeVisible();
+      await expect(page.locator(`[data-testid="approve-evaluation-button-${studentBothId}"]`)).toBeVisible();
+
+      // 2. Verify Student 2 (Score Only): has "Approve" button ONLY (NO "Preview" button) + Score Badge
+      const cardScoreOnly = page.locator(`[data-testid="evaluation-action-card-${studentScoreOnlyId}"]`);
+      await expect(cardScoreOnly).toBeVisible();
+      await expect(page.locator(`[data-testid="evaluation-score-badge-${studentScoreOnlyId}"]`)).toHaveText('95/100');
+      await expect(page.locator(`[data-testid="preview-evaluation-button-${studentScoreOnlyId}"]`)).toBeHidden();
+      await expect(page.locator(`[data-testid="approve-evaluation-button-${studentScoreOnlyId}"]`)).toBeVisible();
+
+      // 3. Verify Student 3 (Feedback Document Only): has BOTH "Preview" and "Approve" buttons (NO Score Badge)
+      const cardDocOnly = page.locator(`[data-testid="evaluation-action-card-${studentDocOnlyId}"]`);
+      await expect(cardDocOnly).toBeVisible();
+      await expect(page.locator(`[data-testid="evaluation-score-badge-${studentDocOnlyId}"]`)).toBeHidden();
+      await expect(page.locator(`[data-testid="preview-evaluation-button-${studentDocOnlyId}"]`)).toBeVisible();
+      await expect(page.locator(`[data-testid="approve-evaluation-button-${studentDocOnlyId}"]`)).toBeVisible();
+
+      // 4. Click "Preview" on Student 1 to open the Feedback Preview Modal and edit feedback
+      await page.locator(`[data-testid="preview-evaluation-button-${studentBothId}"]`).click();
+      const previewModal = page.locator('[data-testid="feedback-preview-modal"]');
+      await expect(previewModal).toBeVisible();
+
+      const feedbackTextarea = page.locator('[data-testid="preview-modal-feedback-textarea"]');
+      await expect(feedbackTextarea).toBeVisible();
+      await expect(feedbackTextarea).toHaveValue(
+        '### Strengths\nGreat recursive base case and clean code structure.'
+      );
+
+      // Switch to Rendered Preview tab and verify markdown rendering
+      await page.locator('[data-testid="preview-modal-rendered-tab"]').click();
+      const renderedContent = page.locator('[data-testid="preview-modal-rendered-content"]');
+      await expect(renderedContent).toBeVisible();
+      await expect(renderedContent.locator('h3', { hasText: 'Strengths' })).toBeVisible();
+
+      // Switch back to Edit Feedback tab, edit text, and click "Approve & Send to Classroom"
+      await page.locator('[data-testid="preview-modal-edit-tab"]').click();
+      const editedFeedback = '### Strengths\nEdited by Teacher: Outstanding recursive implementation and base case!';
+      await feedbackTextarea.fill(editedFeedback);
+
+      await page.locator('[data-testid="preview-modal-approve-button"]').click();
+      await expect(previewModal).toBeHidden({ timeout: 25000 });
+
+      // Verify Student 1 card now shows Approved badge and attached Google Doc link
+      await expect(page.locator(`[data-testid="evaluation-approved-badge-${studentBothId}"]`)).toBeVisible({
+        timeout: 15000,
+      });
+      await expect(page.locator(`[data-testid="feedback-doc-link-${studentBothId}"]`)).toBeVisible({
+        timeout: 15000,
+      });
+
+      // Re-open Preview on Student 1 to confirm edited feedback was saved
+      await page.locator(`[data-testid="preview-evaluation-button-${studentBothId}"]`).click();
+      await expect(previewModal).toBeVisible();
+      await expect(feedbackTextarea).toHaveValue(editedFeedback);
+      await page.locator('[data-testid="preview-modal-close-button"]').click();
+      await expect(previewModal).toBeHidden();
+
+      // 5. Click "Approve" directly on Student 2 (Score Only)
+      await page.locator(`[data-testid="approve-evaluation-button-${studentScoreOnlyId}"]`).click();
+      await expect(page.locator(`[data-testid="evaluation-approved-badge-${studentScoreOnlyId}"]`)).toBeVisible({
+        timeout: 20000,
+      });
+    } finally {
+      await cleanupTestAssignment(assignmentId, [
+        studentBothId,
+        studentScoreOnlyId,
+        studentDocOnlyId,
+      ]).catch(() => null);
+    }
+  });
+
+  test('createAssignmentViaAgentTool_teacherPromptsChatPanel_invokesCreateClassroomAssignmentToolAndOpensNewTab_test', async ({
+    page,
+  }) => {
+    const {
+      getLiveTeacherAccessToken,
+      getLiveTestTeacherCustomToken,
+      deleteLiveClassroomAssignmentFixture,
+      sweepOrphanedTestAssignments,
+    } = await import('../helpers/classroomSandboxSeeder');
+
+    const [googleToken, customToken] = await Promise.all([
+      getLiveTeacherAccessToken(),
+      getLiveTestTeacherCustomToken(),
+    ]);
+
+    await page.addInitScript(
+      ({ gToken, cToken }) => {
+        if (gToken) {
+          window.sessionStorage.setItem('classroom_agent_google_access_token', gToken);
+        }
+        if (cToken) {
+          window.sessionStorage.setItem('classroom_agent_custom_token', cToken);
+        }
+      },
+      { gToken: googleToken, cToken: customToken }
+    );
+
+    let activeCourseId = '';
+    let initialAssignmentId = '';
+    let createdCourseWorkId = '';
+
+    try {
+      await page.goto('/');
+
+      // Open an existing assignment tab so the Chat Panel is mounted
+      const newAssignmentTabBtn = page.locator('[data-testid="new-assignment-tab-button"]');
+      await expect(newAssignmentTabBtn).toBeVisible({ timeout: 15000 });
+      await newAssignmentTabBtn.click();
+
+      const modal = page.locator('[data-testid="assignment-picker-modal"]');
+      await expect(modal).toBeVisible({ timeout: 15000 });
+
+      const courseButtons = page.locator('[data-testid^="course-select-"]');
+      await expect(courseButtons.first()).toBeVisible({ timeout: 15000 });
+      const courseCount = await courseButtons.count();
+
+      let opened = false;
+      for (let i = 0; i < courseCount; i++) {
+        const courseBtn = courseButtons.nth(i);
+        const courseTestId = await courseBtn.getAttribute('data-testid');
+        const cId = courseTestId!.replace('course-select-', '');
+        await courseBtn.click();
+        await expect(page.locator('[data-testid="assignment-picker-section"]')).toBeVisible({ timeout: 5000 });
+        const assignmentCard = page.locator('[data-testid^="assignment-card-"]').first();
+        try {
+          await expect(assignmentCard).toBeVisible({ timeout: 5000 });
+          await assignmentCard.click();
+          const okBtn = page.locator('[data-testid="assignment-picker-ok-button"]');
+          await expect(okBtn).toBeEnabled();
+          await okBtn.click();
+          activeCourseId = cId;
+          opened = true;
+          break;
+        } catch {
+          // Try next course
+        }
+      }
+      expect(opened).toBe(true);
+      await expect(modal).toBeHidden({ timeout: 10000 });
+
+      const firstTab = page.locator(`[data-testid^="assignment-tab-${activeCourseId}_"]`).first();
+      await expect(firstTab).toBeVisible({ timeout: 15000 });
+      const firstTabTestId = await firstTab.getAttribute('data-testid');
+      initialAssignmentId = firstTabTestId!.replace('assignment-tab-', '');
+
+      const chatInput = page.locator('[data-testid="chat-input"]');
+      const chatSendBtn = page.locator('[data-testid="chat-send-button"]');
+      await expect(chatInput).toBeVisible({ timeout: 15000 });
+
+      const uniqueTitle = `[E2E Test] Agent Created Assignment ${Date.now()}`;
+      await chatInput.fill(
+        `Create a new assignment in this course titled "${uniqueTitle}" with description "Write a 300-word reflection on recursion." and maxPoints 40.`
+      );
+      await chatSendBtn.click();
+
+      // Verify tool call badge for create_classroom_assignment appears and succeeds
+      const createToolBadge = page
+        .locator('[data-testid="tool-call-badge"]', { hasText: 'Tool: create_classroom_assignment' })
+        .first();
+      await expect(createToolBadge).toBeVisible({ timeout: 45000 });
+      await expect(createToolBadge).toContainText('success', { timeout: 45000 });
+
+      // Verify the Created Assignment action card renders in the chat message
+      const createdCard = page.locator('[data-testid^="created-assignment-card-"]').first();
+      await expect(createdCard).toBeVisible({ timeout: 15000 });
+      await expect(createdCard).toContainText(uniqueTitle);
+      await expect(createdCard).toContainText('40 pts');
+
+      const cardTestId = await createdCard.getAttribute('data-testid');
+      createdCourseWorkId = cardTestId!.replace('created-assignment-card-', '');
+
+      // Click "Open in Workspace Tab" on the created assignment card
+      const openCreatedBtn = page.locator(`[data-testid="open-created-assignment-button-${createdCourseWorkId}"]`);
+      await expect(openCreatedBtn).toBeVisible();
+      await openCreatedBtn.click();
+
+      // Verify the new tab opens in the top tab bar with the created assignment's title
+      const createdTab = page.locator(`[data-testid="assignment-tab-${activeCourseId}_${createdCourseWorkId}"]`);
+      await expect(createdTab).toBeVisible({ timeout: 15000 });
+      await expect(createdTab).toContainText(uniqueTitle);
+    } finally {
+      if (activeCourseId && createdCourseWorkId) {
+        await deleteLiveClassroomAssignmentFixture(activeCourseId, createdCourseWorkId).catch(() => null);
+        await cleanupTestAssignment(`${activeCourseId}_${createdCourseWorkId}`, []).catch(() => null);
+      }
+      if (initialAssignmentId) {
+        await cleanupTestAssignment(initialAssignmentId, []).catch(() => null);
+      }
+      if (activeCourseId) {
+        await sweepOrphanedTestAssignments(activeCourseId).catch(() => null);
+      }
+    }
+  });
 });
+
+
+
 

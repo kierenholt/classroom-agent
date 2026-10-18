@@ -143,6 +143,7 @@ export const WorkspaceLayout: React.FC = () => {
                     assignmentId={session.assignmentId}
                     selectedStudentId={session.selectedStudentId}
                     title="Grading Agent Co-Pilot"
+                    onOpenAssignment={handleOpenAssignment}
                   />
                 </div>
               </div>

@@ -132,6 +132,70 @@ export async function cloneCourseWorkUnderApp(
   return created.data;
 }
 
+export interface CreateCourseWorkInput {
+  title: string;
+  description?: string;
+  maxPoints?: number;
+  dueDate?: string; // YYYY-MM-DD
+  state?: 'PUBLISHED' | 'DRAFT';
+}
+
+/**
+ * Creates a new coursework assignment in Google Classroom under the application's OAuth client ID.
+ * Coursework created via this endpoint has associatedWithDeveloper=true, enabling full grade write-back and return.
+ */
+export async function createCourseWork(
+  accessToken: string,
+  courseId: string,
+  input: CreateCourseWorkInput
+): Promise<classroom_v1.Schema$CourseWork> {
+  if (!courseId || !courseId.trim()) {
+    throw new Error('[Classroom Client] courseId is required to create coursework. Fail-fast enabled.');
+  }
+  if (!input?.title || !input.title.trim()) {
+    throw new Error('[Classroom Client] Assignment title is required to create coursework. Fail-fast enabled.');
+  }
+
+  const classroom = getClassroomClient(accessToken);
+  const parsedMaxPoints =
+    input.maxPoints !== undefined && input.maxPoints !== null && !Number.isNaN(Number(input.maxPoints))
+      ? Number(input.maxPoints)
+      : 100;
+
+  const requestBody: classroom_v1.Schema$CourseWork = {
+    title: input.title.trim(),
+    description: input.description?.trim() || undefined,
+    state: input.state || 'PUBLISHED',
+    workType: 'ASSIGNMENT',
+    maxPoints: parsedMaxPoints,
+    submissionModificationMode: 'MODIFIABLE_UNTIL_TURNED_IN',
+  };
+
+  if (input.dueDate && input.dueDate.trim()) {
+    const match = input.dueDate.trim().match(/^(\d{4})-(\d{2})-(\d{2})$/);
+    if (!match) {
+      throw new Error(`[Classroom Client] Invalid dueDate format "${input.dueDate}". Expected YYYY-MM-DD.`);
+    }
+    requestBody.dueDate = {
+      year: Number(match[1]),
+      month: Number(match[2]),
+      day: Number(match[3]),
+    };
+    requestBody.dueTime = {
+      hours: 23,
+      minutes: 59,
+    };
+  }
+
+  const created = await classroom.courses.courseWork.create({
+    courseId,
+    requestBody,
+  });
+
+  return created.data;
+}
+
+
 /**
  * Fetch all enrolled students for a course.
  */
@@ -476,3 +540,194 @@ export async function returnSubmission(
   });
   return res.data;
 }
+
+function escapeHtml(text: string): string {
+  return text
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;');
+}
+
+function formatInlineMarkdownToHtml(text: string): string {
+  let html = escapeHtml(text);
+  // Inline code
+  html = html.replace(/`([^`]+)`/g, '<code style="background-color:#f3f4f6;padding:2px 4px;border-radius:3px;font-family:monospace;">$1</code>');
+  // Bold
+  html = html.replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>');
+  // Italic
+  html = html.replace(/(?<!\*)\*([^*]+)\*(?!\*)/g, '<em>$1</em>');
+  return html;
+}
+
+/**
+ * Converts Markdown feedback into structured HTML suitable for Google Docs import.
+ */
+export function markdownToGoogleDocHtml(markdown: string, docTitle?: string): string {
+  const lines = (markdown || '').replace(/\r\n/g, '\n').split('\n');
+  const htmlParts: string[] = [];
+
+  if (docTitle) {
+    htmlParts.push(`<h1 style="font-family:Arial,sans-serif;color:#111827;margin-bottom:12px;">${escapeHtml(docTitle)}</h1>`);
+    htmlParts.push('<hr style="border:none;border-top:1px solid #d1d5db;margin-bottom:16px;" />');
+  }
+
+  let inList: 'ul' | 'ol' | null = null;
+  let inCodeBlock = false;
+  let codeLines: string[] = [];
+
+  const closeList = () => {
+    if (inList) {
+      htmlParts.push(`</${inList}>`);
+      inList = null;
+    }
+  };
+
+  for (const rawLine of lines) {
+    const trimmed = rawLine.trim();
+
+    if (trimmed.startsWith('```')) {
+      closeList();
+      if (!inCodeBlock) {
+        inCodeBlock = true;
+        codeLines = [];
+      } else {
+        inCodeBlock = false;
+        htmlParts.push(
+          `<pre style="background-color:#f3f4f6;padding:10px;border-radius:6px;font-family:monospace;font-size:10pt;">${escapeHtml(
+            codeLines.join('\n')
+          )}</pre>`
+        );
+      }
+      continue;
+    }
+
+    if (inCodeBlock) {
+      codeLines.push(rawLine);
+      continue;
+    }
+
+    if (!trimmed) {
+      closeList();
+      continue;
+    }
+
+    if (trimmed.startsWith('### ')) {
+      closeList();
+      htmlParts.push(`<h3 style="font-family:Arial,sans-serif;color:#1f2937;margin-top:14px;margin-bottom:6px;">${formatInlineMarkdownToHtml(trimmed.slice(4))}</h3>`);
+    } else if (trimmed.startsWith('## ')) {
+      closeList();
+      htmlParts.push(`<h2 style="font-family:Arial,sans-serif;color:#111827;margin-top:16px;margin-bottom:8px;">${formatInlineMarkdownToHtml(trimmed.slice(3))}</h2>`);
+    } else if (trimmed.startsWith('# ')) {
+      closeList();
+      htmlParts.push(`<h1 style="font-family:Arial,sans-serif;color:#111827;margin-top:18px;margin-bottom:10px;">${formatInlineMarkdownToHtml(trimmed.slice(2))}</h1>`);
+    } else if (/^[-*]\s+/.test(trimmed)) {
+      if (inList !== 'ul') {
+        closeList();
+        htmlParts.push('<ul style="font-family:Arial,sans-serif;margin-top:4px;margin-bottom:8px;">');
+        inList = 'ul';
+      }
+      htmlParts.push(`<li style="margin-bottom:4px;">${formatInlineMarkdownToHtml(trimmed.replace(/^[-*]\s+/, ''))}</li>`);
+    } else if (/^\d+\.\s+/.test(trimmed)) {
+      if (inList !== 'ol') {
+        closeList();
+        htmlParts.push('<ol style="font-family:Arial,sans-serif;margin-top:4px;margin-bottom:8px;">');
+        inList = 'ol';
+      }
+      htmlParts.push(`<li style="margin-bottom:4px;">${formatInlineMarkdownToHtml(trimmed.replace(/^\d+\.\s+/, ''))}</li>`);
+    } else if (trimmed.startsWith('> ')) {
+      closeList();
+      htmlParts.push(
+        `<blockquote style="border-left:3px solid #6366f1;padding-left:10px;color:#374151;font-style:italic;margin:8px 0;">${formatInlineMarkdownToHtml(
+          trimmed.slice(2)
+        )}</blockquote>`
+      );
+    } else {
+      closeList();
+      htmlParts.push(`<p style="font-family:Arial,sans-serif;line-height:1.5;margin-top:0;margin-bottom:10px;">${formatInlineMarkdownToHtml(trimmed)}</p>`);
+    }
+  }
+
+  closeList();
+  if (inCodeBlock && codeLines.length > 0) {
+    htmlParts.push(
+      `<pre style="background-color:#f3f4f6;padding:10px;border-radius:6px;font-family:monospace;font-size:10pt;">${escapeHtml(
+        codeLines.join('\n')
+      )}</pre>`
+    );
+  }
+
+  return `<!DOCTYPE html><html><head><meta charset="utf-8" /></head><body style="font-family:Arial,sans-serif;font-size:11pt;color:#111827;">${htmlParts.join(
+    '\n'
+  )}</body></html>`;
+}
+
+/**
+ * Creates a formatted Google Doc in Google Drive from Markdown feedback content.
+ */
+export async function createFeedbackGoogleDoc(
+  accessToken: string,
+  title: string,
+  markdownContent: string
+): Promise<{ fileId: string; webViewLink: string; title: string }> {
+  if (!title || !markdownContent) {
+    throw new Error('[Classroom Client] title and markdownContent are required to create a feedback Google Doc.');
+  }
+  const drive = getDriveClient(accessToken);
+  const htmlBody = markdownToGoogleDocHtml(markdownContent, title);
+
+  const created = await drive.files.create({
+    requestBody: {
+      name: title,
+      mimeType: 'application/vnd.google-apps.document',
+    },
+    media: {
+      mimeType: 'text/html',
+      body: htmlBody,
+    },
+    fields: 'id, name, webViewLink',
+  });
+
+  const fileId = created.data.id;
+  if (!fileId) {
+    throw new Error('[Classroom Client] Google Drive did not return a file ID for the feedback document.');
+  }
+
+  return {
+    fileId,
+    webViewLink: created.data.webViewLink || `https://docs.google.com/document/d/${fileId}/edit`,
+    title: created.data.name || title,
+  };
+}
+
+/**
+ * Attaches a Google Drive file to a student's submission in Google Classroom via studentSubmissions.modifyAttachments.
+ */
+export async function attachDriveFileToSubmission(
+  accessToken: string,
+  courseId: string,
+  courseWorkId: string,
+  submissionId: string,
+  driveFileId: string
+) {
+  if (!courseId || !courseWorkId || !submissionId || !driveFileId) {
+    throw new Error('[Classroom Client] courseId, courseWorkId, submissionId, and driveFileId are required to attach file.');
+  }
+  const classroom = getClassroomClient(accessToken);
+  const res = await classroom.courses.courseWork.studentSubmissions.modifyAttachments({
+    courseId,
+    courseWorkId,
+    id: submissionId,
+    requestBody: {
+      addAttachments: [
+        {
+          driveFile: {
+            id: driveFileId,
+          },
+        },
+      ],
+    },
+  });
+  return res.data;
+}
+

@@ -102,7 +102,7 @@ chatRouter.post('/', requireAuth, async (req: AuthenticatedRequest, res: Respons
     // 3. Construct System Instruction
     const systemInstruction = `You are Classroom Agent, an expert AI grading co-pilot for Google Classroom.
 Assignment Context (Live from Google Classroom):
-- Course: "${course.name || 'Classroom Course'}"
+- Course: "${course.name || 'Classroom Course'}" (Course ID: "${courseId}")
 - Assignment Title: "${coursework.title || 'Classroom Assignment'}"
 - Max Points: ${coursework.maxPoints || 100}
 - Description: "${coursework.description || 'No description provided'}"
@@ -125,7 +125,7 @@ Teacher Feedback Preferences (Strictly Enforce):
 - Show Scores in Written Feedback: ${
       showScores
         ? 'ON — Include the numerical score/grade and point breakdown in your written feedback and chat summary.'
-        : 'OFF — Do NOT mention or display any numerical scores, point values, or fractions (e.g. 85/100) anywhere in your written overallFeedback, criterion comments, or chat response to the teacher, while still passing the numerical draftGrade argument to evaluate_and_grade_submission so the grade is recorded in the workspace and Google Classroom.'
+        : 'OFF — Do NOT mention or display any numerical scores, point values, or fractions (e.g. 85/100) anywhere in your written overallFeedback, criterion comments, or chat response to the teacher.'
     }${
       customAgentInstructions
         ? `\n- Custom Agent Instructions: ${customAgentInstructions}`
@@ -133,12 +133,14 @@ Teacher Feedback Preferences (Strictly Enforce):
     }
 
 Operational Guidelines:
-1. When asked to mark, evaluate, or grade submissions:
+1. When asked to mark, evaluate, provide feedback, or grade submissions:
    - Call "get_student_submission_content" to thoroughly read the student's work.
-   - For batch grading, call "evaluate_and_grade_submission" for each student individually so progress is clearly visible.
-   - Always provide actionable justification and constructive overall feedback directly in your chat response for the teacher to review, strictly adhering to the Teacher Feedback Preferences above. The student submission comments thread in Zone C is reserved strictly for genuine 2-way teacher/student dialogue.
-2. When asked to create or update a rubric, use "set_assignment_rubric".
-3. When asked to return grades to students, use "return_student_submissions".`;
+   - Call "evaluate_and_grade_submission" to stage the evaluation for teacher review and approval in the chat panel (for batch grading, call it once per student).
+   - "evaluate_and_grade_submission" supports proposing a score only (pass draftGrade, omit overallFeedback), a feedback document only (pass overallFeedback, omit draftGrade), or both (pass both draftGrade and overallFeedback), depending on what the teacher requested.
+   - Always provide actionable justification and constructive summary directly in your chat response for the teacher to review, strictly adhering to the Teacher Feedback Preferences above. The student submission comments thread in Zone C is reserved strictly for genuine 2-way teacher/student dialogue.
+2. When asked to create or update a rubric for the current assignment, use "set_assignment_rubric".
+3. When asked to return grades to students directly, use "return_student_submissions".
+4. When asked to create a new assignment in Google Classroom, use "create_classroom_assignment" (defaults to the current course "${courseId}" unless the teacher specifies another class, in which case call "list_teacher_courses" first to resolve the target courseId).`;
 
     // 4. Initialize Gemini client
     const ai = new GoogleGenAI({ apiKey: serverEnv.GEMINI_API_KEY });

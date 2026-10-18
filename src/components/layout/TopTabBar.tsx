@@ -114,19 +114,20 @@ export const TopTabBar: React.FC<TopTabBarProps> = ({
 
           {/* "+ Assignment" Button */}
           <button
+            type="button"
             data-testid="new-assignment-tab-button"
             onClick={onNewTab}
             onMouseEnter={() => preloadAssignments()}
             onFocus={() => preloadAssignments()}
-            className={`flex items-center space-x-1 px-2.5 py-1 rounded text-xs transition-colors shrink-0 ${
+            className={`flex items-center space-x-1.5 px-3 py-1 rounded-t-md text-xs cursor-pointer transition-all border-t-2 shrink-0 ${
               isPickerOpen
-                ? 'bg-purple-600/30 text-purple-200 border border-purple-500/50'
-                : 'text-gray-400 hover:text-white hover:bg-[#21262d]'
+                ? 'bg-[#161b22] text-white border-purple-500 font-medium'
+                : 'bg-[#0d1117] text-gray-400 border-transparent hover:bg-[#161b22]/50 hover:text-gray-200'
             }`}
             title="Open new assignment tab"
           >
             <Plus className="w-3.5 h-3.5" />
-            <span className="text-[11px]">Assignment</span>
+            <span>Assignment</span>
           </button>
         </div>
       </div>

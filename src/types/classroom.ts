@@ -76,18 +76,28 @@ export interface SubmissionComment {
 }
 
 export type SubmissionState = 'CREATED' | 'TURNED_IN' | 'RETURNED' | 'RECLAIMED_BY_STUDENT';
-export type ClassroomSyncStatus = 'SYNCED_DRAFT' | 'RETURNED' | 'LOCAL_ONLY_PERMISSION_DENIED' | 'ERROR' | 'UNSAVED';
+export type ClassroomSyncStatus =
+  | 'PENDING_APPROVAL'
+  | 'APPROVED'
+  | 'SYNCED_DRAFT'
+  | 'RETURNED'
+  | 'LOCAL_ONLY_PERMISSION_DENIED'
+  | 'ERROR'
+  | 'UNSAVED';
 
 export interface StudentEvaluationSidecarDoc {
   studentId: string;
   submissionId?: string;
-  draftGrade?: number;
-  assignedGrade?: number;
+  draftGrade?: number | null;
+  assignedGrade?: number | null;
   rubricBreakdown: CriterionEvaluation[];
   overallFeedback: string;
   comments: SubmissionComment[];
   classroomSyncStatus: ClassroomSyncStatus;
   classroomSyncError?: string;
+  feedbackDocId?: string;
+  feedbackDocUrl?: string;
+  approvedAt?: string;
   updatedAt: string;
 }
 
@@ -107,6 +117,9 @@ export interface StudentSubmissionDoc {
   comments: SubmissionComment[];
   classroomSyncStatus: ClassroomSyncStatus;
   classroomSyncError?: string;
+  feedbackDocId?: string;
+  feedbackDocUrl?: string;
+  approvedAt?: string;
   updatedAt: string;
 }
 

@@ -171,13 +171,22 @@ export const AssignmentWorkspace: React.FC<AssignmentWorkspaceProps> = ({
       return {
         ...liveSub,
         state: isReturned ? 'RETURNED' : liveSub.state,
-        draftGrade: sidecar.draftGrade !== undefined ? sidecar.draftGrade : liveSub.draftGrade,
-        assignedGrade: sidecar.assignedGrade !== undefined ? sidecar.assignedGrade : liveSub.assignedGrade,
+        draftGrade:
+          sidecar.draftGrade !== undefined && sidecar.draftGrade !== null
+            ? sidecar.draftGrade
+            : liveSub.draftGrade,
+        assignedGrade:
+          sidecar.assignedGrade !== undefined && sidecar.assignedGrade !== null
+            ? sidecar.assignedGrade
+            : liveSub.assignedGrade,
         rubricBreakdown: sidecar.rubricBreakdown || [],
         overallFeedback: sidecar.overallFeedback || '',
         comments: sidecar.comments || [],
         classroomSyncStatus: sidecar.classroomSyncStatus || liveSub.classroomSyncStatus,
         classroomSyncError: sidecar.classroomSyncError || liveSub.classroomSyncError,
+        feedbackDocId: sidecar.feedbackDocId || liveSub.feedbackDocId,
+        feedbackDocUrl: sidecar.feedbackDocUrl || liveSub.feedbackDocUrl,
+        approvedAt: sidecar.approvedAt || liveSub.approvedAt,
         updatedAt: sidecar.updatedAt || liveSub.updatedAt,
       };
     });

@@ -1,5 +1,17 @@
 import React, { useState, useEffect } from 'react';
-import { BookOpen, Calendar, Award, CheckCircle, AlertCircle, Loader2, X, GraduationCap, RefreshCw } from 'lucide-react';
+import {
+  BookOpen,
+  Calendar,
+  Award,
+  CheckCircle,
+  AlertCircle,
+  Loader2,
+  X,
+  GraduationCap,
+  RefreshCw,
+  PlusCircle,
+  ArrowLeft,
+} from 'lucide-react';
 import { ClassroomCoursework } from '../../types/classroom';
 import { useClassroomData } from '../../context/ClassroomDataContext';
 
@@ -22,6 +34,7 @@ export const AssignmentPickerView: React.FC<AssignmentPickerViewProps> = ({
     error: globalError,
     preloadAssignments,
     fetchCourseworkForCourse,
+    createCourseworkForCourse,
     prefetchWorkspace,
     refreshAll,
   } = useClassroomData();
@@ -31,12 +44,26 @@ export const AssignmentPickerView: React.FC<AssignmentPickerViewProps> = ({
   const [localError, setLocalError] = useState<string | null>(null);
   const [isRefreshing, setIsRefreshing] = useState<boolean>(false);
 
+  // New assignment creation state
+  const [isCreatingAssignment, setIsCreatingAssignment] = useState<boolean>(false);
+  const [newTitle, setNewTitle] = useState<string>('');
+  const [newDescription, setNewDescription] = useState<string>('');
+  const [newMaxPoints, setNewMaxPoints] = useState<string>('100');
+  const [newDueDate, setNewDueDate] = useState<string>('');
+  const [isSubmittingCreate, setIsSubmittingCreate] = useState<boolean>(false);
+
   // When modal opens, reset selections so user starts fresh at Step 1
   useEffect(() => {
     if (isOpen) {
       setSelectedCourseId(null);
       setSelectedCourseworkId(null);
       setLocalError(null);
+      setIsCreatingAssignment(false);
+      setNewTitle('');
+      setNewDescription('');
+      setNewMaxPoints('100');
+      setNewDueDate('');
+      setIsSubmittingCreate(false);
       // If not yet preloaded or courses empty, trigger background preload
       if (courses.length === 0) {
         preloadAssignments(false);
@@ -48,8 +75,12 @@ export const AssignmentPickerView: React.FC<AssignmentPickerViewProps> = ({
   useEffect(() => {
     if (!isOpen || !selectedCourseId) {
       setSelectedCourseworkId(null);
+      setIsCreatingAssignment(false);
       return;
     }
+
+    setSelectedCourseworkId(null);
+    setLocalError(null);
 
     if (!courseworkByCourseId[selectedCourseId]) {
       fetchCourseworkForCourse(selectedCourseId).catch((err: any) => {
@@ -70,13 +101,59 @@ export const AssignmentPickerView: React.FC<AssignmentPickerViewProps> = ({
   const error = localError || globalError;
 
   const handleSelectAssignment = (cw: ClassroomCoursework) => {
+    setIsCreatingAssignment(false);
     setSelectedCourseworkId(cw.id);
     if (selectedCourseId) {
       prefetchWorkspace(selectedCourseId, cw.id);
     }
   };
 
+  const handleOpenCreateForm = () => {
+    setSelectedCourseworkId(null);
+    setLocalError(null);
+    setIsCreatingAssignment(true);
+  };
+
+  const handleCancelCreateForm = () => {
+    setIsCreatingAssignment(false);
+    setLocalError(null);
+  };
+
+  const handleCreateAssignment = async (e?: React.FormEvent) => {
+    if (e) e.preventDefault();
+    if (!selectedCourseId || !newTitle.trim() || isSubmittingCreate) return;
+
+    setIsSubmittingCreate(true);
+    setLocalError(null);
+
+    try {
+      const parsedPoints = Number(newMaxPoints);
+      const created = await createCourseworkForCourse(selectedCourseId, {
+        title: newTitle.trim(),
+        description: newDescription.trim() || undefined,
+        maxPoints: !Number.isNaN(parsedPoints) && parsedPoints >= 0 ? parsedPoints : 100,
+        dueDate: newDueDate.trim() || undefined,
+      });
+
+      const selectedCourse = courses.find((c) => c.id === selectedCourseId);
+      const assignmentId = `${selectedCourseId}_${created.id}`;
+      onOpenAssignment(assignmentId, {
+        courseName: selectedCourse?.name || 'Classroom Course',
+        assignmentTitle: created.title,
+      });
+      onClose();
+    } catch (err: any) {
+      setLocalError(err.message || 'Failed to create assignment');
+    } finally {
+      setIsSubmittingCreate(false);
+    }
+  };
+
   const handleConfirmSelection = () => {
+    if (isCreatingAssignment) {
+      handleCreateAssignment();
+      return;
+    }
     if (!selectedCourseId || !selectedCourseworkId) return;
     const selectedCourse = courses.find((c) => c.id === selectedCourseId);
     const selectedCw = currentCoursework.find((cw) => cw.id === selectedCourseworkId);
@@ -102,6 +179,10 @@ export const AssignmentPickerView: React.FC<AssignmentPickerViewProps> = ({
     }
   };
 
+  const isConfirmDisabled = isCreatingAssignment
+    ? !selectedCourseId || !newTitle.trim() || isSubmittingCreate
+    : !selectedCourseId || !selectedCourseworkId;
+
   return (
     <div
       data-testid="assignment-picker-modal"
@@ -122,7 +203,7 @@ export const AssignmentPickerView: React.FC<AssignmentPickerViewProps> = ({
             <div>
               <h2 className="text-sm font-semibold text-white">Open Assignment</h2>
               <p className="text-[11px] text-gray-400">
-                Select a class and then choose an assignment to open in a tab
+                Select a class, then choose an existing assignment or create a new one
               </p>
             </div>
           </div>
@@ -131,7 +212,7 @@ export const AssignmentPickerView: React.FC<AssignmentPickerViewProps> = ({
               type="button"
               data-testid="assignment-picker-refresh-button"
               onClick={handleManualRefresh}
-              disabled={isRefreshing || isCoursesLoading}
+              disabled={isRefreshing || isCoursesLoading || isSubmittingCreate}
               className="p-1.5 rounded-lg text-gray-400 hover:text-white hover:bg-[#21262d] transition-colors disabled:opacity-50"
               title="Refresh classes and assignments"
             >
@@ -149,13 +230,16 @@ export const AssignmentPickerView: React.FC<AssignmentPickerViewProps> = ({
         </div>
 
         {error && (
-          <div className="p-3 mx-6 mt-4 bg-red-950/50 border border-red-800/60 rounded-md text-red-300 text-xs flex items-center space-x-2">
+          <div
+            data-testid="assignment-picker-error"
+            className="p-3 mx-6 mt-4 bg-red-950/50 border border-red-800/60 rounded-md text-red-300 text-xs flex items-center space-x-2"
+          >
             <AlertCircle className="w-4 h-4 shrink-0" />
             <span>{error}</span>
           </div>
         )}
 
-        {/* Modal Body: Class Picker + Conditional Assignment Picker */}
+        {/* Modal Body: Class Picker + Conditional Assignment Picker / Creator */}
         <div className="flex-1 overflow-y-auto p-6 space-y-6">
           {/* Step 1: Class Picker */}
           <div data-testid="class-picker-section" className="space-y-2.5">
@@ -201,24 +285,142 @@ export const AssignmentPickerView: React.FC<AssignmentPickerViewProps> = ({
             )}
           </div>
 
-          {/* Step 2: Assignment Picker (shown once user selects a class) */}
+          {/* Step 2: Assignment Picker or Create New Assignment Form (shown once user selects a class) */}
           {selectedCourseId && (
-            <div data-testid="assignment-picker-section" className="space-y-2.5 pt-2 border-t border-[#30363d]">
-              <label className="block text-[11px] font-semibold uppercase tracking-wider text-gray-400">
-                2. Select an Assignment
-              </label>
-              {isCourseworkLoading ? (
+            <div data-testid="assignment-picker-section" className="space-y-3 pt-2 border-t border-[#30363d]">
+              <div className="flex items-center justify-between">
+                <label className="block text-[11px] font-semibold uppercase tracking-wider text-gray-400">
+                  {isCreatingAssignment ? '2. Create New Assignment' : '2. Select an Assignment'}
+                </label>
+                {!isCreatingAssignment ? (
+                  <button
+                    type="button"
+                    data-testid="create-new-assignment-button"
+                    onClick={handleOpenCreateForm}
+                    className="inline-flex items-center space-x-1.5 px-2.5 py-1 rounded-md bg-purple-600/20 hover:bg-purple-600/30 border border-purple-500/40 text-purple-300 text-xs font-medium transition-colors"
+                  >
+                    <PlusCircle className="w-3.5 h-3.5" />
+                    <span>+ New Assignment</span>
+                  </button>
+                ) : (
+                  <button
+                    type="button"
+                    data-testid="cancel-create-assignment-button"
+                    onClick={handleCancelCreateForm}
+                    disabled={isSubmittingCreate}
+                    className="inline-flex items-center space-x-1 text-xs text-gray-400 hover:text-gray-200 transition-colors disabled:opacity-50"
+                  >
+                    <ArrowLeft className="w-3.5 h-3.5" />
+                    <span>Back to existing assignments</span>
+                  </button>
+                )}
+              </div>
+
+              {isCreatingAssignment ? (
+                <form
+                  data-testid="create-assignment-form"
+                  onSubmit={handleCreateAssignment}
+                  className="p-4 bg-[#0d1117] border border-[#30363d] rounded-lg space-y-3.5"
+                >
+                  <div>
+                    <label className="block text-xs font-medium text-gray-300 mb-1">
+                      Assignment Title <span className="text-red-400">*</span>
+                    </label>
+                    <input
+                      type="text"
+                      required
+                      data-testid="new-assignment-title-input"
+                      value={newTitle}
+                      onChange={(e) => setNewTitle(e.target.value)}
+                      placeholder="e.g., Unit 3 Essay: Industrial Revolution"
+                      disabled={isSubmittingCreate}
+                      className="w-full px-3 py-2 text-xs bg-[#161b22] border border-[#30363d] rounded-md text-white placeholder-gray-500 focus:outline-none focus:border-purple-500"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="block text-xs font-medium text-gray-300 mb-1">
+                      Instructions / Description <span className="text-gray-500">(optional)</span>
+                    </label>
+                    <textarea
+                      rows={3}
+                      data-testid="new-assignment-description-input"
+                      value={newDescription}
+                      onChange={(e) => setNewDescription(e.target.value)}
+                      placeholder="Provide assignment instructions, prompts, or grading expectations..."
+                      disabled={isSubmittingCreate}
+                      className="w-full px-3 py-2 text-xs bg-[#161b22] border border-[#30363d] rounded-md text-white placeholder-gray-500 focus:outline-none focus:border-purple-500 resize-none"
+                    />
+                  </div>
+
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                    <div>
+                      <label className="block text-xs font-medium text-gray-300 mb-1">Max Points</label>
+                      <input
+                        type="number"
+                        min={0}
+                        max={1000}
+                        data-testid="new-assignment-max-points-input"
+                        value={newMaxPoints}
+                        onChange={(e) => setNewMaxPoints(e.target.value)}
+                        disabled={isSubmittingCreate}
+                        className="w-full px-3 py-1.5 text-xs bg-[#161b22] border border-[#30363d] rounded-md text-white focus:outline-none focus:border-purple-500"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-xs font-medium text-gray-300 mb-1">
+                        Due Date <span className="text-gray-500">(optional)</span>
+                      </label>
+                      <input
+                        type="date"
+                        data-testid="new-assignment-due-date-input"
+                        value={newDueDate}
+                        onChange={(e) => setNewDueDate(e.target.value)}
+                        disabled={isSubmittingCreate}
+                        className="w-full px-3 py-1.5 text-xs bg-[#161b22] border border-[#30363d] rounded-md text-white focus:outline-none focus:border-purple-500"
+                      />
+                    </div>
+                  </div>
+                </form>
+              ) : isCourseworkLoading ? (
                 <div className="flex items-center space-x-2 text-xs text-gray-400 p-6 bg-[#0d1117] border border-[#30363d] rounded-lg justify-center">
                   <Loader2 className="w-4 h-4 animate-spin text-purple-400" />
                   <span>Loading assignments from Classroom...</span>
                 </div>
               ) : currentCoursework.length === 0 ? (
-                <div className="flex flex-col items-center justify-center text-gray-500 text-xs p-6 bg-[#0d1117] border border-[#30363d] rounded-lg">
-                  <BookOpen className="w-8 h-8 mb-2 text-gray-600" />
-                  <p>No assignments found for this class.</p>
+                <div className="flex flex-col items-center justify-center text-gray-400 text-xs p-6 bg-[#0d1117] border border-[#30363d] rounded-lg space-y-3">
+                  <BookOpen className="w-8 h-8 text-gray-600" />
+                  <p className="text-gray-500">No existing assignments found for this class.</p>
+                  <button
+                    type="button"
+                    data-testid="create-new-assignment-card"
+                    onClick={handleOpenCreateForm}
+                    className="inline-flex items-center space-x-1.5 px-3.5 py-2 rounded-lg bg-purple-600/20 hover:bg-purple-600/30 border border-purple-500/40 text-purple-300 text-xs font-medium transition-colors"
+                  >
+                    <PlusCircle className="w-4 h-4" />
+                    <span>Create New Assignment</span>
+                  </button>
                 </div>
               ) : (
                 <div className="space-y-2 max-h-60 overflow-y-auto pr-1">
+                  {/* Option card to create a new assignment alongside existing assignments */}
+                  <button
+                    type="button"
+                    data-testid="create-new-assignment-card"
+                    onClick={handleOpenCreateForm}
+                    className="w-full text-left p-3 rounded-lg border border-dashed border-purple-500/40 bg-purple-950/15 hover:bg-purple-900/25 text-purple-300 transition-all flex items-center justify-between"
+                  >
+                    <div className="flex items-center space-x-2.5">
+                      <PlusCircle className="w-4 h-4 text-purple-400 shrink-0" />
+                      <div>
+                        <div className="font-semibold text-xs text-purple-200">Create New Assignment</div>
+                        <div className="text-[11px] text-gray-400">
+                          Publish a new assignment directly to this Google Classroom course
+                        </div>
+                      </div>
+                    </div>
+                  </button>
+
                   {currentCoursework.map((cw) => {
                     const isSelected = selectedCourseworkId === cw.id;
                     return (
@@ -272,7 +474,8 @@ export const AssignmentPickerView: React.FC<AssignmentPickerViewProps> = ({
             type="button"
             data-testid="assignment-picker-cancel-button"
             onClick={onClose}
-            className="px-4 py-1.5 rounded-lg bg-[#21262d] hover:bg-[#30363d] text-gray-300 text-xs font-medium transition-colors"
+            disabled={isSubmittingCreate}
+            className="px-4 py-1.5 rounded-lg bg-[#21262d] hover:bg-[#30363d] text-gray-300 text-xs font-medium transition-colors disabled:opacity-50"
           >
             Cancel
           </button>
@@ -280,13 +483,21 @@ export const AssignmentPickerView: React.FC<AssignmentPickerViewProps> = ({
             type="button"
             data-testid="assignment-picker-ok-button"
             onClick={handleConfirmSelection}
-            disabled={!selectedCourseId || !selectedCourseworkId}
-            className="px-5 py-1.5 rounded-lg bg-purple-600 hover:bg-purple-500 text-white text-xs font-medium transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+            disabled={isConfirmDisabled}
+            className="px-5 py-1.5 rounded-lg bg-purple-600 hover:bg-purple-500 text-white text-xs font-medium transition-colors disabled:opacity-40 disabled:cursor-not-allowed inline-flex items-center space-x-1.5"
           >
-            OK
+            {isSubmittingCreate ? (
+              <>
+                <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                <span>Creating...</span>
+              </>
+            ) : (
+              <span>{isCreatingAssignment ? 'Create & Open' : 'OK'}</span>
+            )}
           </button>
         </div>
       </div>
     </div>
   );
 };
+

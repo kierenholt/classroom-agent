@@ -1,13 +1,29 @@
 import React, { useState, useRef, useEffect } from 'react';
-import { Send, Bot, User, Sparkles, Loader2, AlertCircle, Paperclip, FileText, X } from 'lucide-react';
+import {
+  Send,
+  Bot,
+  User,
+  Sparkles,
+  Loader2,
+  AlertCircle,
+  Paperclip,
+  FileText,
+  X,
+  Eye,
+  Check,
+  CheckCircle2,
+  ExternalLink,
+} from 'lucide-react';
 import { collection, query, orderBy, onSnapshot } from 'firebase/firestore';
 import { db } from '../../config/firebase';
 import { ToolCallBadge } from './ToolCallBadge';
 import { MarkdownRenderer } from './MarkdownRenderer';
+import { FeedbackPreviewModal } from './FeedbackPreviewModal';
 import { sendChatMessage } from './api';
-import { PersistedChatMessage, ToolCallItem } from '../../types/classroom';
+import { PersistedChatMessage, ToolCallItem, StudentEvaluationSidecarDoc } from '../../types/classroom';
 import { useAuth } from '../../context/AuthContext';
 import { useSettings } from '../../context/SettingsContext';
+import { useClassroomData } from '../../context/ClassroomDataContext';
 import { env } from '../../config/env';
 
 interface ChatPanelProps {
@@ -15,6 +31,31 @@ interface ChatPanelProps {
   selectedStudentId?: string | null;
   title?: string;
   promptStarters?: string[];
+  onOpenAssignment?: (assignmentId: string, meta?: { courseName?: string; assignmentTitle?: string }) => void;
+}
+
+interface ExtractedEvaluationItem {
+  studentId: string;
+  studentName: string;
+  submissionId?: string;
+  score: number | null;
+  maxPoints: number;
+  feedback: string;
+  hasScore: boolean;
+  hasFeedbackDoc: boolean;
+  isApproved: boolean;
+  feedbackDocUrl?: string;
+}
+
+interface ExtractedCreatedAssignmentItem {
+  assignmentId: string;
+  courseId: string;
+  courseName: string;
+  courseWorkId: string;
+  title: string;
+  maxPoints: number;
+  state: string;
+  alternateLink?: string;
 }
 
 export const ChatPanel: React.FC<ChatPanelProps> = ({
@@ -25,18 +66,26 @@ export const ChatPanel: React.FC<ChatPanelProps> = ({
     'Generate a grading rubric based on the assignment instructions',
     'Evaluate and grade the currently selected student\'s submission',
     'Mark all turned-in ungraded submissions using the rubric',
-    'Summarize class performance and common mistakes across all graded submissions',
+    'Create a new follow-up assignment in this class',
   ],
+  onOpenAssignment,
 }) => {
   const { getAuthHeaders } = useAuth();
   const { feedbackSettings } = useSettings();
+  const { fetchCourseworkForCourse } = useClassroomData();
   const [persistedMessages, setPersistedMessages] = useState<PersistedChatMessage[]>([]);
   const [messages, setMessages] = useState<PersistedChatMessage[]>([]);
+  const [evaluationsMap, setEvaluationsMap] = useState<Record<string, StudentEvaluationSidecarDoc>>({});
   const [inputText, setInputText] = useState('');
   const [isStreaming, setIsStreaming] = useState(false);
   const [statusTicker, setStatusTicker] = useState<string | null>(null);
   const [errorText, setErrorText] = useState<string | null>(null);
   const [stagedFile, setStagedFile] = useState<{ file: File; uri?: string; uploading: boolean } | null>(null);
+
+  // Preview Modal & Approval state
+  const [previewTarget, setPreviewTarget] = useState<ExtractedEvaluationItem | null>(null);
+  const [savingStudentId, setSavingStudentId] = useState<string | null>(null);
+  const [approvingStudentIds, setApprovingStudentIds] = useState<Record<string, boolean>>({});
 
   const scrollRef = useRef<HTMLDivElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -61,6 +110,27 @@ export const ChatPanel: React.FC<ChatPanelProps> = ({
     return () => unsubscribe();
   }, [assignmentId]);
 
+  // 1b. Subscribe to Firestore evaluations sidecar so edits and approvals reflect live in chat cards
+  useEffect(() => {
+    if (!assignmentId) return;
+    const evalsRef = collection(db, 'assignments', assignmentId, 'evaluations');
+    const unsubscribe = onSnapshot(
+      evalsRef,
+      (snapshot) => {
+        const map: Record<string, StudentEvaluationSidecarDoc> = {};
+        snapshot.docs.forEach((d) => {
+          map[d.id] = d.data() as StudentEvaluationSidecarDoc;
+        });
+        setEvaluationsMap(map);
+      },
+      (err) => {
+        console.error('Error listening to evaluations in ChatPanel:', err);
+      }
+    );
+
+    return () => unsubscribe();
+  }, [assignmentId]);
+
   // 2. Reconcile with persisted storage only when idle
   useEffect(() => {
     if (!isStreaming) {
@@ -74,6 +144,186 @@ export const ChatPanel: React.FC<ChatPanelProps> = ({
       scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
     }
   }, [messages, statusTicker, isStreaming]);
+
+  const extractEvaluationsFromMessage = (msg: PersistedChatMessage): ExtractedEvaluationItem[] => {
+    if (msg.sender !== 'agent' || !msg.toolCalls || msg.toolCalls.length === 0) return [];
+    const items: ExtractedEvaluationItem[] = [];
+    const seenStudents = new Set<string>();
+
+    for (const tool of msg.toolCalls) {
+      if (tool.name !== 'evaluate_and_grade_submission' || tool.status !== 'success') continue;
+      const res = (tool.result || {}) as Record<string, any>;
+      const args = (tool.args || {}) as Record<string, any>;
+      const studentId = String(res.studentId || args.studentId || '').trim();
+      if (!studentId || seenStudents.has(studentId)) continue;
+      seenStudents.add(studentId);
+
+      const sidecar = evaluationsMap[studentId];
+      const studentName = String(res.studentName || studentId);
+      const submissionId = sidecar?.submissionId || (res.submissionId ? String(res.submissionId) : undefined);
+      const maxPoints = typeof res.maxPoints === 'number' ? res.maxPoints : 100;
+
+      let rawScore: number | null = null;
+      if (sidecar && sidecar.draftGrade !== undefined) {
+        rawScore = sidecar.draftGrade;
+      } else if (typeof res.grade === 'number') {
+        rawScore = res.grade;
+      } else if (typeof args.draftGrade === 'number') {
+        rawScore = args.draftGrade;
+      }
+      const hasScore = typeof rawScore === 'number' && !Number.isNaN(rawScore);
+
+      let feedback = '';
+      if (sidecar && typeof sidecar.overallFeedback === 'string') {
+        feedback = sidecar.overallFeedback;
+      } else if (typeof res.feedback === 'string') {
+        feedback = res.feedback;
+      } else if (typeof args.overallFeedback === 'string') {
+        feedback = args.overallFeedback;
+      }
+      const hasFeedbackDoc = feedback.trim().length > 0;
+
+      if (!hasScore && !hasFeedbackDoc) continue;
+
+      const syncStatus = sidecar?.classroomSyncStatus || res.classroomSyncStatus || 'PENDING_APPROVAL';
+      const isApproved =
+        syncStatus === 'RETURNED' || syncStatus === 'APPROVED' || Boolean(sidecar?.approvedAt);
+
+      items.push({
+        studentId,
+        studentName,
+        submissionId,
+        score: hasScore ? rawScore : null,
+        maxPoints,
+        feedback,
+        hasScore,
+        hasFeedbackDoc,
+        isApproved,
+        feedbackDocUrl: sidecar?.feedbackDocUrl,
+      });
+    }
+
+    return items;
+  };
+
+  const extractCreatedAssignmentsFromMessage = (msg: PersistedChatMessage): ExtractedCreatedAssignmentItem[] => {
+    if (msg.sender !== 'agent' || !msg.toolCalls || msg.toolCalls.length === 0) return [];
+    const items: ExtractedCreatedAssignmentItem[] = [];
+    const seenIds = new Set<string>();
+
+    for (const tool of msg.toolCalls) {
+      if (tool.name !== 'create_classroom_assignment' || tool.status !== 'success') continue;
+      const res = (tool.result || {}) as Record<string, any>;
+      const args = (tool.args || {}) as Record<string, any>;
+      const createdAssignmentId = String(res.assignmentId || '').trim();
+      const courseWorkId = String(res.courseWorkId || '').trim();
+      if (!createdAssignmentId || !courseWorkId || seenIds.has(createdAssignmentId)) continue;
+      seenIds.add(createdAssignmentId);
+
+      items.push({
+        assignmentId: createdAssignmentId,
+        courseId: String(res.courseId || args.courseId || ''),
+        courseName: String(res.courseName || 'Classroom Course'),
+        courseWorkId,
+        title: String(res.title || args.title || 'New Assignment'),
+        maxPoints: typeof res.maxPoints === 'number' ? res.maxPoints : Number(args.maxPoints) || 100,
+        state: String(res.state || 'PUBLISHED'),
+        alternateLink: res.alternateLink ? String(res.alternateLink) : undefined,
+      });
+    }
+
+    return items;
+  };
+
+  const handleSaveEvaluationDraft = async (
+    item: ExtractedEvaluationItem,
+    updatedFeedback: string,
+    updatedScore: number | null
+  ) => {
+    setSavingStudentId(item.studentId);
+    setErrorText(null);
+    try {
+      const headers = await getAuthHeaders();
+      const res = await fetch(
+        `${env.API_BASE_URL}/classroom/assignments/${assignmentId}/submissions/${item.studentId}/grade`,
+        {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            ...headers,
+          },
+          body: JSON.stringify({
+            submissionId: item.submissionId,
+            draftGrade: updatedScore,
+            overallFeedback: updatedFeedback,
+          }),
+        }
+      );
+
+      if (!res.ok) {
+        const errText = await res.text();
+        throw new Error(`Failed to save feedback draft: ${errText}`);
+      }
+
+      setPreviewTarget(null);
+    } catch (err: any) {
+      setErrorText(err.message || 'Failed to save draft');
+    } finally {
+      setSavingStudentId(null);
+    }
+  };
+
+  const handleApproveEvaluation = async (
+    item: ExtractedEvaluationItem,
+    overrideFeedback?: string,
+    overrideScore?: number | null
+  ) => {
+    setApprovingStudentIds((prev) => ({ ...prev, [item.studentId]: true }));
+    setErrorText(null);
+    try {
+      const headers = await getAuthHeaders();
+      const feedbackToSend = overrideFeedback !== undefined ? overrideFeedback : item.feedback;
+      const scoreToSend = overrideScore !== undefined ? overrideScore : item.score;
+
+      const res = await fetch(
+        `${env.API_BASE_URL}/classroom/assignments/${assignmentId}/submissions/${item.studentId}/approve`,
+        {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            ...headers,
+          },
+          body: JSON.stringify({
+            submissionId: item.submissionId,
+            studentName: item.studentName,
+            draftGrade: scoreToSend,
+            overallFeedback: feedbackToSend,
+          }),
+        }
+      );
+
+      if (!res.ok) {
+        const errText = await res.text();
+        throw new Error(`Approval failed for ${item.studentName}: ${errText}`);
+      }
+
+      if (previewTarget?.studentId === item.studentId) {
+        setPreviewTarget(null);
+      }
+    } catch (err: any) {
+      setErrorText(err.message || `Failed to approve evaluation for ${item.studentName}`);
+    } finally {
+      setApprovingStudentIds((prev) => ({ ...prev, [item.studentId]: false }));
+    }
+  };
+
+  const handleApproveAllInMessage = async (items: ExtractedEvaluationItem[]) => {
+    for (const item of items) {
+      if (!item.isApproved) {
+        await handleApproveEvaluation(item);
+      }
+    }
+  };
 
   const handleFileUpload = async (file: File): Promise<{ uri: string }> => {
     const headers = await getAuthHeaders();
@@ -180,6 +430,12 @@ export const ChatPanel: React.FC<ChatPanelProps> = ({
           },
           onToolCallResult: (res) => {
             setStatusTicker(`Tool ${res.name} completed`);
+            if (res.name === 'create_classroom_assignment' && res.success) {
+              const createdCourseId = (res.result as any)?.courseId;
+              if (createdCourseId) {
+                fetchCourseworkForCourse(String(createdCourseId), true).catch(() => null);
+              }
+            }
             setMessages((prev) => {
               const last = { ...prev[prev.length - 1] };
               last.toolCalls = (last.toolCalls || []).map((t: ToolCallItem) =>
@@ -243,7 +499,7 @@ export const ChatPanel: React.FC<ChatPanelProps> = ({
             <Bot className="w-10 h-10 text-gray-600 mb-1" />
             <p className="text-sm font-medium text-gray-400">{title} Ready</p>
             <p className="text-xs text-gray-500 max-w-xs">
-              Command the agent to grade submissions, configure rubrics, or inspect student work:
+              Command the agent to grade submissions, configure rubrics, or create assignments:
             </p>
             <div className="space-y-1.5 text-xs text-blue-400 text-left w-full mt-2">
               {promptStarters.map((starter, idx) => (
@@ -258,58 +514,242 @@ export const ChatPanel: React.FC<ChatPanelProps> = ({
             </div>
           </div>
         ) : (
-          messages.map((msg) => (
-            <div
-              key={msg.id}
-              className={`flex flex-col ${msg.sender === 'user' ? 'items-end' : 'items-start'}`}
-            >
-              <div className="flex items-center space-x-1.5 text-[11px] text-gray-400 mb-1 px-1">
-                {msg.sender === 'user' ? (
-                  <>
-                    <span className="font-semibold text-blue-300">Teacher</span>
-                    <User className="w-3 h-3 text-blue-400" />
-                  </>
-                ) : (
-                  <>
-                    <Bot className="w-3 h-3 text-purple-400" />
-                    <span className="font-semibold text-purple-300">Agent</span>
-                  </>
-                )}
-              </div>
+          messages.map((msg) => {
+            const evaluationItems = extractEvaluationsFromMessage(msg);
+            const createdAssignments = extractCreatedAssignmentsFromMessage(msg);
+            const unapprovedCount = evaluationItems.filter((i) => !i.isApproved).length;
 
+            return (
               <div
-                className={`max-w-[90%] rounded-lg px-3.5 py-2.5 text-xs leading-relaxed ${
-                  msg.sender === 'user'
-                    ? 'bg-blue-600 text-white shadow-sm'
-                    : 'bg-[#1c1836] text-gray-100 border border-purple-500/30 shadow-sm w-full'
-                }`}
+                key={msg.id}
+                className={`flex flex-col ${msg.sender === 'user' ? 'items-end' : 'items-start'}`}
               >
-                {/* File Attachment Pill */}
-                {msg.fileAttachment && (
-                  <div className="mb-2 flex items-center space-x-1.5 bg-black/20 px-2 py-1 rounded text-[11px] border border-white/10">
-                    <FileText className="w-3.5 h-3.5 text-blue-300 shrink-0" />
-                    <span className="truncate">{msg.fileAttachment.filename}</span>
-                  </div>
-                )}
+                <div className="flex items-center space-x-1.5 text-[11px] text-gray-400 mb-1 px-1">
+                  {msg.sender === 'user' ? (
+                    <>
+                      <span className="font-semibold text-blue-300">Teacher</span>
+                      <User className="w-3 h-3 text-blue-400" />
+                    </>
+                  ) : (
+                    <>
+                      <Bot className="w-3 h-3 text-purple-400" />
+                      <span className="font-semibold text-purple-300">Agent</span>
+                    </>
+                  )}
+                </div>
 
-                {/* Collapsible Tool Call Badges */}
-                {msg.toolCalls && msg.toolCalls.length > 0 && (
-                  <div className="space-y-1 mb-2">
-                    {msg.toolCalls.map((tool, idx) => (
-                      <ToolCallBadge key={tool.id || idx} tool={tool} />
-                    ))}
-                  </div>
-                )}
+                <div
+                  className={`max-w-[90%] rounded-lg px-3.5 py-2.5 text-xs leading-relaxed ${
+                    msg.sender === 'user'
+                      ? 'bg-blue-600 text-white shadow-sm'
+                      : 'bg-[#1c1836] text-gray-100 border border-purple-500/30 shadow-sm w-full'
+                  }`}
+                >
+                  {/* File Attachment Pill */}
+                  {msg.fileAttachment && (
+                    <div className="mb-2 flex items-center space-x-1.5 bg-black/20 px-2 py-1 rounded text-[11px] border border-white/10">
+                      <FileText className="w-3.5 h-3.5 text-blue-300 shrink-0" />
+                      <span className="truncate">{msg.fileAttachment.filename}</span>
+                    </div>
+                  )}
 
-                {/* Message Content */}
-                {msg.sender === 'agent' ? (
-                  <MarkdownRenderer content={msg.content} />
-                ) : (
-                  <div className="whitespace-pre-wrap">{msg.content}</div>
-                )}
+                  {/* Collapsible Tool Call Badges */}
+                  {msg.toolCalls && msg.toolCalls.length > 0 && (
+                    <div className="space-y-1 mb-2">
+                      {msg.toolCalls.map((tool, idx) => (
+                        <ToolCallBadge key={tool.id || idx} tool={tool} />
+                      ))}
+                    </div>
+                  )}
+
+                  {/* Message Content */}
+                  {msg.sender === 'agent' ? (
+                    <MarkdownRenderer content={msg.content} />
+                  ) : (
+                    <div className="whitespace-pre-wrap">{msg.content}</div>
+                  )}
+
+                  {/* Created Assignment Action Cards */}
+                  {createdAssignments.length > 0 && (
+                    <div
+                      data-testid="created-assignments-container"
+                      className="mt-3 pt-2.5 border-t border-purple-500/20 space-y-2"
+                    >
+                      {createdAssignments.map((created) => (
+                        <div
+                          key={created.assignmentId}
+                          data-testid={`created-assignment-card-${created.courseWorkId}`}
+                          className="p-2.5 rounded-lg bg-[#121024] border border-purple-500/30 flex flex-col gap-2"
+                        >
+                          <div className="flex items-center justify-between gap-2">
+                            <div className="min-w-0">
+                              <div className="font-semibold text-gray-100 truncate" title={created.title}>
+                                {created.title}
+                              </div>
+                              <div className="text-[11px] text-gray-400 truncate">
+                                {created.courseName} • {created.maxPoints} pts
+                              </div>
+                            </div>
+                            <span className="flex items-center space-x-1 text-[10px] font-medium text-emerald-400 bg-emerald-950/50 border border-emerald-700/40 px-1.5 py-0.5 rounded shrink-0">
+                              <CheckCircle2 className="w-3 h-3" />
+                              <span>{created.state}</span>
+                            </span>
+                          </div>
+
+                          <div className="flex items-center justify-end space-x-2 pt-0.5">
+                            {created.alternateLink && (
+                              <a
+                                href={created.alternateLink}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                data-testid={`created-assignment-classroom-link-${created.courseWorkId}`}
+                                className="inline-flex items-center space-x-1 px-2 py-1 rounded border border-[#30363d] bg-[#161b22] hover:bg-[#21262d] text-gray-300 text-[11px] transition-colors"
+                              >
+                                <span>Classroom</span>
+                                <ExternalLink className="w-3 h-3" />
+                              </a>
+                            )}
+                            {onOpenAssignment && (
+                              <button
+                                type="button"
+                                data-testid={`open-created-assignment-button-${created.courseWorkId}`}
+                                onClick={() =>
+                                  onOpenAssignment(created.assignmentId, {
+                                    courseName: created.courseName,
+                                    assignmentTitle: created.title,
+                                  })
+                                }
+                                className="inline-flex items-center space-x-1 px-2.5 py-1 rounded bg-purple-600 hover:bg-purple-500 text-white text-[11px] font-semibold transition-colors"
+                              >
+                                <span>Open in Workspace Tab</span>
+                              </button>
+                            )}
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+
+                  {/* Staged Evaluation Action Cards (Preview & Approve) */}
+                  {evaluationItems.length > 0 && (
+                    <div
+                      data-testid="evaluation-actions-container"
+                      className="mt-3 pt-2.5 border-t border-purple-500/20 space-y-2"
+                    >
+                      {evaluationItems.length > 1 && (
+                        <div className="flex items-center justify-between mb-1">
+                          <span className="text-[11px] font-medium text-purple-300">
+                            {evaluationItems.length} Student Evaluations
+                          </span>
+                          {unapprovedCount > 0 && (
+                            <button
+                              type="button"
+                              data-testid="approve-all-evaluations-button"
+                              onClick={() => handleApproveAllInMessage(evaluationItems)}
+                              className="flex items-center space-x-1 px-2.5 py-1 rounded bg-emerald-600 hover:bg-emerald-500 text-white text-[11px] font-semibold transition-colors"
+                            >
+                              <Check className="w-3 h-3" />
+                              <span>Approve All ({unapprovedCount})</span>
+                            </button>
+                          )}
+                        </div>
+                      )}
+
+                      {evaluationItems.map((item) => {
+                        const isApproving = Boolean(approvingStudentIds[item.studentId]);
+
+                        return (
+                          <div
+                            key={item.studentId}
+                            data-testid={`evaluation-action-card-${item.studentId}`}
+                            className="p-2.5 rounded-lg bg-[#121024] border border-purple-500/30 flex flex-col gap-2"
+                          >
+                            <div className="flex items-center justify-between gap-2">
+                              <div className="flex items-center space-x-2 min-w-0">
+                                <span className="font-semibold text-gray-100 truncate">
+                                  {item.studentName}
+                                </span>
+                                {item.hasScore && (
+                                  <span
+                                    data-testid={`evaluation-score-badge-${item.studentId}`}
+                                    className="px-1.5 py-0.5 rounded bg-purple-900/60 border border-purple-500/40 text-purple-200 font-mono text-[11px] shrink-0"
+                                  >
+                                    {item.score}/{item.maxPoints}
+                                  </span>
+                                )}
+                              </div>
+
+                              {item.isApproved ? (
+                                <span
+                                  data-testid={`evaluation-approved-badge-${item.studentId}`}
+                                  className="flex items-center space-x-1 text-[11px] font-medium text-emerald-400 shrink-0"
+                                >
+                                  <CheckCircle2 className="w-3.5 h-3.5" />
+                                  <span>Approved</span>
+                                </span>
+                              ) : (
+                                <span className="text-[10px] font-medium text-amber-300/90 bg-amber-950/50 border border-amber-700/40 px-1.5 py-0.5 rounded shrink-0">
+                                  Pending Approval
+                                </span>
+                              )}
+                            </div>
+
+                            {item.feedbackDocUrl && (
+                              <a
+                                href={item.feedbackDocUrl}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                data-testid={`feedback-doc-link-${item.studentId}`}
+                                className="inline-flex items-center space-x-1 text-[11px] text-blue-400 hover:text-blue-300 underline"
+                              >
+                                <FileText className="w-3 h-3" />
+                                <span>Open Attached Feedback Google Doc</span>
+                                <ExternalLink className="w-3 h-3" />
+                              </a>
+                            )}
+
+                            <div className="flex items-center justify-end space-x-2 pt-0.5">
+                              {item.hasFeedbackDoc && (
+                                <button
+                                  type="button"
+                                  data-testid={`preview-evaluation-button-${item.studentId}`}
+                                  onClick={() => setPreviewTarget(item)}
+                                  disabled={isApproving}
+                                  className="flex items-center space-x-1 px-2.5 py-1 rounded border border-purple-400/40 bg-purple-950/50 hover:bg-purple-900/60 text-purple-200 text-[11px] font-medium transition-colors disabled:opacity-50"
+                                >
+                                  <Eye className="w-3 h-3" />
+                                  <span>Preview</span>
+                                </button>
+                              )}
+
+                              <button
+                                type="button"
+                                data-testid={`approve-evaluation-button-${item.studentId}`}
+                                onClick={() => handleApproveEvaluation(item)}
+                                disabled={isApproving}
+                                className={`flex items-center space-x-1 px-2.5 py-1 rounded text-[11px] font-semibold transition-colors disabled:opacity-50 ${
+                                  item.isApproved
+                                    ? 'bg-emerald-900/40 hover:bg-emerald-800/50 text-emerald-300 border border-emerald-600/40'
+                                    : 'bg-emerald-600 hover:bg-emerald-500 text-white shadow-sm'
+                                }`}
+                              >
+                                {isApproving ? (
+                                  <Loader2 className="w-3 h-3 animate-spin" />
+                                ) : (
+                                  <Check className="w-3 h-3" />
+                                )}
+                                <span>{item.isApproved ? 'Re-Approve' : 'Approve'}</span>
+                              </button>
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  )}
+                </div>
               </div>
-            </div>
-          ))
+            );
+          })
         )}
       </div>
 
@@ -392,6 +832,29 @@ export const ChatPanel: React.FC<ChatPanelProps> = ({
           {isStreaming ? <Loader2 className="w-4 h-4 animate-spin" /> : <Send className="w-4 h-4" />}
         </button>
       </form>
+
+      {/* Feedback Document Preview & Edit Modal */}
+      {previewTarget && (
+        <FeedbackPreviewModal
+          isOpen={true}
+          studentId={previewTarget.studentId}
+          studentName={previewTarget.studentName}
+          initialFeedback={previewTarget.feedback}
+          initialScore={previewTarget.score}
+          maxPoints={previewTarget.maxPoints}
+          hasScore={previewTarget.hasScore}
+          isSaving={savingStudentId === previewTarget.studentId}
+          isApproving={Boolean(approvingStudentIds[previewTarget.studentId])}
+          onClose={() => setPreviewTarget(null)}
+          onSaveDraft={(updatedFeedback, updatedScore) =>
+            handleSaveEvaluationDraft(previewTarget, updatedFeedback, updatedScore)
+          }
+          onApprove={(updatedFeedback, updatedScore) =>
+            handleApproveEvaluation(previewTarget, updatedFeedback, updatedScore)
+          }
+        />
+      )}
     </div>
   );
 };
+

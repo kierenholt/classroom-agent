@@ -8,6 +8,13 @@ interface CachedWorkspaceEntry {
   timestamp: number;
 }
 
+interface CreateCourseworkPayload {
+  title: string;
+  description?: string;
+  maxPoints?: number;
+  dueDate?: string;
+}
+
 interface ClassroomDataContextType {
   courses: ClassroomCourse[];
   courseworkByCourseId: Record<string, ClassroomCoursework[]>;
@@ -17,6 +24,7 @@ interface ClassroomDataContextType {
   error: string | null;
   preloadAssignments: (force?: boolean) => Promise<void>;
   fetchCourseworkForCourse: (courseId: string, force?: boolean) => Promise<ClassroomCoursework[]>;
+  createCourseworkForCourse: (courseId: string, payload: CreateCourseworkPayload) => Promise<ClassroomCoursework>;
   prefetchWorkspace: (courseId: string, courseWorkId: string) => Promise<any>;
   getCachedWorkspace: (assignmentId: string) => any | null;
   refreshAll: () => Promise<void>;
@@ -238,6 +246,64 @@ export const ClassroomDataProvider: React.FC<{ children: React.ReactNode }> = ({
     [getAuthHeaders]
   );
 
+  // 3b. Create a new coursework assignment for a course and update cache
+  const createCourseworkForCourse = useCallback(
+    async (courseId: string, payload: CreateCourseworkPayload): Promise<ClassroomCoursework> => {
+      if (!courseId) {
+        throw new Error('[Classroom Data] Missing courseId parameter. Fail-fast enabled.');
+      }
+      if (!payload?.title || !payload.title.trim()) {
+        throw new Error('[Classroom Data] Assignment title is required. Fail-fast enabled.');
+      }
+
+      const headers = await getAuthHeaders();
+      const res = await fetch(`${env.API_BASE_URL}/classroom/courses/${encodeURIComponent(courseId)}/coursework`, {
+        method: 'POST',
+        headers: {
+          ...headers,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          title: payload.title.trim(),
+          description: payload.description?.trim() || undefined,
+          maxPoints: payload.maxPoints ?? 100,
+          dueDate: payload.dueDate?.trim() || undefined,
+          state: 'PUBLISHED',
+        }),
+      });
+
+      if (!res.ok) {
+        const errData = await res.json().catch(() => null);
+        const errText = errData?.error || (await res.text().catch(() => 'Failed to create assignment'));
+        if (res.status === 401 || /invalid credentials/i.test(String(errText))) {
+          clearGoogleAccessToken();
+        }
+        throw new Error(String(errText));
+      }
+
+      const data = await res.json();
+      const created: ClassroomCoursework = data.courseWork;
+      if (!created || !created.id) {
+        throw new Error('[Classroom Data] Created coursework response missing id.');
+      }
+
+      setCourseworkByCourseId((prev) => {
+        const existingList = prev[courseId] || [];
+        const filtered = existingList.filter((cw) => cw.id !== created.id);
+        return {
+          ...prev,
+          [courseId]: [created, ...filtered],
+        };
+      });
+
+      // Prefetch live workspace for the newly created coursework in the background
+      prefetchWorkspace(courseId, created.id);
+
+      return created;
+    },
+    [getAuthHeaders, clearGoogleAccessToken, prefetchWorkspace]
+  );
+
   // 4. Retrieve cached workspace
   const getCachedWorkspace = useCallback((assignmentId: string): any | null => {
     const cached = workspaceMemoryCache.get(assignmentId);
@@ -273,6 +339,7 @@ export const ClassroomDataProvider: React.FC<{ children: React.ReactNode }> = ({
         error,
         preloadAssignments,
         fetchCourseworkForCourse,
+        createCourseworkForCourse,
         prefetchWorkspace,
         getCachedWorkspace,
         refreshAll,

@@ -194,38 +194,36 @@ export const StudentRosterZone: React.FC<StudentRosterZoneProps> = ({
         </div>
       </div>
 
-      {/* Contextual Action Buttons appear when 1+ students are checked */}
-      {checkedStudentIds.length > 0 && (
-        <div data-testid="grading-header" className="p-2.5 border-b border-[#30363d] bg-[#1a202c]/50 space-y-2">
-          <div className="flex items-center justify-between">
-            <span className="text-[11px] font-semibold uppercase tracking-wider text-gray-400">
-              {`${checkedStudentIds.length} Selected`}
-            </span>
-          </div>
-
-          <div className="flex items-center space-x-2 pt-0.5">
-            <button
-              data-testid="save-draft-grade-button"
-              onClick={() => onSaveDraftStudents(checkedStudentIds)}
-              disabled={isSaving}
-              className="flex-1 flex items-center justify-center space-x-1 py-1 px-2 rounded bg-[#21262d] hover:bg-[#30363d] text-gray-200 border border-[#30363d] transition-colors disabled:opacity-40"
-            >
-              <Save className="w-3 h-3 text-purple-400" />
-              <span>{isSaving ? 'Saving...' : `Save Draft (${checkedStudentIds.length})`}</span>
-            </button>
-
-            <button
-              data-testid="return-submission-button"
-              onClick={() => onReturnStudents(checkedStudentIds)}
-              disabled={isReturning}
-              className="flex-1 flex items-center justify-center space-x-1 py-1 px-2 rounded bg-emerald-600 hover:bg-emerald-500 text-white font-medium transition-colors disabled:opacity-40"
-            >
-              <Send className="w-3 h-3" />
-              <span>{isReturning ? 'Returning...' : `Return (${checkedStudentIds.length})`}</span>
-            </button>
-          </div>
+      {/* Contextual Action Buttons: always visible, disabled if no student is selected */}
+      <div data-testid="grading-header" className="p-2.5 border-b border-[#30363d] bg-[#1a202c]/50 space-y-2">
+        <div className="flex items-center justify-between">
+          <span className="text-[11px] font-semibold uppercase tracking-wider text-gray-400">
+            {`${checkedStudentIds.length} Selected`}
+          </span>
         </div>
-      )}
+
+        <div className="flex items-center space-x-2 pt-0.5">
+          <button
+            data-testid="save-draft-grade-button"
+            onClick={() => onSaveDraftStudents(checkedStudentIds)}
+            disabled={isSaving || checkedStudentIds.length === 0}
+            className="flex-1 flex items-center justify-center space-x-1 py-1 px-2 rounded bg-[#21262d] hover:bg-[#30363d] text-gray-200 border border-[#30363d] transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+          >
+            <Save className="w-3 h-3 text-purple-400" />
+            <span>{isSaving ? 'Saving...' : checkedStudentIds.length > 0 ? `Save Draft (${checkedStudentIds.length})` : 'Save Draft'}</span>
+          </button>
+
+          <button
+            data-testid="return-submission-button"
+            onClick={() => onReturnStudents(checkedStudentIds)}
+            disabled={isReturning || checkedStudentIds.length === 0}
+            className="flex-1 flex items-center justify-center space-x-1 py-1 px-2 rounded bg-emerald-600 hover:bg-emerald-500 text-white font-medium transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+          >
+            <Send className="w-3 h-3" />
+            <span>{isReturning ? 'Returning...' : checkedStudentIds.length > 0 ? `Return (${checkedStudentIds.length})` : 'Return'}</span>
+          </button>
+        </div>
+      </div>
 
       {/* Filter Pills */}
       <div className="p-2 border-b border-[#30363d] bg-[#0d1117]">
