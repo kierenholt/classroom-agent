@@ -12,6 +12,7 @@ interface OpenAssignmentSession {
   courseName: string;
   assignmentTitle: string;
   selectedStudentId: string | null;
+  checkedStudentIds?: string[];
 }
 
 const OPEN_SESSIONS_STORAGE_KEY = 'classroom_agent_open_sessions';
@@ -150,6 +151,12 @@ export const WorkspaceLayout: React.FC = () => {
     );
   };
 
+  const handleChangeCheckedStudentsForAssignment = (assignmentId: string, checkedIds: string[]) => {
+    setSessions((prev) =>
+      prev.map((s) => (s.assignmentId === assignmentId ? { ...s, checkedStudentIds: checkedIds } : s))
+    );
+  };
+
   return (
     <div className="flex flex-col h-screen w-screen overflow-hidden bg-[#121316] text-[#EDEDED]">
       {/* Top Tab Bar */}
@@ -187,6 +194,12 @@ export const WorkspaceLayout: React.FC = () => {
         {/* Persistent In-Memory Session Containers: 70% Left Workspace + 30% Right Agent Pane */}
         {sessions.map((session) => {
           const isActive = activeTabId === session.assignmentId;
+          const openTabsDigest = sessions.map((s) => ({
+            assignmentId: s.assignmentId,
+            courseName: s.courseName,
+            assignmentTitle: s.assignmentTitle,
+            isActive: s.assignmentId === session.assignmentId,
+          }));
           return (
             <div
               key={session.assignmentId}
@@ -198,6 +211,7 @@ export const WorkspaceLayout: React.FC = () => {
                   assignmentId={session.assignmentId}
                   selectedStudentId={session.selectedStudentId}
                   onSelectStudent={(sId) => handleSelectStudentForAssignment(session.assignmentId, sId)}
+                  onChangeCheckedStudents={(ids) => handleChangeCheckedStudentsForAssignment(session.assignmentId, ids)}
                   onAssignmentLoaded={(meta) => handleUpdateSessionMetadata(session.assignmentId, meta)}
                 />
               </div>
@@ -207,6 +221,8 @@ export const WorkspaceLayout: React.FC = () => {
                 <ChatPanel
                   assignmentId={session.assignmentId}
                   selectedStudentId={session.selectedStudentId}
+                  checkedStudentIds={session.checkedStudentIds || []}
+                  openTabs={openTabsDigest}
                   title="Grading Agent Co-Pilot"
                   onOpenAssignment={handleOpenAssignment}
                 />

@@ -4,7 +4,12 @@ import { GoogleGenAI } from '@google/genai';
 import { AuthenticatedRequest, requireAuth } from '../middleware/auth';
 import { serverEnv } from '../config/env';
 import { gradingToolDeclarations, executeGradingTool, ToolExecutionContext } from '../tools/gradingTools';
-import { getCourse, getCourseWork, parseAssignmentId } from '../services/classroomClient';
+import {
+  getCourse,
+  getCourseWork,
+  fetchLiveWorkspaceFromClassroom,
+  parseAssignmentId,
+} from '../services/classroomClient';
 import { ensureUserCredits } from '../services/creditsService';
 import { logger } from '../services/logger';
 
@@ -33,7 +38,7 @@ const DETAIL_LEVEL_INSTRUCTIONS: Record<string, string> = {
 };
 
 chatRouter.post('/', requireAuth, async (req: AuthenticatedRequest, res: Response): Promise<void> => {
-  const { projectId, message, fileUri, fileMimeType, contextId, feedbackSettings } = req.body;
+  const { projectId, message, fileUri, fileMimeType, contextId, feedbackSettings, workspaceContext } = req.body;
 
   const tone = feedbackSettings?.tone && TONE_INSTRUCTIONS[feedbackSettings.tone] ? feedbackSettings.tone : 'encouraging';
   const detailLevel =
@@ -96,15 +101,116 @@ chatRouter.post('/', requireAuth, async (req: AuthenticatedRequest, res: Respons
   const assignmentRef = db.collection('assignments').doc(projectId);
 
   try {
-    // 1. Fetch live assignment details from Google Classroom API + optional rubric from Firestore Sidecar
+    // 1. Fetch live assignment + roster/submissions from Google Classroom API + sidecar rubric & evaluations
     const { courseId, courseWorkId } = parseAssignmentId(projectId);
-    const [course, coursework, sidecarSnap] = await Promise.all([
-      getCourse(req.googleAccessToken, courseId),
-      getCourseWork(req.googleAccessToken, courseId, courseWorkId),
+    const [workspaceData, sidecarSnap, evalsSnap] = await Promise.all([
+      fetchLiveWorkspaceFromClassroom(req.googleAccessToken, courseId, courseWorkId).catch(async () => {
+        const [course, coursework] = await Promise.all([
+          getCourse(req.googleAccessToken!, courseId),
+          getCourseWork(req.googleAccessToken!, courseId, courseWorkId),
+        ]);
+        return {
+          assignment: {
+            id: projectId,
+            courseId,
+            courseName: course.name || 'Classroom Course',
+            courseWorkId,
+            title: coursework.title || 'Classroom Assignment',
+            description: coursework.description || '',
+            maxPoints: coursework.maxPoints || 100,
+            dueDate: undefined,
+            state: (coursework.state || 'PUBLISHED') as 'PUBLISHED' | 'DRAFT',
+            rubric: undefined,
+          },
+          submissions: [] as any[],
+        };
+      }),
       assignmentRef.get(),
+      assignmentRef.collection('evaluations').get(),
     ]);
 
     const sidecarData = sidecarSnap.exists ? sidecarSnap.data() : null;
+    const evalMap = new Map<string, any>();
+    evalsSnap.docs.forEach((d) => evalMap.set(d.id, d.data()));
+
+    const liveSubs = workspaceData.submissions || [];
+    const mergedSubs = liveSubs.map((sub: any) => {
+      const sidecarEval = evalMap.get(sub.studentId);
+      const isReturned = sidecarEval?.classroomSyncStatus === 'RETURNED' || sub.state === 'RETURNED';
+      return {
+        ...sub,
+        state: isReturned ? 'RETURNED' : sub.state,
+        draftGrade:
+          sidecarEval?.draftGrade !== undefined && sidecarEval?.draftGrade !== null
+            ? sidecarEval.draftGrade
+            : sub.draftGrade,
+        assignedGrade:
+          sidecarEval?.assignedGrade !== undefined && sidecarEval?.assignedGrade !== null
+            ? sidecarEval.assignedGrade
+            : sub.assignedGrade,
+        classroomSyncStatus: sidecarEval?.classroomSyncStatus || sub.classroomSyncStatus,
+      };
+    });
+
+    const totalStudents = mergedSubs.length;
+    const turnedInCount = mergedSubs.filter((s: any) => s.state === 'TURNED_IN').length;
+    const ungradedTurnedInCount = mergedSubs.filter(
+      (s: any) => s.state === 'TURNED_IN' && s.draftGrade === undefined && s.assignedGrade === undefined
+    ).length;
+    const draftGradedCount = mergedSubs.filter(
+      (s: any) => s.draftGrade !== undefined && s.state !== 'RETURNED'
+    ).length;
+    const returnedCount = mergedSubs.filter((s: any) => s.state === 'RETURNED').length;
+    const missingCount = mergedSubs.filter(
+      (s: any) => s.state === 'CREATED' && (!s.attachments || s.attachments.length === 0)
+    ).length;
+
+    const focusedSub = contextId ? mergedSubs.find((s: any) => s.studentId === contextId) : null;
+    const focusedStudentSummary = contextId
+      ? focusedSub
+        ? `"${focusedSub.studentName}" (studentId: "${focusedSub.studentId}", state: ${focusedSub.state}${
+            focusedSub.assignedGrade !== undefined
+              ? `, assignedGrade: ${focusedSub.assignedGrade}`
+              : focusedSub.draftGrade !== undefined
+                ? `, draftGrade: ${focusedSub.draftGrade}`
+                : ', ungraded'
+          }, attachments: ${focusedSub.attachments?.length || 0})`
+        : `"${contextId}"`
+      : 'None selected';
+
+    const checkedIds: string[] = Array.isArray(workspaceContext?.checkedStudentIds)
+      ? workspaceContext.checkedStudentIds
+      : [];
+    const checkedStudentsSummary =
+      checkedIds.length > 0
+        ? checkedIds
+            .map((id) => {
+              const sub = mergedSubs.find((s: any) => s.studentId === id);
+              return sub ? `"${sub.studentName}" (studentId: "${sub.studentId}")` : `"${id}"`;
+            })
+            .join(', ')
+        : 'None checked';
+
+    const openTabsList = Array.isArray(workspaceContext?.openTabs) ? workspaceContext.openTabs : [];
+    const openTabsSummary =
+      openTabsList.length > 0
+        ? openTabsList
+            .map(
+              (t: any) =>
+                `"${t.courseName} — ${t.assignmentTitle}" (${t.assignmentId}${t.isActive ? ', ACTIVE TAB' : ''})`
+            )
+            .join('; ')
+        : `"${workspaceData.assignment.courseName} — ${workspaceData.assignment.title}" (${projectId}, ACTIVE TAB)`;
+
+    const teacherName = req.user.name || (req.user.email ? req.user.email.split('@')[0] : 'Teacher');
+    const teacherEmail = req.user.email || 'Unknown email';
+    const activeGradingMode =
+      workspaceContext?.gradingMode === 'draft'
+        ? 'Draft Mode (Review Before Final — approving saves as unreturned draftGrade; roster shows Save Draft + Return buttons)'
+        : 'No Draft Mode (Direct to Final — approving immediately publishes final assignedGrade and returns to student; roster shows single Return / Publish button)';
+    const showRubricPaneStatus = workspaceContext?.showRubricPane === false ? 'Hidden' : 'Visible';
+    const showToolCallsStatus = workspaceContext?.showToolCalls === true ? 'Visible' : 'Hidden';
+    const activeRubric = sidecarData?.rubric || workspaceData.assignment.rubric || null;
 
     // 2. Fetch recent chat history from Firestore Sidecar
     const msgsSnap = await assignmentRef
@@ -115,15 +221,28 @@ chatRouter.post('/', requireAuth, async (req: AuthenticatedRequest, res: Respons
 
     const previousMessages = msgsSnap.docs.map((d) => d.data());
 
-    // 3. Construct System Instruction
-    const systemInstruction = `You are Classroom Agent, an expert AI grading co-pilot for Google Classroom.
+    // 3. Construct System Instruction with Teacher, Workspace, and Live Assignment Digest
+    const systemInstruction = `You are Classroom Agent, an expert AI grading co-pilot and technical support assistant for Google Classroom.
+
+Teacher & Account Context:
+- Teacher Name: "${teacherName}"
+- Teacher Email: "${teacherEmail}"
+- Remaining AI Credits: ${currentCredits} (1 credit is deducted only when reading a student's submission via "get_student_submission_content"; general chat, rubric generation, and support questions cost 0 credits)
+
+Workspace & UI Context:
+- Open Assignment Tabs: ${openTabsSummary}
+- Currently Focused Student in Preview Canvas: ${focusedStudentSummary}
+- Checked Students in Roster (for batch actions): ${checkedStudentsSummary}
+- Active Grading Mode: ${activeGradingMode}
+- Workspace Display State: Rubric Breakdown Pane is ${showRubricPaneStatus}, Tool Call Telemetry Badges are ${showToolCallsStatus}
+
 Assignment Context (Live from Google Classroom):
-- Course: "${course.name || 'Classroom Course'}" (Course ID: "${courseId}")
-- Assignment Title: "${coursework.title || 'Classroom Assignment'}"
-- Max Points: ${coursework.maxPoints || 100}
-- Description: "${coursework.description || 'No description provided'}"
-- Current Rubric Criteria: ${useRubricDuringFeedback ? JSON.stringify(sidecarData?.rubric?.criteria || []) : 'Disabled by teacher preference (evaluate holistically against assignment description)'}
-${contextId ? `- Currently Focused Student: "${contextId}"` : ''}
+- Course: "${workspaceData.assignment.courseName}" (Course ID: "${courseId}")
+- Assignment Title: "${workspaceData.assignment.title}" (Assignment ID: "${projectId}")
+- Max Points: ${workspaceData.assignment.maxPoints || 100}
+- Description: "${workspaceData.assignment.description || 'No description provided'}"
+- Live Submission Counts: Total Enrolled: ${totalStudents} | Turned In: ${turnedInCount} (Ungraded Turn-ins: ${ungradedTurnedInCount}) | Draft Graded: ${draftGradedCount} | Returned: ${returnedCount} | Missing: ${missingCount}
+- Current Rubric Criteria: ${useRubricDuringFeedback ? JSON.stringify(activeRubric?.criteria || []) : 'Disabled by teacher preference (evaluate holistically against assignment description)'}
 
 Teacher Feedback Preferences (Strictly Enforce):
 - Tone: ${TONE_INSTRUCTIONS[tone]}
@@ -156,7 +275,8 @@ Operational Guidelines:
    - Always provide actionable justification and constructive summary directly in your chat response for the teacher to review, strictly adhering to the Teacher Feedback Preferences above. The student submission comments thread in Zone C is reserved strictly for genuine 2-way teacher/student dialogue.
 2. When asked to create or update a rubric for the current assignment, use "set_assignment_rubric".
 3. When asked to return grades to students directly, use "return_student_submissions".
-4. When asked to create a new assignment in Google Classroom, use "create_classroom_assignment" (defaults to the current course "${courseId}" unless the teacher specifies another class, in which case call "list_teacher_courses" first to resolve the target courseId).`;
+4. When asked to create a new assignment in Google Classroom, use "create_classroom_assignment" (defaults to the current course "${courseId}" unless the teacher specifies another class, in which case call "list_teacher_courses" first to resolve the target courseId).
+5. When the teacher asks for technical support, product help, or "how do I do XYZ?" (e.g., how to use UI buttons, tabs, settings, grading modes, preview/approve workflow, rubrics, AI credits/top-ups, or troubleshooting), call "get_user_guide" to retrieve the complete Classroom Agent User Guide and provide clear, step-by-step instructions tailored to their current workspace state.`;
 
     // 4. Initialize Gemini client
     const ai = new GoogleGenAI({ apiKey: serverEnv.GEMINI_API_KEY });

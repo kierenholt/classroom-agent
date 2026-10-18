@@ -2531,7 +2531,116 @@ test.describe('Classroom Agent - Workspace and Agent Co-Pilot Tests', () => {
       window.localStorage.removeItem('classroom_agent_quick_actions');
     });
   });
+
+  test('chatSupportAndContextDigest_teacherAsksHowToQuestion_sendsWorkspaceContextAndInvokesGetUserGuideTool_test', async ({
+    page,
+  }) => {
+    let googleToken = '';
+    let customToken = '';
+    try {
+      const { getLiveTeacherAccessToken, getLiveTestTeacherCustomToken } = await import('../helpers/classroomSandboxSeeder');
+      [googleToken, customToken] = await Promise.all([
+        getLiveTeacherAccessToken(),
+        getLiveTestTeacherCustomToken(),
+      ]);
+    } catch {
+      googleToken = '';
+      customToken = '';
+    }
+
+    await page.addInitScript(
+      ({ gToken, cToken }) => {
+        if (gToken) {
+          window.sessionStorage.setItem('classroom_agent_google_access_token', gToken);
+        }
+        if (cToken) {
+          window.sessionStorage.setItem('classroom_agent_custom_token', cToken);
+        }
+        window.localStorage.setItem('classroom_agent_show_tool_calls', 'true');
+      },
+      { gToken: googleToken, cToken: customToken }
+    );
+
+    await page.goto('/');
+
+    const newAssignmentTabBtn = page.locator('[data-testid="new-assignment-tab-button"]');
+    await expect(newAssignmentTabBtn).toBeVisible({ timeout: 15000 });
+    await newAssignmentTabBtn.click();
+
+    const assignmentPickerModal = page.locator('[data-testid="assignment-picker-modal"]');
+    await expect(assignmentPickerModal).toBeVisible({ timeout: 15000 });
+
+    const courseButtons = page.locator('[data-testid^="course-select-"]');
+    await expect(courseButtons.first()).toBeVisible({ timeout: 15000 });
+    const courseCount = await courseButtons.count();
+
+    let opened = false;
+    for (let i = 0; i < courseCount; i++) {
+      const courseBtn = courseButtons.nth(i);
+      await courseBtn.click();
+      await expect(page.locator('[data-testid="assignment-picker-section"]')).toBeVisible({ timeout: 5000 });
+      const assignmentCards = page.locator('[data-testid^="assignment-card-"]');
+      try {
+        await expect(assignmentCards.first()).toBeVisible({ timeout: 5000 });
+        await assignmentCards.first().click();
+        const okBtn = page.locator('[data-testid="assignment-picker-ok-button"]');
+        await okBtn.click();
+        opened = true;
+        break;
+      } catch {
+        // Continue to check next course
+      }
+    }
+    expect(opened).toBe(true);
+    await expect(assignmentPickerModal).toBeHidden();
+
+    const chatWindow = page.locator('[data-testid="chat-window"]');
+    await expect(chatWindow).toBeVisible({ timeout: 15000 });
+
+    // Intercept POST /api/chat to inspect the outgoing workspaceContext digest
+    let capturedChatPayload: any = null;
+    page.on('request', (req) => {
+      if (req.url().includes('/chat') && req.method() === 'POST') {
+        try {
+          capturedChatPayload = JSON.parse(req.postData() || '{}');
+        } catch {
+          // ignore
+        }
+      }
+    });
+
+    const chatInput = chatWindow.locator('textarea');
+    await expect(chatInput).toBeVisible();
+    await chatInput.fill(
+      'Who am I, how many AI credits do I have, and how do I switch to Draft Mode or top up my credits? Please consult the user guide.'
+    );
+    await chatInput.press('Enter');
+
+    // Wait for the request payload to be captured
+    await expect.poll(() => capturedChatPayload, { timeout: 10000 }).not.toBeNull();
+    expect(capturedChatPayload.workspaceContext).toBeDefined();
+    expect(Array.isArray(capturedChatPayload.workspaceContext.openTabs)).toBe(true);
+    expect(capturedChatPayload.workspaceContext.openTabs.length).toBeGreaterThanOrEqual(1);
+    expect(capturedChatPayload.workspaceContext.openTabs[0].isActive).toBe(true);
+    expect(capturedChatPayload.workspaceContext.gradingMode).toBeDefined();
+    expect(typeof capturedChatPayload.workspaceContext.showRubricPane).toBe('boolean');
+    expect(capturedChatPayload.workspaceContext.showToolCalls).toBe(true);
+
+    // Verify the agent invokes the get_user_guide tool and renders the tool call badge
+    const toolBadge = chatWindow.locator('[data-testid="tool-call-badge"]', {
+      hasText: 'get_user_guide',
+    });
+    await expect(toolBadge.first()).toBeVisible({ timeout: 45000 });
+
+    // Wait for the agent's response text to finish streaming and mention Draft Mode / Workspace Settings
+    await expect(chatWindow).toContainText(/Workspace Settings|Draft Mode/i, { timeout: 45000 });
+
+    await page.evaluate(() => {
+      window.localStorage.removeItem('classroom_agent_show_tool_calls');
+    });
+  });
 });
+
 
 
 

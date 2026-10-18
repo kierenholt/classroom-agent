@@ -10,6 +10,7 @@ import {
 } from '../services/classroomClient';
 import { extractDriveFile } from '../services/driveExtractor';
 import { deductUserCredit } from '../services/creditsService';
+import { USER_GUIDE_MARKDOWN } from './userGuideContent';
 
 export interface ToolExecutionContext {
   assignmentId: string;
@@ -18,6 +19,16 @@ export interface ToolExecutionContext {
 }
 
 export const gradingToolDeclarations = [
+  {
+    name: 'get_user_guide',
+    description:
+      'Returns the complete Classroom Agent User Guide & Technical Support Reference. Call this tool whenever the teacher asks "how do I do XYZ?", asks about UI features, buttons, tabs, settings, grading modes, approving feedback, rubrics, AI credits/billing, or troubleshooting.',
+    parameters: {
+      type: 'object',
+      properties: {},
+      required: [],
+    },
+  },
   {
     name: 'get_assignment_details',
     description:
@@ -209,6 +220,12 @@ export async function executeGradingTool(
   const assignRef = db.collection('assignments').doc(assignmentId);
 
   switch (toolName) {
+    case 'get_user_guide': {
+      return {
+        guide: USER_GUIDE_MARKDOWN,
+      };
+    }
+
     case 'get_assignment_details': {
       const [{ assignment }, sidecarSnap] = await Promise.all([
         fetchLiveWorkspaceFromClassroom(googleAccessToken, courseId, courseWorkId),

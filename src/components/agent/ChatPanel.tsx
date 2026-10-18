@@ -34,6 +34,13 @@ import { env } from '../../config/env';
 interface ChatPanelProps {
   assignmentId: string;
   selectedStudentId?: string | null;
+  checkedStudentIds?: string[];
+  openTabs?: Array<{
+    assignmentId: string;
+    courseName: string;
+    assignmentTitle: string;
+    isActive: boolean;
+  }>;
   title?: string;
   promptStarters?: string[];
   onOpenAssignment?: (assignmentId: string, meta?: { courseName?: string; assignmentTitle?: string }) => void;
@@ -66,6 +73,8 @@ interface ExtractedCreatedAssignmentItem {
 export const ChatPanel: React.FC<ChatPanelProps> = ({
   assignmentId,
   selectedStudentId,
+  checkedStudentIds = [],
+  openTabs = [],
   title = 'Grading Agent Co-Pilot',
   promptStarters = [
     'Generate a grading rubric based on the assignment instructions',
@@ -76,7 +85,15 @@ export const ChatPanel: React.FC<ChatPanelProps> = ({
   onOpenAssignment,
 }) => {
   const { getAuthHeaders } = useAuth();
-  const { feedbackSettings, gradingMode, showToolCalls, showQuickActions, quickActions } = useSettings();
+  const {
+    feedbackSettings,
+    gradingMode,
+    showRubricPane,
+    showToolCalls,
+    showExtractedTextToggle,
+    showQuickActions,
+    quickActions,
+  } = useSettings();
   const enabledQuickActions = quickActions.filter((a) => a.enabled);
   const { fetchCourseworkForCourse } = useClassroomData();
   const { aiCredits, openTopUpModal } = useCredits();
@@ -439,6 +456,15 @@ export const ChatPanel: React.FC<ChatPanelProps> = ({
         contextId: selectedStudentId || undefined,
         fileAttachment: filePayload,
         feedbackSettings,
+        workspaceContext: {
+          openTabs,
+          checkedStudentIds,
+          gradingMode,
+          showRubricPane,
+          showToolCalls,
+          showExtractedTextToggle,
+          showQuickActions,
+        },
         authHeaders,
         callbacks: {
           onToolCallStart: (tool) => {

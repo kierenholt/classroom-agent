@@ -1,4 +1,19 @@
-import { FeedbackSettings } from '../../context/SettingsContext';
+import { FeedbackSettings, GradingMode } from '../../context/SettingsContext';
+
+export interface WorkspaceContextDigest {
+  openTabs?: Array<{
+    assignmentId: string;
+    courseName: string;
+    assignmentTitle: string;
+    isActive: boolean;
+  }>;
+  checkedStudentIds?: string[];
+  gradingMode?: GradingMode;
+  showRubricPane?: boolean;
+  showToolCalls?: boolean;
+  showExtractedTextToggle?: boolean;
+  showQuickActions?: boolean;
+}
 
 export interface ChatStreamCallbacks {
   onToolCallStart?: (tool: { id: string; name: string; args: Record<string, unknown> }) => void;
@@ -15,6 +30,7 @@ export interface ChatRequestOptions {
   contextId?: string; // currently selected studentId
   fileAttachment?: { uri: string; mimeType?: string; filename?: string };
   feedbackSettings?: FeedbackSettings;
+  workspaceContext?: WorkspaceContextDigest;
   authHeaders: {
     Authorization: string;
     'X-Google-Access-Token': string;
@@ -24,7 +40,17 @@ export interface ChatRequestOptions {
 }
 
 export async function sendChatMessage(options: ChatRequestOptions): Promise<void> {
-  const { apiBaseUrl, projectId, message, contextId, fileAttachment, feedbackSettings, authHeaders, callbacks } = options;
+  const {
+    apiBaseUrl,
+    projectId,
+    message,
+    contextId,
+    fileAttachment,
+    feedbackSettings,
+    workspaceContext,
+    authHeaders,
+    callbacks,
+  } = options;
 
   if (!authHeaders?.Authorization || !authHeaders?.['X-Google-Access-Token']) {
     throw new Error('[Auth Failure] Cannot send chat message without valid Authorization and Google Access tokens.');
@@ -43,6 +69,7 @@ export async function sendChatMessage(options: ChatRequestOptions): Promise<void
       fileUri: fileAttachment?.uri,
       fileMimeType: fileAttachment?.mimeType,
       feedbackSettings,
+      workspaceContext,
     }),
   });
 

@@ -19,6 +19,7 @@ interface AssignmentWorkspaceProps {
   assignmentId: string;
   selectedStudentId: string | null;
   onSelectStudent: (studentId: string | null) => void;
+  onChangeCheckedStudents?: (studentIds: string[]) => void;
   onAssignmentLoaded?: (meta: { courseName: string; assignmentTitle: string }) => void;
 }
 
@@ -37,6 +38,7 @@ export const AssignmentWorkspace: React.FC<AssignmentWorkspaceProps> = ({
   assignmentId,
   selectedStudentId,
   onSelectStudent,
+  onChangeCheckedStudents,
   onAssignmentLoaded,
 }) => {
   const { getAuthHeaders, clearGoogleAccessToken } = useAuth();
@@ -463,9 +465,11 @@ export const AssignmentWorkspace: React.FC<AssignmentWorkspaceProps> = ({
         selectedStudentId={selectedStudentId}
         checkedStudentIds={checkedStudentIds}
         onToggleCheckStudent={(studentId) => {
-          setCheckedStudentIds((prev) =>
-            prev.includes(studentId) ? prev.filter((id) => id !== studentId) : [...prev, studentId]
-          );
+          setCheckedStudentIds((prev) => {
+            const next = prev.includes(studentId) ? prev.filter((id) => id !== studentId) : [...prev, studentId];
+            onChangeCheckedStudents?.(next);
+            return next;
+          });
         }}
         onSelectStudent={(id) => onSelectStudent(id)}
         onSyncClassroom={handleSyncClassroom}
