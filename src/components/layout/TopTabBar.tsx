@@ -1,5 +1,5 @@
 import React, { useState, useRef, useEffect } from 'react';
-import { Plus, X, GraduationCap, LogOut, User, ChevronDown, Settings, CreditCard } from 'lucide-react';
+import { Plus, X, LogOut, User, ChevronDown, Settings, CreditCard } from 'lucide-react';
 import { useAuth } from '../../context/AuthContext';
 import { useClassroomData } from '../../context/ClassroomDataContext';
 import { useCredits } from '../../context/CreditsContext';
@@ -68,7 +68,11 @@ export const TopTabBar: React.FC<TopTabBarProps> = ({
       <div className="flex items-center space-x-2 overflow-x-auto max-w-[85%]">
         {/* Brand */}
         <div className="flex items-center space-x-1.5 px-2 py-1 text-white font-bold text-xs tracking-tight shrink-0 mr-2 border-r border-[#333842]">
-          <GraduationCap className="w-4 h-4 text-[#D4AF37]" />
+          <img
+            src="/favicon-64x64.png"
+            alt="Classroom Agent"
+            className="w-4 h-4 rounded-sm object-contain"
+          />
           <span className="bg-gradient-to-r from-[#D4AF37] to-[#E5B869] bg-clip-text text-transparent font-bold">
             Classroom Agent
           </span>
@@ -231,6 +235,24 @@ export const TopTabBar: React.FC<TopTabBarProps> = ({
                       <span>Settings</span>
                     </button>
                   )}
+                  <div className="my-1 border-t border-[#333842] pt-1 space-y-0.5">
+                    <a
+                      href="/privacy"
+                      data-testid="user-menu-privacy-link"
+                      onClick={() => setIsMenuOpen(false)}
+                      className="w-full flex items-center space-x-2 px-2.5 py-1.5 rounded text-xs text-gray-400 hover:text-white hover:bg-[#22262C] transition-colors text-left"
+                    >
+                      <span>Privacy Policy</span>
+                    </a>
+                    <a
+                      href="/terms"
+                      data-testid="user-menu-terms-link"
+                      onClick={() => setIsMenuOpen(false)}
+                      className="w-full flex items-center space-x-2 px-2.5 py-1.5 rounded text-xs text-gray-400 hover:text-white hover:bg-[#22262C] transition-colors text-left"
+                    >
+                      <span>Terms of Service</span>
+                    </a>
+                  </div>
                   <button
                     type="button"
                     data-testid="sign-out-button"

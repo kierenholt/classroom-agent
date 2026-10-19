@@ -61,10 +61,26 @@ test.describe('Classroom Agent - Workspace and Agent Co-Pilot Tests', () => {
   test('renderWorkspace_unauthenticatedUser_showsGoogleSignInPrompt_test', async ({ page }) => {
     await page.goto('/');
 
-    // When unauthenticated, the application presents the Google Classroom sign-in dialog
+    // When unauthenticated, the application presents the marketing landing page with official Google Classroom sign-in
+    await expect(page.getByTestId('marketing-landing-page')).toBeVisible();
     const signInButton = page.locator('button:has-text("Sign in with Google Classroom")');
     await expect(signInButton).toBeVisible();
-    await expect(page.locator('text=Classroom Agent')).toBeVisible();
+    await expect(page.getByTestId('navbar-google-signin-button')).toBeVisible();
+    await expect(page.getByTestId('footer-privacy-link')).toBeVisible();
+    await expect(page.getByTestId('footer-terms-link')).toBeVisible();
+
+    // Navigate to Privacy Policy via link and verify Google API Limited Use disclosure
+    await page.getByTestId('footer-privacy-link').click();
+    await expect(page.getByTestId('privacy-policy-page')).toBeVisible();
+    await expect(page.getByTestId('google-limited-use-disclosure')).toContainText(
+      'Google API Services User Data Policy'
+    );
+
+    // Navigate to Terms of Service and back to home
+    await page.getByTestId('privacy-to-terms-link').click();
+    await expect(page.getByTestId('terms-of-service-page')).toBeVisible();
+    await page.getByTestId('terms-back-home-link').click();
+    await expect(page.getByTestId('marketing-landing-page')).toBeVisible();
   });
 
   test('mountWorkspace_authenticatedTeacherWithAssignment_rendersThreeZonesAndChatPane_test', async ({ page }) => {
