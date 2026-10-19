@@ -8,6 +8,7 @@ import {
   getCourse,
   getCourseWork,
   fetchLiveWorkspaceFromClassroom,
+  computeRubricTotalPoints,
   parseAssignmentId,
 } from '../services/classroomClient';
 import { ensureUserCredits } from '../services/creditsService';
@@ -137,9 +138,10 @@ chatRouter.post('/', requireAuth, async (req: AuthenticatedRequest, res: Respons
     const mergedSubs = liveSubs.map((sub: any) => {
       const sidecarEval = evalMap.get(sub.studentId);
       const isReturned = sidecarEval?.classroomSyncStatus === 'RETURNED' || sub.state === 'RETURNED';
+      const isTurnedIn = sidecarEval?.clonedSubmissionState === 'TURNED_IN' || sub.state === 'TURNED_IN';
       return {
         ...sub,
-        state: isReturned ? 'RETURNED' : sub.state,
+        state: isReturned ? 'RETURNED' : isTurnedIn ? 'TURNED_IN' : sub.state,
         draftGrade:
           sidecarEval?.draftGrade !== undefined && sidecarEval?.draftGrade !== null
             ? sidecarEval.draftGrade
@@ -207,6 +209,13 @@ chatRouter.post('/', requireAuth, async (req: AuthenticatedRequest, res: Respons
     const showRubricPaneStatus = workspaceContext?.showRubricPane === false ? 'Hidden' : 'Visible';
     const showToolCallsStatus = workspaceContext?.showToolCalls === true ? 'Visible' : 'Hidden';
     const activeRubric = sidecarData?.rubric || workspaceData.assignment.rubric || null;
+    const rubricTotalPoints = computeRubricTotalPoints(activeRubric);
+    const effectiveMaxPoints =
+      rubricTotalPoints > 0
+        ? rubricTotalPoints
+        : typeof sidecarData?.maxPoints === 'number' && sidecarData.maxPoints > 0
+          ? sidecarData.maxPoints
+          : workspaceData.assignment.maxPoints || 100;
 
     // 2. Fetch recent chat history from Firestore Sidecar
     const msgsSnap = await assignmentRef
@@ -234,7 +243,7 @@ Workspace & UI Context:
 Assignment Context (Live from Google Classroom):
 - Course: "${workspaceData.assignment.courseName}" (Course ID: "${courseId}")
 - Assignment Title: "${workspaceData.assignment.title}" (Assignment ID: "${projectId}")
-- Max Points: ${workspaceData.assignment.maxPoints || 100}
+- Max Points: ${effectiveMaxPoints}${rubricTotalPoints > 0 ? ` (set by active rubric total of ${rubricTotalPoints} points)` : ''}
 - Description: "${workspaceData.assignment.description || 'No description provided'}"
 - Live Submission Counts: Total Enrolled: ${totalStudents} | Turned In: ${turnedInCount} (Ungraded Turn-ins: ${ungradedTurnedInCount}) | Draft Graded: ${draftGradedCount} | Returned: ${returnedCount} | Missing: ${missingCount}
 - Current Rubric Criteria: ${useRubricDuringFeedback ? JSON.stringify(activeRubric?.criteria || []) : 'Disabled by teacher preference (evaluate holistically against assignment description)'}
@@ -244,7 +253,7 @@ Teacher Feedback Preferences (Strictly Enforce):
 - Level of Detail: ${DETAIL_LEVEL_INSTRUCTIONS[detailLevel]}
 - Use Rubric During Feedback: ${
       useRubricDuringFeedback
-        ? 'ON — Evaluate the submission against each rubric criterion, populate rubricScores in evaluate_and_grade_submission, and reference the rubric criteria in your feedback.'
+        ? `ON — Evaluate the submission against each rubric criterion, populate rubricScores in evaluate_and_grade_submission, and reference the rubric criteria in your feedback. IMPORTANT: When a rubric is present, the assignment's Max Points is the sum of the rubric criteria maxPoints (${effectiveMaxPoints}), and both your written Total Score and draftGrade MUST equal the exact sum of the awarded rubric criterion scores out of ${effectiveMaxPoints} — NEVER scale or convert the score to 100.`
         : 'OFF — Evaluate the submission holistically against the assignment description without referencing or breaking down rubric criteria in your written feedback.'
     }
 - Provide Next Steps: ${
@@ -254,7 +263,7 @@ Teacher Feedback Preferences (Strictly Enforce):
     }
 - Show Scores in Written Feedback: ${
       showScores
-        ? 'ON — Include the numerical score/grade and point breakdown in your written feedback and chat summary.'
+        ? `ON — Include the numerical score/grade out of ${effectiveMaxPoints} and point breakdown in your written feedback and chat summary.`
         : 'OFF — Do NOT mention or display any numerical scores, point values, or fractions (e.g. 85/100) anywhere in your written overallFeedback, criterion comments, or chat response to the teacher.'
     }${
       customAgentInstructions
@@ -266,6 +275,7 @@ Operational Guidelines:
 1. When asked to mark, evaluate, provide feedback, or grade submissions:
    - Call "get_student_submission_content" to thoroughly read the student's work.
    - Call "evaluate_and_grade_submission" to stage the evaluation for teacher review and approval in the chat panel (for batch grading, call it once per student).
+   - When a rubric is active, calculate each student's total score and draftGrade by summing the points awarded across the rubric criteria out of ${effectiveMaxPoints} (never scale to 100).
    - "evaluate_and_grade_submission" supports proposing a score only (pass draftGrade, omit overallFeedback), a feedback document only (pass overallFeedback, omit draftGrade), or both (pass both draftGrade and overallFeedback), depending on what the teacher requested.
    - Always provide actionable justification and constructive summary directly in your chat response for the teacher to review, strictly adhering to the Teacher Feedback Preferences above. The student submission comments thread in Zone C is reserved strictly for genuine 2-way teacher/student dialogue.
 2. When asked to create or update a rubric for the current assignment, use "set_assignment_rubric".

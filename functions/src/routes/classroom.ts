@@ -9,11 +9,15 @@ import {
   listCourseWorkSubmissions,
   fetchLiveWorkspaceFromClassroom,
   fetchCourseWorkRubricFromClassroom,
+  computeRubricTotalPoints,
+  patchCourseWorkMaxPoints,
   parseAssignmentId,
   patchSubmissionGrade,
   returnSubmission,
   createFeedbackGoogleDoc,
   attachDriveFileToSubmission,
+  copyDriveFileForClonedSubmission,
+  modifySubmissionAttachments,
 } from '../services/classroomClient';
 import { extractDriveFile } from '../services/driveExtractor';
 import { logger } from '../services/logger';
@@ -51,23 +55,143 @@ async function copyRubricToClonedAssignment(
 
     if (sourceRubric && Array.isArray(sourceRubric.criteria) && sourceRubric.criteria.length > 0) {
       const now = new Date().toISOString();
-      await db
-        .collection('assignments')
-        .doc(targetAssignmentId)
-        .set(
-          {
-            rubric: {
-              ...sourceRubric,
-              id: `cloned_rubric_${newCourseWorkId}`,
+      const totalCriterionPoints = computeRubricTotalPoints(sourceRubric);
+      await Promise.all([
+        db
+          .collection('assignments')
+          .doc(targetAssignmentId)
+          .set(
+            {
+              rubric: {
+                ...sourceRubric,
+                id: `cloned_rubric_${newCourseWorkId}`,
+                updatedAt: now,
+              },
+              ...(totalCriterionPoints > 0 ? { maxPoints: totalCriterionPoints } : {}),
               updatedAt: now,
             },
-            updatedAt: now,
-          },
-          { merge: true }
-        );
+            { merge: true }
+          ),
+        totalCriterionPoints > 0
+          ? patchCourseWorkMaxPoints(accessToken, courseId, newCourseWorkId, totalCriterionPoints).catch(() => null)
+          : Promise.resolve(null),
+      ]);
     }
   } catch (err: any) {
     logger.warn(`Failed to copy rubric from ${sourceCourseWorkId} to ${newCourseWorkId}: ${err.message}`);
+  }
+}
+
+async function cloneSubmissionsToClonedAssignment(
+  accessToken: string,
+  courseId: string,
+  sourceCourseWorkId: string,
+  newCourseWorkId: string
+): Promise<number> {
+  if (!courseId || !sourceCourseWorkId || !newCourseWorkId) return 0;
+  try {
+    const [sourceSubs, targetSubs] = await Promise.all([
+      listCourseWorkSubmissions(accessToken, courseId, sourceCourseWorkId),
+      listCourseWorkSubmissions(accessToken, courseId, newCourseWorkId),
+    ]);
+
+    const targetSubByUserId = new Map<string, any>();
+    for (const tSub of targetSubs) {
+      if (tSub.userId) {
+        targetSubByUserId.set(tSub.userId, tSub);
+      }
+    }
+
+    const subsToClone = sourceSubs.filter((s) => {
+      const attCount = s.assignmentSubmission?.attachments?.length || 0;
+      const hasShortAnswer = Boolean(s.shortAnswerSubmission?.answer?.trim());
+      const isTurnedInOrReturned = s.state === 'TURNED_IN' || s.state === 'RETURNED';
+      return Boolean(s.userId) && (attCount > 0 || hasShortAnswer || isTurnedInOrReturned);
+    });
+
+    if (subsToClone.length === 0) return 0;
+
+    const db = admin.firestore();
+    const targetAssignmentId = `${courseId}_${newCourseWorkId}`;
+    const now = new Date().toISOString();
+    let clonedCount = 0;
+
+    await Promise.all(
+      subsToClone.map(async (sourceSub) => {
+        const studentId = sourceSub.userId!;
+        const targetSub = targetSubByUserId.get(studentId);
+        const rawAttachments = sourceSub.assignmentSubmission?.attachments || [];
+        const addAttachments: any[] = [];
+
+        for (const att of rawAttachments) {
+          if (att.driveFile?.id) {
+            try {
+              const copied = await copyDriveFileForClonedSubmission(
+                accessToken,
+                att.driveFile.id,
+                att.driveFile.title || undefined
+              );
+              addAttachments.push({
+                driveFile: {
+                  id: copied.fileId,
+                },
+              });
+            } catch (copyErr: any) {
+              logger.warn(
+                `Failed to copy Drive file ${att.driveFile.id} for student ${studentId}: ${copyErr.message}`
+              );
+            }
+          } else if (att.link?.url) {
+            addAttachments.push({
+              link: {
+                url: att.link.url,
+              },
+            });
+          }
+        }
+
+        if (addAttachments.length > 0 && targetSub?.id) {
+          try {
+            await modifySubmissionAttachments(
+              accessToken,
+              courseId,
+              newCourseWorkId,
+              targetSub.id,
+              addAttachments
+            );
+          } catch (modErr: any) {
+            logger.warn(
+              `Failed to attach cloned files to submission ${targetSub.id} for student ${studentId}: ${modErr.message}`
+            );
+          }
+        }
+
+        const shortAnswerText = sourceSub.shortAnswerSubmission?.answer?.trim();
+        await db
+          .collection('assignments')
+          .doc(targetAssignmentId)
+          .collection('evaluations')
+          .doc(studentId)
+          .set(
+            {
+              studentId,
+              ...(targetSub?.id ? { submissionId: targetSub.id } : {}),
+              clonedSubmissionState: 'TURNED_IN',
+              ...(shortAnswerText ? { clonedShortAnswer: shortAnswerText } : {}),
+              classroomSyncStatus: 'UNSAVED',
+              updatedAt: now,
+            },
+            { merge: true }
+          );
+
+        clonedCount++;
+      })
+    );
+
+    return clonedCount;
+  } catch (err: any) {
+    logger.warn(`Failed to clone submissions from ${sourceCourseWorkId} to ${newCourseWorkId}: ${err.message}`);
+    return 0;
   }
 }
 
@@ -117,10 +241,50 @@ classroomRouter.get('/courses/:courseId/coursework', requireAuth, async (req: Au
   }
 });
 
+// 2a. Check if Coursework Has Existing Student Submissions (Used before cloning)
+classroomRouter.get(
+  '/courses/:courseId/coursework/:courseWorkId/submissions-summary',
+  requireAuth,
+  async (req: AuthenticatedRequest, res: Response): Promise<void> => {
+    const { courseId, courseWorkId } = req.params;
+    if (!courseId || !courseWorkId) {
+      res.status(400).json({ error: 'courseId and courseWorkId are required. Fail-fast enabled.' });
+      return;
+    }
+
+    try {
+      const rawSubs = await listCourseWorkSubmissions(req.googleAccessToken!, courseId, courseWorkId);
+      const activeSubmissions = rawSubs.filter((s) => {
+        const attCount = s.assignmentSubmission?.attachments?.length || 0;
+        const hasShortAnswer = Boolean(s.shortAnswerSubmission?.answer?.trim());
+        const isTurnedInOrReturned = s.state === 'TURNED_IN' || s.state === 'RETURNED';
+        return attCount > 0 || hasShortAnswer || isTurnedInOrReturned;
+      });
+      const attachmentCount = activeSubmissions.reduce(
+        (sum, s) =>
+          sum +
+          (s.assignmentSubmission?.attachments?.length || 0) +
+          (s.shortAnswerSubmission?.answer?.trim() ? 1 : 0),
+        0
+      );
+
+      res.json({
+        hasSubmissions: activeSubmissions.length > 0,
+        submissionCount: activeSubmissions.length,
+        attachmentCount,
+      });
+    } catch (err: any) {
+      res.status(getUpstreamErrorStatus(err)).json({
+        error: `Failed to check assignment submissions: ${err.message}`,
+      });
+    }
+  }
+);
+
 // 2b. Create New Coursework for Course (Live in Google Classroom API)
 classroomRouter.post('/courses/:courseId/coursework', requireAuth, async (req: AuthenticatedRequest, res: Response): Promise<void> => {
   const { courseId } = req.params;
-  const { title, description, maxPoints, dueDate, state, sourceCourseWorkId } = req.body || {};
+  const { title, description, maxPoints, dueDate, state, sourceCourseWorkId, cloneSubmissions } = req.body || {};
 
   if (!courseId || !courseId.trim()) {
     res.status(400).json({ error: 'courseId is required to create coursework. Fail-fast enabled.' });
@@ -141,12 +305,13 @@ classroomRouter.post('/courses/:courseId/coursework', requireAuth, async (req: A
     });
 
     if (sourceCourseWorkId && String(sourceCourseWorkId).trim() && created.id) {
-      await copyRubricToClonedAssignment(
-        req.googleAccessToken!,
-        courseId,
-        String(sourceCourseWorkId).trim(),
-        created.id
-      );
+      const cleanSourceId = String(sourceCourseWorkId).trim();
+      await Promise.all([
+        copyRubricToClonedAssignment(req.googleAccessToken!, courseId, cleanSourceId, created.id),
+        cloneSubmissions === true
+          ? cloneSubmissionsToClonedAssignment(req.googleAccessToken!, courseId, cleanSourceId, created.id)
+          : Promise.resolve(0),
+      ]);
     }
 
     res.json({ success: true, courseWork: created });
@@ -162,7 +327,7 @@ classroomRouter.post('/courses/:courseId/coursework', requireAuth, async (req: A
 // 3. Clone Coursework for Full Write-Back
 classroomRouter.post('/courses/:courseId/coursework/clone', requireAuth, async (req: AuthenticatedRequest, res: Response): Promise<void> => {
   const { courseId } = req.params;
-  const { courseWorkId } = req.body;
+  const { courseWorkId, cloneSubmissions } = req.body;
 
   if (!courseWorkId) {
     res.status(400).json({ error: 'courseWorkId is required to clone. Fail-fast enabled.' });
@@ -172,7 +337,13 @@ classroomRouter.post('/courses/:courseId/coursework/clone', requireAuth, async (
   try {
     const cloned = await cloneCourseWorkUnderApp(req.googleAccessToken!, courseId, courseWorkId);
     if (cloned.id) {
-      await copyRubricToClonedAssignment(req.googleAccessToken!, courseId, String(courseWorkId).trim(), cloned.id);
+      const cleanSourceId = String(courseWorkId).trim();
+      await Promise.all([
+        copyRubricToClonedAssignment(req.googleAccessToken!, courseId, cleanSourceId, cloned.id),
+        cloneSubmissions === true
+          ? cloneSubmissionsToClonedAssignment(req.googleAccessToken!, courseId, cleanSourceId, cloned.id)
+          : Promise.resolve(0),
+      ]);
     }
     res.json({ success: true, clonedCourseWork: cloned });
   } catch (err: any) {
@@ -193,21 +364,40 @@ classroomRouter.get(
     }
 
     try {
-      const workspace = await fetchLiveWorkspaceFromClassroom(req.googleAccessToken!, courseId, courseWorkId);
-      if (workspace.assignment.rubric) {
-        const db = admin.firestore();
-        const assignRef = db.collection('assignments').doc(workspace.assignment.id);
-        const snap = await assignRef.get();
-        if (!snap.exists || !snap.data()?.rubric) {
-          await assignRef.set(
-            {
-              rubric: workspace.assignment.rubric,
-              updatedAt: new Date().toISOString(),
-            },
-            { merge: true }
-          );
+      const db = admin.firestore();
+      const assignmentId = `${courseId}_${courseWorkId}`;
+      const assignRef = db.collection('assignments').doc(assignmentId);
+      const [workspace, snap] = await Promise.all([
+        fetchLiveWorkspaceFromClassroom(req.googleAccessToken!, courseId, courseWorkId),
+        assignRef.get(),
+      ]);
+      const sidecarData = snap.exists ? snap.data() : null;
+
+      if (sidecarData?.rubric) {
+        workspace.assignment.rubric = sidecarData.rubric;
+        const rubricPoints = computeRubricTotalPoints(sidecarData.rubric);
+        if (rubricPoints > 0) {
+          workspace.assignment.maxPoints = rubricPoints;
+        } else if (typeof sidecarData.maxPoints === 'number' && sidecarData.maxPoints > 0) {
+          workspace.assignment.maxPoints = sidecarData.maxPoints;
         }
+      } else if (workspace.assignment.rubric) {
+        const rubricPoints = computeRubricTotalPoints(workspace.assignment.rubric);
+        if (rubricPoints > 0) {
+          workspace.assignment.maxPoints = rubricPoints;
+        }
+        await assignRef.set(
+          {
+            rubric: workspace.assignment.rubric,
+            ...(rubricPoints > 0 ? { maxPoints: rubricPoints } : {}),
+            updatedAt: new Date().toISOString(),
+          },
+          { merge: true }
+        );
+      } else if (typeof sidecarData?.maxPoints === 'number' && sidecarData.maxPoints > 0) {
+        workspace.assignment.maxPoints = sidecarData.maxPoints;
       }
+
       res.json(workspace);
     } catch (err: any) {
       logger.error(`Live workspace fetch error: ${err.message}`, (req as any).executionId, { error: err.message, stack: err.stack });
@@ -226,21 +416,40 @@ classroomRouter.post('/sync-assignment', requireAuth, async (req: AuthenticatedR
   }
 
   try {
-    const workspace = await fetchLiveWorkspaceFromClassroom(req.googleAccessToken!, courseId, courseWorkId);
-    if (workspace.assignment.rubric) {
-      const db = admin.firestore();
-      const assignRef = db.collection('assignments').doc(workspace.assignment.id);
-      const snap = await assignRef.get();
-      if (!snap.exists || !snap.data()?.rubric) {
-        await assignRef.set(
-          {
-            rubric: workspace.assignment.rubric,
-            updatedAt: new Date().toISOString(),
-          },
-          { merge: true }
-        );
+    const db = admin.firestore();
+    const assignmentId = `${courseId}_${courseWorkId}`;
+    const assignRef = db.collection('assignments').doc(assignmentId);
+    const [workspace, snap] = await Promise.all([
+      fetchLiveWorkspaceFromClassroom(req.googleAccessToken!, courseId, courseWorkId),
+      assignRef.get(),
+    ]);
+    const sidecarData = snap.exists ? snap.data() : null;
+
+    if (sidecarData?.rubric) {
+      workspace.assignment.rubric = sidecarData.rubric;
+      const rubricPoints = computeRubricTotalPoints(sidecarData.rubric);
+      if (rubricPoints > 0) {
+        workspace.assignment.maxPoints = rubricPoints;
+      } else if (typeof sidecarData.maxPoints === 'number' && sidecarData.maxPoints > 0) {
+        workspace.assignment.maxPoints = sidecarData.maxPoints;
       }
+    } else if (workspace.assignment.rubric) {
+      const rubricPoints = computeRubricTotalPoints(workspace.assignment.rubric);
+      if (rubricPoints > 0) {
+        workspace.assignment.maxPoints = rubricPoints;
+      }
+      await assignRef.set(
+        {
+          rubric: workspace.assignment.rubric,
+          ...(rubricPoints > 0 ? { maxPoints: rubricPoints } : {}),
+          updatedAt: new Date().toISOString(),
+        },
+        { merge: true }
+      );
+    } else if (typeof sidecarData?.maxPoints === 'number' && sidecarData.maxPoints > 0) {
+      workspace.assignment.maxPoints = sidecarData.maxPoints;
     }
+
     res.json({
       success: true,
       assignmentId: workspace.assignment.id,
@@ -274,7 +483,7 @@ classroomRouter.get('/drive-file/:fileId', requireAuth, async (req: Authenticate
   }
 });
 
-// 6b. Set / Update Assignment Rubric Endpoint (Saves to Firestore assignments/{assignmentId})
+// 6b. Set / Update Assignment Rubric Endpoint (Saves to Firestore assignments/{assignmentId} and updates Classroom maxPoints)
 classroomRouter.post(
   '/assignments/:assignmentId/rubric',
   requireAuth,
@@ -287,8 +496,12 @@ classroomRouter.post(
       return;
     }
 
+    let courseId: string;
+    let courseWorkId: string;
     try {
-      parseAssignmentId(assignmentId);
+      const parsed = parseAssignmentId(assignmentId);
+      courseId = parsed.courseId;
+      courseWorkId = parsed.courseWorkId;
     } catch (err: any) {
       res.status(400).json({ error: err.message });
       return;
@@ -337,14 +550,25 @@ classroomRouter.post(
         updatedAt: new Date().toISOString(),
       };
 
-      await assignRef.set(
-        {
-          rubric: rubricPayload,
-          maxPoints: totalCriterionPoints,
-          updatedAt: new Date().toISOString(),
-        },
-        { merge: true }
-      );
+      await Promise.all([
+        assignRef.set(
+          {
+            rubric: rubricPayload,
+            maxPoints: totalCriterionPoints,
+            updatedAt: new Date().toISOString(),
+          },
+          { merge: true }
+        ),
+        patchCourseWorkMaxPoints(req.googleAccessToken!, courseId, courseWorkId, totalCriterionPoints).catch(
+          (patchErr: any) => {
+            logger.warn(
+              `Could not patch Classroom courseWork maxPoints to ${totalCriterionPoints} for ${assignmentId}: ${patchErr.message}`,
+              (req as any).executionId
+            );
+            return null;
+          }
+        ),
+      ]);
 
       res.status(200).json({
         success: true,

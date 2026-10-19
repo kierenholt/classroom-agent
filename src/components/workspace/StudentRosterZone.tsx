@@ -186,7 +186,7 @@ export const StudentRosterZone: React.FC<StudentRosterZoneProps> = ({
               {assignment.title}
             </a>
           </h2>
-          <span className="text-gray-400 font-mono text-[11px] shrink-0">
+          <span data-testid="assignment-max-points" className="text-gray-400 font-mono text-[11px] shrink-0">
             {assignment.maxPoints} pts
           </span>
         </div>

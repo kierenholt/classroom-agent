@@ -2685,16 +2685,36 @@ test.describe('Classroom Agent - Workspace and Agent Co-Pilot Tests', () => {
       await expect(cloneBtn).toBeVisible();
       await cloneBtn.click();
 
-      // 4. Verify the creation form opens pre-filled with "(Clone)" appended to the title and cloning banner visible
+      // 3b. If the source assignment has existing student submissions, verify the Clone Submissions prompt modal appears
+      const clonePromptModal = page.locator('[data-testid="clone-submissions-prompt-modal"]');
       const createForm = page.locator('[data-testid="create-assignment-form"]');
+      await expect(clonePromptModal.or(createForm)).toBeVisible({ timeout: 15000 });
+
+      let didCloneSubmissions = false;
+      if (await clonePromptModal.isVisible()) {
+        await expect(clonePromptModal).toContainText(
+          'This assignment already has student submissions, would you like to clone those as well?'
+        );
+        await expect(page.locator('[data-testid="clone-without-submissions-button"]')).toBeVisible();
+        const cloneWithSubsBtn = page.locator('[data-testid="clone-with-submissions-button"]');
+        await expect(cloneWithSubsBtn).toBeVisible();
+        await cloneWithSubsBtn.click();
+        didCloneSubmissions = true;
+      }
+
+      // 4. Verify the creation form opens pre-filled with "(Clone)" appended to the title and cloning banner visible
       await expect(createForm).toBeVisible();
-      await expect(page.locator('[data-testid="cloning-source-banner"]')).toBeVisible();
+      const cloningBanner = page.locator('[data-testid="cloning-source-banner"]');
+      await expect(cloningBanner).toBeVisible();
+      if (didCloneSubmissions) {
+        await expect(cloningBanner).toContainText('existing student submissions & documents will also be cloned');
+      }
 
       const titleInput = page.locator('[data-testid="new-assignment-title-input"]');
       const prefilledTitle = await titleInput.inputValue();
-      expect(prefilledTitle.endsWith('(Clone)')).toBe(true);
+      expect(prefilledTitle.startsWith('Clone of ')).toBe(true);
 
-      // Prefix with [E2E Test] so orphan sweeper can identify it if needed while keeping (Clone)
+      // Prefix with [E2E Test] so orphan sweeper can identify it if needed while keeping Clone of <original name>
       const finalCloneTitle = `[E2E Test] ${prefilledTitle}`;
       await titleInput.fill(finalCloneTitle);
 
@@ -2703,8 +2723,8 @@ test.describe('Classroom Agent - Workspace and Agent Co-Pilot Tests', () => {
       await expect(submitCreateBtn).toContainText('Create & Open');
       await submitCreateBtn.click();
 
-      // 5. Verify the cloned assignment opens in a workspace tab and has the copied rubric in Rubric Breakdown
-      await expect(modal).toBeHidden({ timeout: 20000 });
+      // 5. Verify the cloned assignment opens in a workspace tab and has the copied rubric (and cloned submissions if present)
+      await expect(modal).toBeHidden({ timeout: 30000 });
 
       const openTab = page.locator(`[data-testid^="assignment-tab-${targetCourseId}_"]`).first();
       await expect(openTab).toBeVisible({ timeout: 15000 });
@@ -2719,6 +2739,12 @@ test.describe('Classroom Agent - Workspace and Agent Co-Pilot Tests', () => {
       await expect(rubricZone).toBeVisible({ timeout: 15000 });
       await expect(rubricZone).toContainText('Cloned Criterion Alpha', { timeout: 15000 });
       await expect(rubricZone).toContainText('Cloned Criterion Beta', { timeout: 15000 });
+
+      if (didCloneSubmissions) {
+        await expect(page.locator('[data-testid="student-roster-list"]')).toContainText('Turned In', {
+          timeout: 15000,
+        });
+      }
     } finally {
       if (targetCourseId && sourceNativeCwId) {
         await cleanupTestAssignment(`${targetCourseId}_${sourceNativeCwId}`, []).catch(() => null);

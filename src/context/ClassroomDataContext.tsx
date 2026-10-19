@@ -15,6 +15,13 @@ interface CreateCourseworkPayload {
   maxPoints?: number;
   dueDate?: string;
   sourceCourseWorkId?: string;
+  cloneSubmissions?: boolean;
+}
+
+export interface CourseworkSubmissionsSummary {
+  hasSubmissions: boolean;
+  submissionCount: number;
+  attachmentCount: number;
 }
 
 interface ClassroomDataContextType {
@@ -27,6 +34,7 @@ interface ClassroomDataContextType {
   preloadAssignments: (force?: boolean) => Promise<void>;
   fetchCourseworkForCourse: (courseId: string, force?: boolean) => Promise<ClassroomCoursework[]>;
   createCourseworkForCourse: (courseId: string, payload: CreateCourseworkPayload) => Promise<ClassroomCoursework>;
+  checkCourseworkHasSubmissions: (courseId: string, courseWorkId: string) => Promise<CourseworkSubmissionsSummary>;
   prefetchWorkspace: (courseId: string, courseWorkId: string) => Promise<any>;
   getCachedWorkspace: (assignmentId: string) => any | null;
   refreshAll: () => Promise<void>;
@@ -279,6 +287,7 @@ export const ClassroomDataProvider: React.FC<{ children: React.ReactNode }> = ({
           dueDate: payload.dueDate?.trim() || undefined,
           state: 'PUBLISHED',
           sourceCourseWorkId: payload.sourceCourseWorkId?.trim() || undefined,
+          cloneSubmissions: payload.cloneSubmissions === true,
         }),
       });
 
@@ -312,6 +321,50 @@ export const ClassroomDataProvider: React.FC<{ children: React.ReactNode }> = ({
       return created;
     },
     [getAuthHeaders, clearGoogleAccessToken, prefetchWorkspace]
+  );
+
+  // 3c. Check if a coursework item has existing student submissions (for Clone prompt)
+  const checkCourseworkHasSubmissions = useCallback(
+    async (courseId: string, courseWorkId: string): Promise<CourseworkSubmissionsSummary> => {
+      if (!courseId || !courseWorkId) {
+        return { hasSubmissions: false, submissionCount: 0, attachmentCount: 0 };
+      }
+
+      const assignmentId = `${courseId}_${courseWorkId}`;
+      const cached = workspaceMemoryCache.get(assignmentId);
+      if (cached && Date.now() - cached.timestamp < WORKSPACE_CACHE_TTL_MS && Array.isArray(cached.data?.submissions)) {
+        const activeSubs = cached.data.submissions.filter(
+          (s: any) =>
+            (s.attachments?.length || 0) > 0 || s.state === 'TURNED_IN' || s.state === 'RETURNED'
+        );
+        const attCount = activeSubs.reduce((sum: number, s: any) => sum + (s.attachments?.length || 0), 0);
+        return {
+          hasSubmissions: activeSubs.length > 0,
+          submissionCount: activeSubs.length,
+          attachmentCount: attCount,
+        };
+      }
+
+      try {
+        const headers = await getAuthHeaders();
+        const res = await fetch(
+          `${env.API_BASE_URL}/classroom/courses/${encodeURIComponent(courseId)}/coursework/${encodeURIComponent(courseWorkId)}/submissions-summary`,
+          { headers }
+        );
+        if (res.ok) {
+          const data = await res.json();
+          return {
+            hasSubmissions: Boolean(data.hasSubmissions),
+            submissionCount: Number(data.submissionCount) || 0,
+            attachmentCount: Number(data.attachmentCount) || 0,
+          };
+        }
+      } catch {
+        // Fallback to false on transient error
+      }
+      return { hasSubmissions: false, submissionCount: 0, attachmentCount: 0 };
+    },
+    [getAuthHeaders]
   );
 
   // 4. Retrieve cached workspace
@@ -350,6 +403,7 @@ export const ClassroomDataProvider: React.FC<{ children: React.ReactNode }> = ({
         preloadAssignments,
         fetchCourseworkForCourse,
         createCourseworkForCourse,
+        checkCourseworkHasSubmissions,
         prefetchWorkspace,
         getCachedWorkspace,
         refreshAll,

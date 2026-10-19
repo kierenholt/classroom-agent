@@ -39,6 +39,7 @@ export const AssignmentPickerView: React.FC<AssignmentPickerViewProps> = ({
     preloadAssignments,
     fetchCourseworkForCourse,
     createCourseworkForCourse,
+    checkCourseworkHasSubmissions,
     prefetchWorkspace,
     refreshAll,
   } = useClassroomData();
@@ -50,6 +51,13 @@ export const AssignmentPickerView: React.FC<AssignmentPickerViewProps> = ({
   // New assignment creation / cloning state
   const [isCreatingAssignment, setIsCreatingAssignment] = useState<boolean>(false);
   const [cloningSourceCw, setCloningSourceCw] = useState<ClassroomCoursework | null>(null);
+  const [cloneSubmissions, setCloneSubmissions] = useState<boolean>(false);
+  const [checkingCloneCwId, setCheckingCloneCwId] = useState<string | null>(null);
+  const [clonePromptState, setClonePromptState] = useState<{
+    cw: ClassroomCoursework;
+    submissionCount: number;
+    attachmentCount: number;
+  } | null>(null);
   const [infoModalCw, setInfoModalCw] = useState<ClassroomCoursework | null>(null);
   const [newTitle, setNewTitle] = useState<string>('');
   const [newDescription, setNewDescription] = useState<string>('');
@@ -64,6 +72,9 @@ export const AssignmentPickerView: React.FC<AssignmentPickerViewProps> = ({
       setLocalError(null);
       setIsCreatingAssignment(false);
       setCloningSourceCw(null);
+      setCloneSubmissions(false);
+      setCheckingCloneCwId(null);
+      setClonePromptState(null);
       setInfoModalCw(null);
       setNewTitle('');
       setNewDescription('');
@@ -82,12 +93,18 @@ export const AssignmentPickerView: React.FC<AssignmentPickerViewProps> = ({
     if (!isOpen || !selectedCourseId) {
       setIsCreatingAssignment(false);
       setCloningSourceCw(null);
+      setCloneSubmissions(false);
+      setCheckingCloneCwId(null);
+      setClonePromptState(null);
       setInfoModalCw(null);
       return;
     }
 
     setLocalError(null);
     setCloningSourceCw(null);
+    setCloneSubmissions(false);
+    setCheckingCloneCwId(null);
+    setClonePromptState(null);
     setInfoModalCw(null);
 
     if (!courseworkByCourseId[selectedCourseId]) {
@@ -134,6 +151,7 @@ export const AssignmentPickerView: React.FC<AssignmentPickerViewProps> = ({
   const handleOpenCreateForm = () => {
     setLocalError(null);
     setCloningSourceCw(null);
+    setCloneSubmissions(false);
     setNewTitle('');
     setNewDescription('');
     setNewMaxPoints('100');
@@ -141,13 +159,12 @@ export const AssignmentPickerView: React.FC<AssignmentPickerViewProps> = ({
     setIsCreatingAssignment(true);
   };
 
-  const handleCloneAssignment = (cw: ClassroomCoursework, e?: React.MouseEvent) => {
-    if (e) {
-      e.stopPropagation();
-    }
+  const proceedToCloneForm = (cw: ClassroomCoursework, shouldCloneSubmissions: boolean) => {
     setLocalError(null);
+    setClonePromptState(null);
     setCloningSourceCw(cw);
-    setNewTitle(`${cw.title} (Clone)`);
+    setCloneSubmissions(shouldCloneSubmissions);
+    setNewTitle(`Clone of ${cw.title}`);
     setNewDescription(cw.description || '');
     setNewMaxPoints(String(cw.maxPoints ?? 100));
 
@@ -163,9 +180,36 @@ export const AssignmentPickerView: React.FC<AssignmentPickerViewProps> = ({
     setIsCreatingAssignment(true);
   };
 
+  const handleCloneAssignment = async (cw: ClassroomCoursework, e?: React.MouseEvent) => {
+    if (e) {
+      e.stopPropagation();
+    }
+    if (!selectedCourseId || checkingCloneCwId) return;
+
+    setLocalError(null);
+    setCheckingCloneCwId(cw.id);
+    try {
+      const summary = await checkCourseworkHasSubmissions(selectedCourseId, cw.id);
+      if (summary.hasSubmissions) {
+        setClonePromptState({
+          cw,
+          submissionCount: summary.submissionCount,
+          attachmentCount: summary.attachmentCount,
+        });
+      } else {
+        proceedToCloneForm(cw, false);
+      }
+    } catch {
+      proceedToCloneForm(cw, false);
+    } finally {
+      setCheckingCloneCwId(null);
+    }
+  };
+
   const handleCancelCreateForm = () => {
     setIsCreatingAssignment(false);
     setCloningSourceCw(null);
+    setCloneSubmissions(false);
     setLocalError(null);
   };
 
@@ -184,6 +228,7 @@ export const AssignmentPickerView: React.FC<AssignmentPickerViewProps> = ({
         maxPoints: !Number.isNaN(parsedPoints) && parsedPoints >= 0 ? parsedPoints : 100,
         dueDate: newDueDate.trim() || undefined,
         sourceCourseWorkId: cloningSourceCw?.id || undefined,
+        cloneSubmissions: cloningSourceCw ? cloneSubmissions : false,
       });
 
       const selectedCourse = courses.find((c) => c.id === selectedCourseId);
@@ -364,7 +409,10 @@ export const AssignmentPickerView: React.FC<AssignmentPickerViewProps> = ({
                       <div>
                         <span className="font-semibold">Cloning assignment:</span>{' '}
                         <span className="text-white">{cloningSourceCw.title}</span>. Review or edit the details below
-                        before creating — any existing rubric will also be copied automatically.
+                        before creating — any existing rubric
+                        {cloneSubmissions
+                          ? ' and existing student submissions & documents will also be cloned automatically.'
+                          : ' will also be copied automatically.'}
                       </div>
                     </div>
                   )}
@@ -439,7 +487,7 @@ export const AssignmentPickerView: React.FC<AssignmentPickerViewProps> = ({
                       {isSubmittingCreate ? (
                         <>
                           <Loader2 className="w-3.5 h-3.5 animate-spin" />
-                          <span>Creating...</span>
+                          <span>{cloneSubmissions ? 'Cloning & Copying Submissions...' : 'Creating...'}</span>
                         </>
                       ) : (
                         <span>Create &amp; Open</span>
@@ -510,10 +558,15 @@ export const AssignmentPickerView: React.FC<AssignmentPickerViewProps> = ({
                                 type="button"
                                 data-testid={`clone-assignment-button-${cw.id}`}
                                 onClick={(e) => handleCloneAssignment(cw, e)}
-                                className="inline-flex items-center space-x-1.5 px-3 py-1.5 rounded-md bg-[#22262C] hover:bg-[#2D323A] border border-[#333842] text-gray-200 text-xs font-medium transition-colors cursor-pointer"
+                                disabled={checkingCloneCwId === cw.id}
+                                className="inline-flex items-center space-x-1.5 px-3 py-1.5 rounded-md bg-[#22262C] hover:bg-[#2D323A] border border-[#333842] text-gray-200 text-xs font-medium transition-colors cursor-pointer disabled:opacity-50"
                                 title="Clone this assignment"
                               >
-                                <Copy className="w-3.5 h-3.5 text-[#D4AF37]" />
+                                {checkingCloneCwId === cw.id ? (
+                                  <Loader2 className="w-3.5 h-3.5 animate-spin text-[#D4AF37]" />
+                                ) : (
+                                  <Copy className="w-3.5 h-3.5 text-[#D4AF37]" />
+                                )}
                                 <span>Clone</span>
                               </button>
                               <button
@@ -582,10 +635,15 @@ export const AssignmentPickerView: React.FC<AssignmentPickerViewProps> = ({
                               type="button"
                               data-testid={`clone-assignment-button-${cw.id}`}
                               onClick={(e) => handleCloneAssignment(cw, e)}
-                              className="inline-flex items-center space-x-1.5 px-3 py-1.5 rounded-md bg-[#22262C] hover:bg-[#2D323A] border border-[#333842] text-gray-200 text-xs font-medium transition-colors cursor-pointer"
+                              disabled={checkingCloneCwId === cw.id}
+                              className="inline-flex items-center space-x-1.5 px-3 py-1.5 rounded-md bg-[#22262C] hover:bg-[#2D323A] border border-[#333842] text-gray-200 text-xs font-medium transition-colors cursor-pointer disabled:opacity-50"
                               title="Clone this assignment into Classroom Agent so grades and feedback can be synced"
                             >
-                              <Copy className="w-3.5 h-3.5 text-[#D4AF37]" />
+                              {checkingCloneCwId === cw.id ? (
+                                <Loader2 className="w-3.5 h-3.5 animate-spin text-[#D4AF37]" />
+                              ) : (
+                                <Copy className="w-3.5 h-3.5 text-[#D4AF37]" />
+                              )}
                               <span>Clone</span>
                             </button>
                             <button
@@ -613,6 +671,78 @@ export const AssignmentPickerView: React.FC<AssignmentPickerViewProps> = ({
           )}
         </div>
       </div>
+
+      {/* Clone Student Submissions Confirmation Modal */}
+      {clonePromptState && (
+        <div
+          data-testid="clone-submissions-prompt-modal"
+          className="fixed inset-0 z-60 flex items-center justify-center bg-black/75 backdrop-blur-xs p-4"
+          onClick={() => setClonePromptState(null)}
+        >
+          <div
+            className="w-full max-w-md bg-[#1A1D22] border border-[#333842] rounded-xl shadow-2xl overflow-hidden"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="px-5 py-4 border-b border-[#333842] flex items-center justify-between bg-[#22262C]/60">
+              <div className="flex items-center space-x-2.5">
+                <div className="p-1.5 rounded-lg bg-[#D4AF37]/10 border border-[#D4AF37]/20 text-[#D4AF37]">
+                  <Copy className="w-4 h-4" />
+                </div>
+                <h4 className="text-sm font-semibold text-white">Clone Student Submissions?</h4>
+              </div>
+              <button
+                type="button"
+                data-testid="close-clone-submissions-prompt-button"
+                onClick={() => setClonePromptState(null)}
+                className="p-1 rounded-lg text-gray-400 hover:text-white hover:bg-[#333842]/60 transition-colors cursor-pointer"
+                title="Close"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            <div className="p-5 space-y-3 text-xs text-gray-300 leading-relaxed">
+              <p className="text-sm font-medium text-white">
+                This assignment already has student submissions, would you like to clone those as well?
+              </p>
+              <p className="text-gray-400">
+                <span className="font-semibold text-gray-200">{clonePromptState.cw.title}</span> currently has{' '}
+                <span className="font-semibold text-[#F3E5AB]">
+                  {clonePromptState.submissionCount}{' '}
+                  {clonePromptState.submissionCount === 1 ? 'student submission' : 'student submissions'}
+                </span>
+                {clonePromptState.attachmentCount > 0
+                  ? ` (${clonePromptState.attachmentCount} submitted ${
+                      clonePromptState.attachmentCount === 1 ? 'document' : 'documents'
+                    })`
+                  : ''}
+                . Choosing <span className="text-white font-medium">Yes</span> will copy each student&apos;s submitted
+                documents into the cloned assignment so you can grade and return them immediately.
+              </p>
+            </div>
+
+            <div className="px-5 py-3.5 border-t border-[#333842] bg-[#121316]/60 flex items-center justify-end space-x-2.5">
+              <button
+                type="button"
+                data-testid="clone-without-submissions-button"
+                onClick={() => proceedToCloneForm(clonePromptState.cw, false)}
+                className="px-3.5 py-1.5 rounded-lg bg-[#22262C] hover:bg-[#2D323A] border border-[#333842] text-gray-200 text-xs font-medium transition-colors cursor-pointer"
+              >
+                No, Assignment Only
+              </button>
+              <button
+                type="button"
+                data-testid="clone-with-submissions-button"
+                onClick={() => proceedToCloneForm(clonePromptState.cw, true)}
+                className="inline-flex items-center space-x-1.5 px-3.5 py-1.5 rounded-lg bg-[#D4AF37] hover:bg-[#E5B869] text-[#121316] text-xs font-semibold transition-colors cursor-pointer shadow-xs"
+              >
+                <Copy className="w-3.5 h-3.5" />
+                <span>Yes, Clone Submissions</span>
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Native Classroom Assignment Explanation Modal */}
       {infoModalCw && (

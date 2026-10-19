@@ -114,7 +114,7 @@ export async function cloneCourseWorkUnderApp(
   const original = await getCourseWork(accessToken, courseId, sourceCourseWorkId);
 
   const newCourseWork: classroom_v1.Schema$CourseWork = {
-    title: `${original.title || 'Assignment'} (Clone)`,
+    title: `Clone of ${original.title || 'Assignment'}`,
     description: original.description,
     state: 'PUBLISHED',
     workType: original.workType || 'ASSIGNMENT',
@@ -336,13 +336,22 @@ export function mapLiveClassroomSubmission(
     });
   }
 
+  const effectiveState: 'CREATED' | 'TURNED_IN' | 'RETURNED' | 'RECLAIMED_BY_STUDENT' =
+    sub.state === 'RETURNED'
+      ? 'RETURNED'
+      : sub.state === 'TURNED_IN' || attachments.length > 0
+      ? 'TURNED_IN'
+      : sub.state === 'RECLAIMED_BY_STUDENT'
+      ? 'RECLAIMED_BY_STUDENT'
+      : 'CREATED';
+
   return {
     studentId,
     submissionId: sub.id || studentId,
     studentName: profile?.name || `Student ${studentId.slice(0, 6)}`,
     studentEmail: profile?.email || undefined,
     studentAvatarUrl: sanitizeGooglePhotoUrl(profile?.photoUrl),
-    state: (sub.state || 'CREATED') as 'CREATED' | 'TURNED_IN' | 'RETURNED' | 'RECLAIMED_BY_STUDENT',
+    state: effectiveState,
     late: sub.late || false,
     attachments,
     draftGrade: sub.draftGrade ?? undefined,
@@ -410,6 +419,37 @@ export async function fetchCourseWorkRubricFromClassroom(
   }
 }
 
+export function computeRubricTotalPoints(rubric: any): number {
+  if (!rubric || !Array.isArray(rubric.criteria) || rubric.criteria.length === 0) {
+    return 0;
+  }
+  return rubric.criteria.reduce((sum: number, c: any) => sum + (Number(c.maxPoints) || 0), 0);
+}
+
+/**
+ * Updates the maxPoints of a coursework item in Google Classroom via courses.courseWork.patch.
+ */
+export async function patchCourseWorkMaxPoints(
+  accessToken: string,
+  courseId: string,
+  courseWorkId: string,
+  maxPoints: number
+): Promise<classroom_v1.Schema$CourseWork | null> {
+  if (!courseId || !courseWorkId || typeof maxPoints !== 'number' || Number.isNaN(maxPoints) || maxPoints <= 0) {
+    return null;
+  }
+  const classroom = getClassroomClient(accessToken);
+  const res = await classroom.courses.courseWork.patch({
+    courseId,
+    id: courseWorkId,
+    updateMask: 'maxPoints',
+    requestBody: {
+      maxPoints,
+    },
+  });
+  return res.data;
+}
+
 /**
  * Fetches the complete live Classroom workspace (Course + CourseWork + Roster + Submissions + Classroom Rubric if present)
  * directly from the Google Classroom API in parallel.
@@ -446,6 +486,7 @@ export async function fetchLiveWorkspaceFromClassroom(
   const returnedCount = submissions.filter((s) => s.state === 'RETURNED').length;
   const draftGradedCount = submissions.filter((s) => s.draftGrade !== undefined && s.state !== 'RETURNED').length;
 
+  const classroomRubricPoints = computeRubricTotalPoints(classroomRubric);
   const assignmentId = `${courseId}_${courseWorkId}`;
   const assignment = {
     id: assignmentId,
@@ -454,7 +495,7 @@ export async function fetchLiveWorkspaceFromClassroom(
     courseWorkId,
     title: coursework.title || 'Classroom Assignment',
     description: coursework.description || '',
-    maxPoints: coursework.maxPoints || 100,
+    maxPoints: classroomRubricPoints > 0 ? classroomRubricPoints : coursework.maxPoints || 100,
     dueDate: coursework.dueDate
       ? `${coursework.dueDate.year}-${coursework.dueDate.month}-${coursework.dueDate.day}`
       : undefined,
@@ -730,4 +771,61 @@ export async function attachDriveFileToSubmission(
   });
   return res.data;
 }
+
+/**
+ * Copies a student's Google Drive file into the authenticated teacher's Drive via drive.files.copy
+ * so that the teacher owns the copy and can attach it to a cloned assignment's studentSubmission.
+ */
+export async function copyDriveFileForClonedSubmission(
+  accessToken: string,
+  sourceFileId: string,
+  title?: string
+): Promise<{ fileId: string; title: string; webViewLink?: string }> {
+  if (!sourceFileId) {
+    throw new Error('[Classroom Client] sourceFileId is required to copy Drive file.');
+  }
+  const drive = getDriveClient(accessToken);
+  const copied = await drive.files.copy({
+    fileId: sourceFileId,
+    requestBody: {
+      ...(title ? { name: title } : {}),
+    },
+    fields: 'id, name, webViewLink',
+  });
+  const fileId = copied.data.id;
+  if (!fileId) {
+    throw new Error('[Classroom Client] Google Drive did not return a file ID for copied submission document.');
+  }
+  return {
+    fileId,
+    title: copied.data.name || title || 'Submitted Document',
+    webViewLink: copied.data.webViewLink || undefined,
+  };
+}
+
+/**
+ * Attaches multiple Drive files and/or web links to a student's submission in Google Classroom via studentSubmissions.modifyAttachments.
+ */
+export async function modifySubmissionAttachments(
+  accessToken: string,
+  courseId: string,
+  courseWorkId: string,
+  submissionId: string,
+  addAttachments: classroom_v1.Schema$Attachment[]
+) {
+  if (!courseId || !courseWorkId || !submissionId || !Array.isArray(addAttachments) || addAttachments.length === 0) {
+    throw new Error('[Classroom Client] courseId, courseWorkId, submissionId, and non-empty addAttachments are required.');
+  }
+  const classroom = getClassroomClient(accessToken);
+  const res = await classroom.courses.courseWork.studentSubmissions.modifyAttachments({
+    courseId,
+    courseWorkId,
+    id: submissionId,
+    requestBody: {
+      addAttachments,
+    },
+  });
+  return res.data;
+}
+
 

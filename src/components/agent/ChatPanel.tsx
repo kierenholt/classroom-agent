@@ -18,7 +18,7 @@ import {
   CreditCard,
   Zap,
 } from 'lucide-react';
-import { collection, query, orderBy, onSnapshot } from 'firebase/firestore';
+import { doc, collection, query, orderBy, onSnapshot } from 'firebase/firestore';
 import { db } from '../../config/firebase';
 import { ToolCallBadge } from './ToolCallBadge';
 import { MarkdownRenderer } from './MarkdownRenderer';
@@ -101,6 +101,7 @@ export const ChatPanel: React.FC<ChatPanelProps> = ({
   const [persistedMessages, setPersistedMessages] = useState<PersistedChatMessage[]>([]);
   const [messages, setMessages] = useState<PersistedChatMessage[]>([]);
   const [evaluationsMap, setEvaluationsMap] = useState<Record<string, StudentEvaluationSidecarDoc>>({});
+  const [sidecarAssignmentMaxPoints, setSidecarAssignmentMaxPoints] = useState<number | undefined>(undefined);
   const [inputText, setInputText] = useState('');
   const [isStreaming, setIsStreaming] = useState(false);
   const [statusTicker, setStatusTicker] = useState<string | null>(null);
@@ -183,6 +184,38 @@ export const ChatPanel: React.FC<ChatPanelProps> = ({
     return () => unsubscribe();
   }, [assignmentId]);
 
+  // 1a. Subscribe to Firestore assignment sidecar doc for rubric / maxPoints
+  useEffect(() => {
+    if (!assignmentId) return;
+    const assignRef = doc(db, 'assignments', assignmentId);
+    const unsubscribe = onSnapshot(
+      assignRef,
+      (snap) => {
+        if (snap.exists()) {
+          const data = snap.data();
+          const criteria = data?.rubric?.criteria;
+          if (Array.isArray(criteria) && criteria.length > 0) {
+            const rubricSum = criteria.reduce((sum: number, c: any) => sum + (Number(c.maxPoints) || 0), 0);
+            if (rubricSum > 0) {
+              setSidecarAssignmentMaxPoints(rubricSum);
+              return;
+            }
+          }
+          if (typeof data?.maxPoints === 'number' && data.maxPoints > 0) {
+            setSidecarAssignmentMaxPoints(data.maxPoints);
+            return;
+          }
+        }
+        setSidecarAssignmentMaxPoints(undefined);
+      },
+      (err) => {
+        console.error('Error listening to assignment sidecar doc in ChatPanel:', err);
+      }
+    );
+
+    return () => unsubscribe();
+  }, [assignmentId]);
+
   // 1b. Subscribe to Firestore evaluations sidecar so edits and approvals reflect live in chat cards
   useEffect(() => {
     if (!assignmentId) return;
@@ -234,7 +267,12 @@ export const ChatPanel: React.FC<ChatPanelProps> = ({
       const sidecar = evaluationsMap[studentId];
       const studentName = String(res.studentName || studentId);
       const submissionId = sidecar?.submissionId || (res.submissionId ? String(res.submissionId) : undefined);
-      const maxPoints = typeof res.maxPoints === 'number' ? res.maxPoints : 100;
+      const maxPoints =
+        sidecarAssignmentMaxPoints !== undefined
+          ? sidecarAssignmentMaxPoints
+          : typeof res.maxPoints === 'number'
+            ? res.maxPoints
+            : 100;
 
       let rawScore: number | null = null;
       if (sidecar && sidecar.draftGrade !== undefined) {

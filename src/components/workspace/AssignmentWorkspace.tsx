@@ -181,7 +181,19 @@ export const AssignmentWorkspace: React.FC<AssignmentWorkspaceProps> = ({
       const feedbackDocId = sidecar.feedbackDocId || liveSub.feedbackDocId;
       const feedbackDocUrl = sidecar.feedbackDocUrl || liveSub.feedbackDocUrl;
 
-      const baseAttachments = liveSub.attachments || [];
+      const baseAttachments = [...(liveSub.attachments || [])];
+      if (
+        sidecar.clonedShortAnswer &&
+        !baseAttachments.some((att) => att.type === 'SHORT_ANSWER')
+      ) {
+        baseAttachments.push({
+          id: `sa_cloned_${liveSub.studentId}`,
+          title: 'Short Answer Response',
+          type: 'SHORT_ANSWER' as const,
+          shortAnswer: sidecar.clonedShortAnswer,
+        });
+      }
+
       const hasFeedbackAttachment = feedbackDocId
         ? baseAttachments.some((att) => att.driveFileId === feedbackDocId || att.id === feedbackDocId)
         : false;
@@ -199,9 +211,11 @@ export const AssignmentWorkspace: React.FC<AssignmentWorkspaceProps> = ({
             ]
           : baseAttachments;
 
+      const isTurnedInViaClone = sidecar.clonedSubmissionState === 'TURNED_IN' || mergedAttachments.length > 0;
+
       return {
         ...liveSub,
-        state: isReturned ? 'RETURNED' : liveSub.state,
+        state: isReturned ? 'RETURNED' : isTurnedInViaClone ? 'TURNED_IN' : liveSub.state,
         attachments: mergedAttachments,
         draftGrade:
           sidecar.draftGrade !== undefined && sidecar.draftGrade !== null
@@ -231,10 +245,21 @@ export const AssignmentWorkspace: React.FC<AssignmentWorkspaceProps> = ({
     const returned = mergedSubmissions.filter((s) => s.state === 'RETURNED').length;
     const draftGraded = mergedSubmissions.filter((s) => s.draftGrade !== undefined && s.state !== 'RETURNED').length;
 
+    const effectiveRubric = sidecarRubric || liveAssignment.rubric;
+    const rubricMaxPoints =
+      effectiveRubric?.criteria && effectiveRubric.criteria.length > 0
+        ? effectiveRubric.criteria.reduce((sum, c) => sum + (Number(c.maxPoints) || 0), 0)
+        : undefined;
+
     return {
       ...liveAssignment,
-      maxPoints: sidecarMaxPoints !== undefined ? sidecarMaxPoints : liveAssignment.maxPoints,
-      rubric: sidecarRubric || liveAssignment.rubric,
+      maxPoints:
+        rubricMaxPoints !== undefined && rubricMaxPoints > 0
+          ? rubricMaxPoints
+          : sidecarMaxPoints !== undefined
+            ? sidecarMaxPoints
+            : liveAssignment.maxPoints,
+      rubric: effectiveRubric,
       submissionStats: {
         total: mergedSubmissions.length,
         turnedIn,
@@ -243,7 +268,7 @@ export const AssignmentWorkspace: React.FC<AssignmentWorkspaceProps> = ({
         missing: Math.max(0, mergedSubmissions.length - turnedIn - returned),
       },
     };
-  }, [liveAssignment, sidecarRubric, mergedSubmissions]);
+  }, [liveAssignment, sidecarRubric, sidecarMaxPoints, mergedSubmissions]);
 
   // Selected student submission
   const activeSubmission = mergedSubmissions.find((s) => s.studentId === selectedStudentId) || null;

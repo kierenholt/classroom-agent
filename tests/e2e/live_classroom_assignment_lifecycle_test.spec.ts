@@ -298,14 +298,13 @@ test.describe('Classroom Agent MVP — 7 Core User Stories (Live Classroom Batch
   }) => {
     expect(batchFixture).not.toBeNull();
 
-    // Seed deterministic 2-criterion rubric in Sidecar so this test is 100% self-contained
+    // Seed deterministic 1-criterion rubric out of 10 in Sidecar to verify rubric maxPoints & score calculation
     await seedTestAssignment(batchFixture!.assignmentId, {
       rubric: {
         id: 'rubric_e2e_us5',
         title: 'Recursion Evaluation Rubric',
         criteria: [
-          { id: 'crit_logic', title: 'Recursive Base & Step Case', description: 'Correct n! logic', maxPoints: 60 },
-          { id: 'crit_docs', title: 'Type Hints & Docstring', description: 'Clean Python docstring', maxPoints: 40 },
+          { id: 'crit_logic', title: 'Recursive Base & Step Case', description: 'Correct n! logic and docstring', maxPoints: 10 },
         ],
       },
     });
@@ -315,9 +314,13 @@ test.describe('Classroom Agent MVP — 7 Core User Stories (Live Classroom Batch
     });
     await openBatchAssignmentInWorkspace(page, batchFixture!);
 
+    // Verify setting the rubric knocks on to the assignment's maxPoints (10 pts in roster header and /10 in grade badge)
+    await expect(page.locator('[data-testid="assignment-max-points"]')).toHaveText('10 pts');
+
     // Select the student in Zone A
     const studentRow = page.locator(`[data-testid="student-row-${batchFixture!.student.userId}"]`);
     await studentRow.click();
+    await expect(page.locator(`[data-testid="student-grade-badge-${batchFixture!.student.userId}"]`)).toContainText('/10');
 
     // Prompt the Agent Co-Pilot to inspect and grade the selected student's submission
     const chatInput = page.locator('[data-testid="chat-input"]');
@@ -339,6 +342,16 @@ test.describe('Classroom Agent MVP — 7 Core User Stories (Live Classroom Batch
     });
     const totalGradeInput = page.locator('[data-testid="total-grade-input"]');
     await expect(totalGradeInput).not.toHaveValue('', { timeout: 30000 });
+    const criterionScoreInput = page.locator('[data-testid="criterion-score-input-crit_logic"]');
+    const totalGradeVal = Number(await totalGradeInput.inputValue());
+    const criterionVal = Number(await criterionScoreInput.inputValue());
+    expect(totalGradeVal).toBeGreaterThanOrEqual(0);
+    expect(totalGradeVal).toBeLessThanOrEqual(10);
+    expect(totalGradeVal).toBe(criterionVal);
+    await expect(page.locator(`[data-testid="evaluation-score-badge-${batchFixture!.student.userId}"]`)).toHaveText(
+      `${totalGradeVal}/10`
+    );
+
     // Agent feedback is delivered exclusively in the chat co-pilot window
     await expect(page.locator('[data-testid="chat-window"]')).toContainText(/evaluated|graded|score|factorial|recursion/i, {
       timeout: 30000,

@@ -4,6 +4,8 @@ import {
   getCourse,
   createCourseWork,
   fetchLiveWorkspaceFromClassroom,
+  computeRubricTotalPoints,
+  patchCourseWorkMaxPoints,
   parseAssignmentId,
   patchSubmissionGrade,
   returnSubmission,
@@ -71,7 +73,7 @@ export const gradingToolDeclarations = [
         },
         maxPoints: {
           type: 'number',
-          description: 'Maximum points for the assignment (defaults to 100).',
+          description: 'Maximum points for the assignment (if rubricCriteria is provided, maxPoints is automatically set to the sum of rubric criteria maxPoints; otherwise defaults to 100).',
         },
         dueDate: {
           type: 'string',
@@ -108,7 +110,7 @@ export const gradingToolDeclarations = [
   {
     name: 'set_assignment_rubric',
     description:
-      'Configures or updates the grading rubric for this assignment. Saves structured criteria in the Firestore sidecar and updates the marking panel.',
+      'Configures or updates the grading rubric for this assignment. Saves structured criteria in the Firestore sidecar, updates the assignment maxPoints to match the rubric total points, and updates the marking panel.',
     parameters: {
       type: 'object',
       properties: {
@@ -173,7 +175,7 @@ export const gradingToolDeclarations = [
             type: 'object',
             properties: {
               criterionId: { type: 'string', description: 'ID of the rubric criterion' },
-              score: { type: 'number', description: 'Score awarded for this criterion' },
+              score: { type: 'number', description: 'Score awarded for this criterion (must not exceed the criterion maxPoints)' },
               comment: { type: 'string', description: 'Detailed feedback justifying the criterion score' },
             },
             required: ['criterionId', 'score', 'comment'],
@@ -181,7 +183,7 @@ export const gradingToolDeclarations = [
         },
         draftGrade: {
           type: 'number',
-          description: 'Total numerical grade out of assignment maxPoints to propose for the student. Omit if only generating a written feedback document without a score.',
+          description: 'Total numerical grade out of assignment maxPoints to propose for the student. When a rubric is used (rubricScores is non-empty), draftGrade MUST be the exact sum of the scores in rubricScores out of the rubric total maxPoints — NEVER scale or convert to 100. Omit if only generating a written feedback document without a score.',
         },
         overallFeedback: {
           type: 'string',
@@ -235,16 +237,27 @@ export async function executeGradingTool(
       let activeRubric = sidecarData?.rubric || null;
       if (!activeRubric && assignment.rubric) {
         activeRubric = assignment.rubric;
+        const rubricPoints = computeRubricTotalPoints(activeRubric);
         await assignRef.set(
           {
             rubric: activeRubric,
+            ...(rubricPoints > 0 ? { maxPoints: rubricPoints } : {}),
             updatedAt: new Date().toISOString(),
           },
           { merge: true }
         );
       }
+      const rubricTotalPoints = computeRubricTotalPoints(activeRubric);
+      const effectiveMaxPoints =
+        rubricTotalPoints > 0
+          ? rubricTotalPoints
+          : typeof sidecarData?.maxPoints === 'number' && sidecarData.maxPoints > 0
+            ? sidecarData.maxPoints
+            : assignment.maxPoints || 100;
+
       return {
         ...assignment,
+        maxPoints: effectiveMaxPoints,
         rubric: activeRubric,
       };
     }
@@ -269,11 +282,21 @@ export async function executeGradingTool(
         throw new Error('Assignment title is required for create_classroom_assignment.');
       }
 
+      const rubricTotalPoints = Array.isArray(args.rubricCriteria)
+        ? computeRubricTotalPoints({ criteria: args.rubricCriteria })
+        : 0;
+      const effectiveMaxPoints =
+        rubricTotalPoints > 0
+          ? rubricTotalPoints
+          : args.maxPoints !== undefined
+            ? Number(args.maxPoints)
+            : 100;
+
       const [created, targetCourse] = await Promise.all([
         createCourseWork(googleAccessToken, targetCourseId, {
           title,
           description: args.description ? String(args.description).trim() : undefined,
-          maxPoints: args.maxPoints !== undefined ? Number(args.maxPoints) : 100,
+          maxPoints: effectiveMaxPoints,
           dueDate: args.dueDate ? String(args.dueDate).trim() : undefined,
           state: args.state === 'DRAFT' ? 'DRAFT' : 'PUBLISHED',
         }),
@@ -300,6 +323,7 @@ export async function executeGradingTool(
           .set(
             {
               rubric: savedRubric,
+              maxPoints: effectiveMaxPoints,
               updatedAt: new Date().toISOString(),
             },
             { merge: true }
@@ -314,7 +338,7 @@ export async function executeGradingTool(
         courseWorkId: created.id,
         title: created.title || title,
         description: created.description || '',
-        maxPoints: created.maxPoints ?? 100,
+        maxPoints: effectiveMaxPoints,
         state: created.state || 'PUBLISHED',
         alternateLink: created.alternateLink || undefined,
         rubric: savedRubric || undefined,
@@ -335,17 +359,22 @@ export async function executeGradingTool(
         updatedAt: new Date().toISOString(),
       };
 
-      await assignRef.set(
-        {
-          rubric: rubricPayload,
-          updatedAt: new Date().toISOString(),
-        },
-        { merge: true }
-      );
+      await Promise.all([
+        assignRef.set(
+          {
+            rubric: rubricPayload,
+            maxPoints: totalCriterionPoints,
+            updatedAt: new Date().toISOString(),
+          },
+          { merge: true }
+        ),
+        patchCourseWorkMaxPoints(googleAccessToken, courseId, courseWorkId, totalCriterionPoints).catch(() => null),
+      ]);
 
       return {
         success: true,
-        message: `Rubric updated with ${criteria.length} criteria totaling ${totalCriterionPoints} points.`,
+        message: `Rubric updated with ${criteria.length} criteria totaling ${totalCriterionPoints} points. Assignment maxPoints set to ${totalCriterionPoints}.`,
+        maxPoints: totalCriterionPoints,
         rubric: rubricPayload,
       };
     }
@@ -362,8 +391,11 @@ export async function executeGradingTool(
 
       const mergedSubs = liveSubs.map((sub) => {
         const evalData = evalMap.get(sub.studentId);
+        const isReturned = evalData?.classroomSyncStatus === 'RETURNED' || sub.state === 'RETURNED';
+        const isTurnedIn = evalData?.clonedSubmissionState === 'TURNED_IN' || sub.state === 'TURNED_IN';
         return {
           ...sub,
+          state: isReturned ? 'RETURNED' : isTurnedIn ? 'TURNED_IN' : sub.state,
           draftGrade: evalData?.draftGrade !== undefined && evalData?.draftGrade !== null ? evalData.draftGrade : sub.draftGrade,
           assignedGrade: evalData?.assignedGrade !== undefined && evalData?.assignedGrade !== null ? evalData.assignedGrade : sub.assignedGrade,
         };
@@ -407,11 +439,15 @@ export async function executeGradingTool(
       const { studentId } = args;
       if (!studentId) throw new Error('studentId is required to retrieve submission content.');
 
-      const { submissions } = await fetchLiveWorkspaceFromClassroom(googleAccessToken, courseId, courseWorkId);
+      const [{ submissions }, evalSnap] = await Promise.all([
+        fetchLiveWorkspaceFromClassroom(googleAccessToken, courseId, courseWorkId),
+        assignRef.collection('evaluations').doc(studentId).get(),
+      ]);
       const subData = submissions.find((s) => s.studentId === studentId || s.submissionId === studentId);
       if (!subData) {
         throw new Error(`Student submission ${studentId} not found in Google Classroom.`);
       }
+      const evalData = evalSnap.exists ? evalSnap.data() : null;
 
       // Each time the agent fetches a student's work, deduct 1 AI credit (clamped at 0)
       let remainingAiCredits: number | undefined;
@@ -453,10 +489,18 @@ export async function executeGradingTool(
         }
       }
 
+      if (evalData?.clonedShortAnswer && !extractedItems.some((i) => i.type === 'SHORT_ANSWER')) {
+        extractedItems.push({
+          title: 'Short Answer Response',
+          type: 'SHORT_ANSWER',
+          content: evalData.clonedShortAnswer,
+        });
+      }
+
       return {
         studentId: subData.studentId,
         studentName: subData.studentName,
-        state: subData.state,
+        state: evalData?.clonedSubmissionState === 'TURNED_IN' && subData.state !== 'RETURNED' ? 'TURNED_IN' : subData.state,
         late: subData.late,
         attachments: extractedItems,
         ...(remainingAiCredits !== undefined ? { remainingAiCredits } : {}),
@@ -467,22 +511,83 @@ export async function executeGradingTool(
       const { studentId, rubricScores, draftGrade, overallFeedback } = args;
       if (!studentId) throw new Error('studentId is required for evaluate_and_grade_submission.');
 
-      const hasScore = typeof draftGrade === 'number' && !Number.isNaN(draftGrade);
-      const cleanFeedback = typeof overallFeedback === 'string' ? overallFeedback.trim() : '';
+      const hasExplicitScore = typeof draftGrade === 'number' && !Number.isNaN(draftGrade);
+      let cleanFeedback = typeof overallFeedback === 'string' ? overallFeedback.trim() : '';
       const hasFeedbackDoc = cleanFeedback.length > 0;
 
+      const [{ assignment, submissions }, sidecarSnap] = await Promise.all([
+        fetchLiveWorkspaceFromClassroom(googleAccessToken, courseId, courseWorkId),
+        assignRef.get(),
+      ]);
+      const liveSub = submissions.find((s) => s.studentId === studentId || s.submissionId === studentId);
+      if (!liveSub) {
+        throw new Error(`Student ${studentId} submission does not exist in Google Classroom.`);
+      }
+
+      const sidecarData = sidecarSnap.exists ? sidecarSnap.data() : null;
+      const activeRubric = sidecarData?.rubric || assignment.rubric || null;
+      const rubricTotalPoints = computeRubricTotalPoints(activeRubric);
+      const effectiveMaxPoints =
+        rubricTotalPoints > 0
+          ? rubricTotalPoints
+          : typeof sidecarData?.maxPoints === 'number' && sidecarData.maxPoints > 0
+            ? sidecarData.maxPoints
+            : assignment.maxPoints || 100;
+
+      const criteriaById = new Map<string, any>();
+      if (activeRubric && Array.isArray(activeRubric.criteria)) {
+        for (const c of activeRubric.criteria) {
+          if (c && c.id) criteriaById.set(String(c.id), c);
+        }
+      }
+
+      const sanitizedRubricScores = Array.isArray(rubricScores)
+        ? rubricScores.map((item: any) => {
+            const crit = criteriaById.get(String(item.criterionId || ''));
+            let score = Number(item.score) || 0;
+            if (crit && typeof crit.maxPoints === 'number' && crit.maxPoints > 0) {
+              score = Math.max(0, Math.min(score, Number(crit.maxPoints)));
+            } else {
+              score = Math.max(0, score);
+            }
+            return {
+              ...item,
+              criterionId: String(item.criterionId || ''),
+              score,
+              comment: typeof item.comment === 'string' ? item.comment : '',
+            };
+          })
+        : [];
+
+      const hasRubricBreakdownScores = sanitizedRubricScores.length > 0;
+      const rubricScoreSum = sanitizedRubricScores.reduce(
+        (sum: number, item: any) => sum + (Number(item.score) || 0),
+        0
+      );
+
+      // When rubricScores are provided alongside a proposed score (or when rubricScores are provided without feedback),
+      // the total grade MUST be calculated as the sum of the rubric criterion scores out of the rubric's total maxPoints.
+      const hasScore = hasExplicitScore || (!hasFeedbackDoc && hasRubricBreakdownScores);
       if (!hasScore && !hasFeedbackDoc) {
         throw new Error('At least one of draftGrade (score) or overallFeedback (feedback document) is required.');
       }
 
-      const { assignment, submissions } = await fetchLiveWorkspaceFromClassroom(
-        googleAccessToken,
-        courseId,
-        courseWorkId
-      );
-      const liveSub = submissions.find((s) => s.studentId === studentId || s.submissionId === studentId);
-      if (!liveSub) {
-        throw new Error(`Student ${studentId} submission does not exist in Google Classroom.`);
+      let stagedGrade: number | null = null;
+      if (hasScore) {
+        if (hasRubricBreakdownScores && rubricTotalPoints > 0) {
+          stagedGrade = rubricScoreSum;
+        } else {
+          stagedGrade = Math.max(0, Math.min(Number(draftGrade), effectiveMaxPoints));
+        }
+      }
+
+      // If the written feedback document mistakenly formatted Total Score out of 100 when effectiveMaxPoints != 100,
+      // normalize the Total Score line to use stagedGrade / effectiveMaxPoints.
+      if (cleanFeedback && stagedGrade !== null && effectiveMaxPoints !== 100) {
+        cleanFeedback = cleanFeedback.replace(
+          /(Total\s+Score|Overall\s+Score|Final\s+Grade|Overall\s+Grade)(\s*\*?\*?:\s*\*?\*?)\s*\d+(?:\.\d+)?\s*\/\s*100\b/gi,
+          `$1$2${stagedGrade} / ${effectiveMaxPoints}`
+        );
       }
 
       // Stage evaluation in Firestore Sidecar (evaluations/{studentId}) as PENDING_APPROVAL.
@@ -492,14 +597,12 @@ export async function executeGradingTool(
       const existingEval = evalSnap.exists ? evalSnap.data() : null;
       const existingComments = existingEval?.comments || [];
 
-      const stagedGrade = hasScore ? Number(draftGrade) : null;
-
       await evalRef.set(
         {
           studentId: liveSub.studentId,
           submissionId: liveSub.submissionId,
           draftGrade: stagedGrade,
-          rubricBreakdown: rubricScores || [],
+          rubricBreakdown: sanitizedRubricScores,
           overallFeedback: cleanFeedback,
           comments: existingComments,
           classroomSyncStatus: 'PENDING_APPROVAL',
@@ -515,8 +618,8 @@ export async function executeGradingTool(
         studentName: liveSub.studentName,
         submissionId: liveSub.submissionId,
         grade: stagedGrade,
-        maxPoints: assignment.maxPoints,
-        rubricScores: rubricScores || [],
+        maxPoints: effectiveMaxPoints,
+        rubricScores: sanitizedRubricScores,
         feedback: cleanFeedback,
         hasScore,
         hasFeedbackDoc,
