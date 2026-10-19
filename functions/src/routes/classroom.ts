@@ -555,6 +555,7 @@ classroomRouter.post(
           {
             rubric: rubricPayload,
             maxPoints: totalCriterionPoints,
+            rubricOptOut: false,
             updatedAt: new Date().toISOString(),
           },
           { merge: true }

@@ -18,6 +18,10 @@ export interface ToolExecutionContext {
   assignmentId: string;
   googleAccessToken: string;
   teacherUserId: string;
+  useRubricDuringFeedback?: boolean;
+  rubricOptOut?: boolean;
+  blockSubmissionReadForMissingRubric?: boolean;
+  rubricCreatedInThisTurn?: boolean;
 }
 
 export const gradingToolDeclarations = [
@@ -110,7 +114,7 @@ export const gradingToolDeclarations = [
   {
     name: 'set_assignment_rubric',
     description:
-      'Configures or updates the grading rubric for this assignment. Saves structured criteria in the Firestore sidecar, updates the assignment maxPoints to match the rubric total points, and updates the marking panel.',
+      'Configures or updates the grading rubric for this assignment. Saves structured criteria in the Firestore sidecar, updates the assignment maxPoints to match the rubric total points, and updates the marking panel. After generating a rubric, pause so the teacher can review or edit the criteria before grading begins.',
     parameters: {
       type: 'object',
       properties: {
@@ -170,7 +174,7 @@ export const gradingToolDeclarations = [
         studentId: { type: 'string', description: 'Unique identifier of the student being evaluated' },
         rubricScores: {
           type: 'array',
-          description: 'Breakdown of scores and comments for each criterion in the rubric (pass empty array [] if rubric evaluation is disabled)',
+          description: 'Breakdown of scores and comments for each criterion in the rubric (pass empty array [] if rubric evaluation is disabled or teacher opted to grade without a rubric)',
           items: {
             type: 'object',
             properties: {
@@ -364,6 +368,7 @@ export async function executeGradingTool(
           {
             rubric: rubricPayload,
             maxPoints: totalCriterionPoints,
+            rubricOptOut: false,
             updatedAt: new Date().toISOString(),
           },
           { merge: true }
@@ -371,9 +376,12 @@ export async function executeGradingTool(
         patchCourseWorkMaxPoints(googleAccessToken, courseId, courseWorkId, totalCriterionPoints).catch(() => null),
       ]);
 
+      context.rubricCreatedInThisTurn = true;
+      context.blockSubmissionReadForMissingRubric = false;
+
       return {
         success: true,
-        message: `Rubric updated with ${criteria.length} criteria totaling ${totalCriterionPoints} points. Assignment maxPoints set to ${totalCriterionPoints}.`,
+        message: `Rubric updated with ${criteria.length} criteria totaling ${totalCriterionPoints} points. Assignment maxPoints set to ${totalCriterionPoints}. Pause now so the teacher can review or edit the rubric criteria before grading begins.`,
         maxPoints: totalCriterionPoints,
         rubric: rubricPayload,
       };
@@ -438,6 +446,22 @@ export async function executeGradingTool(
     case 'get_student_submission_content': {
       const { studentId } = args;
       if (!studentId) throw new Error('studentId is required to retrieve submission content.');
+
+      if (context.rubricCreatedInThisTurn) {
+        return {
+          status: 'PAUSE_FOR_RUBRIC_REVIEW',
+          message:
+            'The grading rubric has just been generated and saved. Do NOT read or grade student submissions yet (0 AI credits spent). Pause now and let the teacher review or edit the rubric criteria in the workspace before grading begins.',
+        };
+      }
+
+      if (context.blockSubmissionReadForMissingRubric && !context.rubricOptOut) {
+        return {
+          status: 'RUBRIC_REQUIRED_CONFIRMATION',
+          message:
+            'No grading rubric exists for this assignment and the teacher has not opted out of using a rubric. Do NOT read or grade student submissions yet (0 AI credits spent). Ask the teacher in plain conversational text if they would like you to generate a grading rubric first before grading.',
+        };
+      }
 
       const [{ submissions }, evalSnap] = await Promise.all([
         fetchLiveWorkspaceFromClassroom(googleAccessToken, courseId, courseWorkId),
@@ -511,6 +535,14 @@ export async function executeGradingTool(
       const { studentId, rubricScores, draftGrade, overallFeedback } = args;
       if (!studentId) throw new Error('studentId is required for evaluate_and_grade_submission.');
 
+      if (context.rubricCreatedInThisTurn) {
+        return {
+          status: 'PAUSE_FOR_RUBRIC_REVIEW',
+          message:
+            'The grading rubric has just been generated and saved. Do NOT grade student submissions in the same turn. Pause now and let the teacher review or edit the rubric criteria in the workspace before grading begins.',
+        };
+      }
+
       const hasExplicitScore = typeof draftGrade === 'number' && !Number.isNaN(draftGrade);
       let cleanFeedback = typeof overallFeedback === 'string' ? overallFeedback.trim() : '';
       const hasFeedbackDoc = cleanFeedback.length > 0;
@@ -526,6 +558,17 @@ export async function executeGradingTool(
 
       const sidecarData = sidecarSnap.exists ? sidecarSnap.data() : null;
       const activeRubric = sidecarData?.rubric || assignment.rubric || null;
+      const hasActiveRubric = Array.isArray(activeRubric?.criteria) && activeRubric.criteria.length > 0;
+      const rubricOptedOut = Boolean(sidecarData?.rubricOptOut || context.rubricOptOut);
+
+      if (context.useRubricDuringFeedback !== false && !hasActiveRubric && !rubricOptedOut) {
+        return {
+          status: 'RUBRIC_REQUIRED_CONFIRMATION',
+          message:
+            'No grading rubric exists for this assignment and the teacher has not confirmed grading without a rubric. Ask the teacher in plain conversational text if they would like you to generate a grading rubric first before grading.',
+        };
+      }
+
       const rubricTotalPoints = computeRubricTotalPoints(activeRubric);
       const effectiveMaxPoints =
         rubricTotalPoints > 0

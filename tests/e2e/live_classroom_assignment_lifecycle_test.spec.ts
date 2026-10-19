@@ -10,6 +10,7 @@ import {
   seedTestAssignment,
   seedTestSubmission,
   seedTestChatMessage,
+  seedTestUserCredits,
   cleanupTestAssignment,
 } from '../helpers/testSeeder';
 
@@ -605,6 +606,60 @@ test.describe('Classroom Agent MVP — 7 Core User Stories (Live Classroom Batch
     );
     expect(feedbackAttachment).toBeDefined();
     expect(feedbackAttachment?.driveFile?.id).toBeTruthy();
+  });
+
+  // =========================================================================
+  // US-10: Missing Rubric Guardrail -> Prompts Teacher First (0 Credits) -> Grades When Declined
+  // =========================================================================
+  test('gradeSubmission_missingRubric_promptsToGenerateRubricFirstAndAllowsGradingWhenDeclined_test', async ({
+    page,
+  }) => {
+    expect(batchFixture).not.toBeNull();
+    const TEACHER_UID = 'teacher_live_e2e';
+    const studentId = batchFixture!.student.userId;
+
+    // Ensure clean sidecar state (no rubric) and 100 starting AI credits
+    await cleanupTestAssignment(batchFixture!.assignmentId, [studentId]);
+    await seedTestUserCredits(TEACHER_UID, 100);
+
+    await page.addInitScript(() => {
+      window.localStorage.setItem('classroom_agent_show_tool_calls', 'true');
+    });
+    await openBatchAssignmentInWorkspace(page, batchFixture!);
+
+    await expect(page.locator('[data-testid="chat-credits-count"]')).toHaveText('100', { timeout: 15000 });
+
+    const studentRow = page.locator(`[data-testid="student-row-${studentId}"]`);
+    await studentRow.click();
+
+    const chatInput = page.locator('[data-testid="chat-input"]');
+    const chatSendBtn = page.locator('[data-testid="chat-send-button"]');
+
+    // 1. Ask the agent to grade the selected student's submission when NO rubric exists
+    await chatInput.fill(`Evaluate and grade the submission for studentId "${studentId}".`);
+    await chatSendBtn.click();
+
+    // Wait for streaming to finish (chat input re-enabled)
+    await expect(chatInput).toBeEnabled({ timeout: 60000 });
+
+    // Verify the agent asks if the teacher wants to generate a rubric first, and 0 AI credits were spent
+    const chatWindow = page.locator('[data-testid="chat-window"]');
+    await expect(chatWindow).toContainText(/rubric/i);
+    await expect(page.locator('[data-testid="chat-credits-count"]')).toHaveText('100');
+    await expect(page.locator(`[data-testid="evaluation-action-card-${studentId}"]`)).toBeHidden();
+
+    // 2. Reply "No, grade without a rubric" -> agent remembers the opt-out, reads submission (1 credit), and grades holistically
+    await chatInput.fill(`No, grade the submission for studentId "${studentId}" without a rubric.`);
+    await chatSendBtn.click();
+
+    await expect(
+      page.locator('[data-testid="tool-call-badge"]', { hasText: 'Tool: evaluate_and_grade_submission' })
+    ).toBeVisible({ timeout: 90000 });
+
+    await expect(page.locator(`[data-testid="evaluation-action-card-${studentId}"]`)).toBeVisible({
+      timeout: 30000,
+    });
+    await expect(page.locator('[data-testid="chat-credits-count"]')).toHaveText('99', { timeout: 30000 });
   });
 });
 

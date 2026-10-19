@@ -226,6 +226,63 @@ chatRouter.post('/', requireAuth, async (req: AuthenticatedRequest, res: Respons
 
     const previousMessages = msgsSnap.docs.map((d) => d.data());
 
+    const hasActiveRubric = Array.isArray(activeRubric?.criteria) && activeRubric.criteria.length > 0;
+    const lastAgentMsg = [...previousMessages].reverse().find((m: any) => m.sender === 'agent');
+    const lastAgentAskedForRubric =
+      !hasActiveRubric &&
+      Boolean(lastAgentMsg?.content && /\brubric\b/i.test(String(lastAgentMsg.content)));
+
+    const explicitWithoutRubricInMessage =
+      /\b(without\s+(a\s+|an\s+|the\s+)?rubric|no\s+rubric|skip\s+(the\s+)?rubric|don'?t\s+(need|want|use|generate|create)\s+(a\s+|an\s+|the\s+)?rubric|grade\s+anyway|mark\s+anyway|evaluate\s+anyway)\b/i.test(
+        message
+      );
+    const negativeReplyToRubricPrompt =
+      lastAgentAskedForRubric &&
+      /^\s*(no|nope|nah|not\s+now|no\s+thanks|no\s*,?\s*thank\s+you|no\s*,?\s*just\s+(grade|mark|evaluate|score)|just\s+(grade|mark|evaluate|score)|skip(\s+it)?|proceed\s+without|continue\s+without)\b/i.test(
+        message.trim()
+      );
+
+    let rubricOptOut = Boolean(sidecarData?.rubricOptOut);
+    if (!hasActiveRubric && !rubricOptOut && (explicitWithoutRubricInMessage || negativeReplyToRubricPrompt)) {
+      rubricOptOut = true;
+      await assignmentRef.set(
+        {
+          rubricOptOut: true,
+          updatedAt: new Date().toISOString(),
+        },
+        { merge: true }
+      );
+    }
+
+    const affirmativeReplyToRubricPrompt =
+      lastAgentAskedForRubric &&
+      /^\s*(yes|yep|yeah|sure|ok|okay|please|yes\s*,?\s*please|go\s+ahead|do\s+it|generate(\s+it|\s+one|\s+the\s+rubric|\s+a\s+rubric)?|create(\s+it|\s+one|\s+the\s+rubric|\s+a\s+rubric)?)\b/i.test(
+        message.trim()
+      );
+    const explicitRubricGenerationInMessage =
+      /\b(generate|create|build|make|set\s+up|set_assignment_rubric|draft)\s+(a\s+|an\s+|the\s+|new\s+|2-criterion\s+|3-criterion\s+|4-criterion\s+)?(grading\s+|marking\s+|evaluation\s+)?rubric\b/i.test(
+        message
+      ) || /\bset_assignment_rubric\b/i.test(message);
+    const isRubricGenerationRequest = affirmativeReplyToRubricPrompt || explicitRubricGenerationInMessage;
+
+    const isExplicitDoNotGrade = /\b(do\s+not\s+grade|don'?t\s+grade|without\s+grading)\b/i.test(message);
+    const hasGradingKeywords =
+      /\b(grade|grading|mark|marking|evaluate|evaluating|evaluate_and_grade_submission|score|scoring|assess|assessing|provide\s+feedback|give\s+feedback)\b/i.test(
+        message
+      );
+    const isGradingRequest = !isExplicitDoNotGrade && !isRubricGenerationRequest && hasGradingKeywords;
+
+    const blockSubmissionReadForMissingRubric =
+      useRubricDuringFeedback && !hasActiveRubric && !rubricOptOut && isGradingRequest;
+
+    const rubricContextStatus = !useRubricDuringFeedback
+      ? 'Disabled by teacher preference (evaluate holistically against assignment description)'
+      : hasActiveRubric
+        ? JSON.stringify(activeRubric.criteria)
+        : rubricOptOut
+          ? 'None (Teacher explicitly opted to grade without a rubric for this assignment — evaluate holistically against the assignment description and pass rubricScores: [])'
+          : 'NO RUBRIC EXISTS YET (Missing Rubric Rule Active — see Operational Guideline 1)';
+
     // 3. Construct System Instruction with Teacher, Workspace, and Live Assignment Digest
     const systemInstruction = `You are Classroom Agent, an expert AI grading co-pilot and technical support assistant for Google Classroom.
 
@@ -246,14 +303,18 @@ Assignment Context (Live from Google Classroom):
 - Max Points: ${effectiveMaxPoints}${rubricTotalPoints > 0 ? ` (set by active rubric total of ${rubricTotalPoints} points)` : ''}
 - Description: "${workspaceData.assignment.description || 'No description provided'}"
 - Live Submission Counts: Total Enrolled: ${totalStudents} | Turned In: ${turnedInCount} (Ungraded Turn-ins: ${ungradedTurnedInCount}) | Draft Graded: ${draftGradedCount} | Returned: ${returnedCount} | Missing: ${missingCount}
-- Current Rubric Criteria: ${useRubricDuringFeedback ? JSON.stringify(activeRubric?.criteria || []) : 'Disabled by teacher preference (evaluate holistically against assignment description)'}
+- Current Rubric Criteria: ${rubricContextStatus}
 
 Teacher Feedback Preferences (Strictly Enforce):
 - Tone: ${TONE_INSTRUCTIONS[tone]}
 - Level of Detail: ${DETAIL_LEVEL_INSTRUCTIONS[detailLevel]}
 - Use Rubric During Feedback: ${
       useRubricDuringFeedback
-        ? `ON — Evaluate the submission against each rubric criterion, populate rubricScores in evaluate_and_grade_submission, and reference the rubric criteria in your feedback. IMPORTANT: When a rubric is present, the assignment's Max Points is the sum of the rubric criteria maxPoints (${effectiveMaxPoints}), and both your written Total Score and draftGrade MUST equal the exact sum of the awarded rubric criterion scores out of ${effectiveMaxPoints} — NEVER scale or convert the score to 100.`
+        ? hasActiveRubric
+          ? `ON — Evaluate the submission against each rubric criterion, populate rubricScores in evaluate_and_grade_submission, and reference the rubric criteria in your feedback. IMPORTANT: When a rubric is present, the assignment's Max Points is the sum of the rubric criteria maxPoints (${effectiveMaxPoints}), and both your written Total Score and draftGrade MUST equal the exact sum of the awarded rubric criterion scores out of ${effectiveMaxPoints} — NEVER scale or convert the score to 100.`
+          : rubricOptOut
+            ? 'ON (Teacher opted to grade this assignment without a rubric) — Evaluate the submission holistically against the assignment description, pass rubricScores: [] in evaluate_and_grade_submission, and do NOT ask again about generating a rubric.'
+            : 'ON (No rubric exists yet) — If asked to grade, mark, score, or evaluate submissions, you MUST ask the teacher if they want to generate a grading rubric first before reading or grading any submission.'
         : 'OFF — Evaluate the submission holistically against the assignment description without referencing or breaking down rubric criteria in your written feedback.'
     }
 - Provide Next Steps: ${
@@ -273,12 +334,19 @@ Teacher Feedback Preferences (Strictly Enforce):
 
 Operational Guidelines:
 1. When asked to mark, evaluate, provide feedback, or grade submissions:
-   - Call "get_student_submission_content" to thoroughly read the student's work.
-   - Call "evaluate_and_grade_submission" to stage the evaluation for teacher review and approval in the chat panel (for batch grading, call it once per student).
-   - When a rubric is active, calculate each student's total score and draftGrade by summing the points awarded across the rubric criteria out of ${effectiveMaxPoints} (never scale to 100).
-   - "evaluate_and_grade_submission" supports proposing a score only (pass draftGrade, omit overallFeedback), a feedback document only (pass overallFeedback, omit draftGrade), or both (pass both draftGrade and overallFeedback), depending on what the teacher requested.
-   - Always provide actionable justification and constructive summary directly in your chat response for the teacher to review, strictly adhering to the Teacher Feedback Preferences above. The student submission comments thread in Zone C is reserved strictly for genuine 2-way teacher/student dialogue.
-2. When asked to create or update a rubric for the current assignment, use "set_assignment_rubric".
+   - MISSING RUBRIC RULE: When "Use Rubric During Feedback" is ON, NO rubric exists yet, and the teacher has NOT opted out of using a rubric:
+     * Do NOT call "get_student_submission_content" or "evaluate_and_grade_submission" yet (so 0 AI credits are spent).
+     * Instead, ask the teacher in plain conversational text if they would like you to generate a grading rubric first before grading.
+     * If the teacher replies "Yes" (to generate a rubric first), call "set_assignment_rubric" to generate and save the rubric based on the assignment instructions, and then PAUSE (do not call "get_student_submission_content" or "evaluate_and_grade_submission" in the same turn) so the teacher can review or edit the rubric criteria in the workspace before grading begins.
+     * If the teacher replies "No" (or has opted to grade without a rubric), immediately proceed to read ("get_student_submission_content") and grade ("evaluate_and_grade_submission" with rubricScores: []) the requested submission(s) holistically without asking again.
+   - Note: If the teacher only asks to read or summarize a student's submission without grading/evaluating it, you may call "get_student_submission_content" directly without a rubric.
+   - When grading (with an active rubric, or after opting out of a rubric, or when Use Rubric During Feedback is OFF):
+     * Call "get_student_submission_content" to thoroughly read the student's work.
+     * Call "evaluate_and_grade_submission" to stage the evaluation for teacher review and approval in the chat panel (for batch grading, call it once per student).
+     * When a rubric is active, calculate each student's total score and draftGrade by summing the points awarded across the rubric criteria out of ${effectiveMaxPoints} (never scale to 100).
+     * "evaluate_and_grade_submission" supports proposing a score only (pass draftGrade, omit overallFeedback), a feedback document only (pass overallFeedback, omit draftGrade), or both (pass both draftGrade and overallFeedback), depending on what the teacher requested.
+     * Always provide actionable justification and constructive summary directly in your chat response for the teacher to review, strictly adhering to the Teacher Feedback Preferences above. The student submission comments thread in Zone C is reserved strictly for genuine 2-way teacher/student dialogue.
+2. When asked to create or update a rubric for the current assignment, use "set_assignment_rubric". After generating a rubric, pause and let the teacher review or edit the criteria before grading begins.
 3. When asked to return grades to students directly, use "return_student_submissions".
 4. When asked to create a new assignment in Google Classroom, use "create_classroom_assignment" (defaults to the current course "${courseId}" unless the teacher specifies another class, in which case call "list_teacher_courses" first to resolve the target courseId).
 5. When the teacher asks for technical support, product help, or "how do I do XYZ?" (e.g., how to use UI buttons, tabs, settings, grading modes, preview/approve workflow, rubrics, AI credits/top-ups, or troubleshooting), call "get_user_guide" to retrieve the complete Classroom Agent User Guide and provide clear, step-by-step instructions tailored to their current workspace state.`;
@@ -323,6 +391,10 @@ Operational Guidelines:
       assignmentId: projectId,
       googleAccessToken: req.googleAccessToken,
       teacherUserId: req.user?.uid || 'teacher',
+      useRubricDuringFeedback,
+      rubricOptOut,
+      blockSubmissionReadForMissingRubric,
+      rubricCreatedInThisTurn: false,
     };
 
     let isTurnFinished = false;
@@ -363,8 +435,6 @@ Operational Guidelines:
           const toolName = call.name;
           const toolArgs = (call.args || {}) as Record<string, any>;
 
-          // Telemetry start event
-          sendEvent('tool_call_start', { id: toolId, name: toolName, args: toolArgs });
           logger.info(`Agent invoking tool: ${toolName}`, (req as any).executionId, { toolName, toolArgs });
 
           let resultOutput: any;
@@ -379,24 +449,34 @@ Operational Guidelines:
             resultOutput = { error: errorMessage };
           }
 
-          // Telemetry result event
-          sendEvent('tool_call_result', {
-            id: toolId,
-            name: toolName,
-            success,
-            result: resultOutput,
-            error: errorMessage,
-          });
-          logger.info(`Tool ${toolName} finished (${success ? 'SUCCESS' : 'ERROR'})`, (req as any).executionId, { toolName, success, error: errorMessage });
+          const isGuardrailInterception =
+            resultOutput?.status === 'RUBRIC_REQUIRED_CONFIRMATION' ||
+            resultOutput?.status === 'PAUSE_FOR_RUBRIC_REVIEW';
 
-          executedToolCalls.push({
-            id: toolId,
-            name: toolName,
-            args: toolArgs,
-            status: success ? 'success' : 'error',
-            result: resultOutput,
-            error: errorMessage || null,
-          });
+          if (!isGuardrailInterception) {
+            sendEvent('tool_call_start', { id: toolId, name: toolName, args: toolArgs });
+            sendEvent('tool_call_result', {
+              id: toolId,
+              name: toolName,
+              success,
+              result: resultOutput,
+              error: errorMessage,
+            });
+            executedToolCalls.push({
+              id: toolId,
+              name: toolName,
+              args: toolArgs,
+              status: success ? 'success' : 'error',
+              result: resultOutput,
+              error: errorMessage || null,
+            });
+          }
+
+          logger.info(
+            `Tool ${toolName} finished (${isGuardrailInterception ? resultOutput.status : success ? 'SUCCESS' : 'ERROR'})`,
+            (req as any).executionId,
+            { toolName, success, status: resultOutput?.status, error: errorMessage }
+          );
 
           responseParts.push({
             functionResponse: {
