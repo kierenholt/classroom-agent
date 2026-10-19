@@ -52,43 +52,24 @@ You can create a new Google Classroom assignment in two ways:
 
 ### Step 2: Review Staged Evaluations in Chat
 - When the agent finishes evaluating a student, it stages the proposed score, rubric criterion breakdown, and written feedback in the workspace sidecar (\`PENDING_APPROVAL\`) and displays an interactive **Evaluation Card** inside the agent chat bubble.
-- **Nothing is published to students or written to Google Classroom until you approve it.**
+- **Nothing is published to students or written to Google Classroom until you click \`Draft\` or \`Return\`.**
 
-### Step 3: Preview & Edit Feedback Before Approving
-- Click the **\`Preview\`** button on any student's Evaluation Card in the chat panel.
-- This opens the **Feedback Preview & Edit Modal**, where you can:
-  - Inspect and edit the **Proposed Score** (numerical input).
-  - Switch between **\`Rendered Preview\`** (formatted Markdown view) and **\`Edit Markdown\`** (raw text editor) to customize the written feedback before the student sees it.
-  - Click **\`Approve & Sync to Classroom\`** right from the modal, or click **\`Cancel\`** to close.
-
-### Step 4: Approve (Single or Batch)
-- Click **\`Approve\`** on an individual student's Evaluation Card in chat, or click **\`Approve All (N)\`** at the top of the Evaluation Card list to approve all staged evaluations in that message at once.
-- **What happens when you click Approve**:
-  1. If the evaluation includes written feedback, Classroom Agent automatically generates a formatted **Google Doc** (\`Feedback - <Assignment Title> - <Student Name>\`), attaches it to the student's Google Classroom submission, and adds it as a previewable tab in Zone B.
-  2. Depending on your **Grading Mode** setting (see Section 4 below):
-     - In **No Draft Mode (Default)**: The numerical grade is assigned and the submission is officially **Returned / Published** to the student in Google Classroom in one step.
-     - In **Draft Mode**: The numerical grade is saved to Google Classroom as an unreturned **Draft Grade** (\`draftGrade\`) so you can review all grades before returning them later.
+### Step 3: Preview, Edit, Draft, or Return Feedback
+- On each student's **Evaluation Card** in the chat panel, you have three action buttons (plus \`Dismiss\`):
+  - **\`Preview\`**: Opens the **Feedback Preview & Edit Modal**, where you can inspect and edit the **Score**, switch between **\`Edit Feedback\`** (raw Markdown editor) and **\`Rendered Preview\`**, and click either **\`Draft\`** or **\`Return\`** right inside the modal.
+  - **\`Draft\`**: Creates and attaches the formatted **Google Doc** (\`Feedback - <Assignment Title> - <Student Name>\`) to the student's Google Classroom submission and saves the numerical grade as an unreturned **Draft Grade** (\`draftGrade\`) in Google Classroom so you can review or return it later.
+  - **\`Return\`**: Creates and attaches the formatted **Google Doc**, publishes the final \`assignedGrade\`, and officially **Returns** the submission to the student in Google Classroom.
+- When multiple students are evaluated in a single message, you can also click **\`Return All (N)\`** at the top of the Evaluation Card list to return all staged evaluations at once.
 
 ---
 
-## 4. Grading Modes & Manual Roster Grading
-
-### Grading Modes: "No Draft Mode" vs. "Draft Mode"
-You can switch your Grading Mode in **Account Menu (top-right) $\rightarrow$ Workspace Settings $\rightarrow$ Feedback & Grading $\rightarrow$ Grading Mode**:
-1. **No Draft Mode (Direct to Final — Default)**:
-   - Designed for fast, single-step grading.
-   - Clicking **\`Approve\`** in the chat panel immediately publishes the final \`assignedGrade\` and returns the submission to the student in Google Classroom.
-   - In the left Student Roster (Zone A), the bottom action bar displays a single **\`Return / Publish (N)\`** button.
-2. **Draft Mode (Review Before Final)**:
-   - Designed for two-stage grading where you want to hold grades as drafts before releasing them to the class.
-   - Clicking **\`Approve\`** in the chat panel attaches the feedback Google Doc and saves the score as a **\`draftGrade\`** in Google Classroom without returning the submission.
-   - In the left Student Roster (Zone A), the bottom action bar displays two buttons: **\`Save Draft (N)\`** and **\`Return (N)\`**.
+## 4. Manual Roster Grading & Batch Return
 
 ### Manual Grading & Batch Actions in the Student Roster (Zone A)
 - **Inline Score Editing**: You can type or adjust a student's numerical score directly in the score input box on their row in the Student Roster, or adjust individual criterion scores in the bottom **Rubric Breakdown Pane (Zone C)**.
-- **Selecting Students for Batch Actions**:
-  - Click the checkbox on individual student rows, or click the master checkbox in the roster header to select/deselect all visible students in the current filter.
-  - If no checkboxes are ticked, the bottom action button acts on the currently focused student (1). If $N$ students are checked, the button acts on all $N$ checked students.
+- **Selecting Students for Batch Return**:
+  - Click on any student row or checkbox to select/deselect students for returning.
+  - Click the **\`Return (N)\`** button in the Student Roster header to save any edited scores and officially return the selected submissions in Google Classroom.
   - You can also ask the agent in chat: *"Return all graded submissions to students"* (which invokes \`return_student_submissions\`).
 
 ---
@@ -120,7 +101,6 @@ You can switch your Grading Mode in **Account Menu (top-right) $\rightarrow$ Wor
 To open Workspace Settings, click your **Account Profile Button** in the top-right corner of the Top Tab Bar and select **\`Workspace Settings\`**. There are four tabs:
 
 ### Tab 1: Feedback & Grading
-- **Grading Mode**: Switch between \`No Draft Mode (Direct to Final)\` and \`Draft Mode (Review Before Final)\`.
 - **Tone**: Controls the voice of AI-generated student feedback (\`Encouraging & Supportive\`, \`Constructive & Balanced\`, \`Direct & Concise\`, \`Formal & Academic\`, or \`Warm & Mentorship-focused\`).
 - **Level of Detail**: Controls feedback length and depth (\`Brief / Summary\`, \`Standard / Balanced\`, or \`Comprehensive / Deep-Dive\`).
 - **Use Rubric During Feedback** *(On/Off)*: When ON, the agent evaluates against each rubric criterion and populates criterion scores. When OFF, the agent evaluates holistically against the assignment description without referencing rubric criteria.

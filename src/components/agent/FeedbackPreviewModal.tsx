@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { X, FileText, Eye, Edit3, Check, Loader2 } from 'lucide-react';
+import { X, FileText, Eye, Edit3, Save, Send, Loader2 } from 'lucide-react';
 import { MarkdownRenderer } from './MarkdownRenderer';
 
 export interface FeedbackPreviewModalProps {
@@ -12,7 +12,8 @@ export interface FeedbackPreviewModalProps {
   hasScore: boolean;
   isApproving: boolean;
   onClose: () => void;
-  onApprove: (feedback: string, score: number | null) => Promise<void>;
+  onDraft: (feedback: string, score: number | null) => Promise<void>;
+  onReturn: (feedback: string, score: number | null) => Promise<void>;
 }
 
 export const FeedbackPreviewModal: React.FC<FeedbackPreviewModalProps> = ({
@@ -24,7 +25,8 @@ export const FeedbackPreviewModal: React.FC<FeedbackPreviewModalProps> = ({
   hasScore,
   isApproving,
   onClose,
-  onApprove,
+  onDraft,
+  onReturn,
 }) => {
   const [feedbackText, setFeedbackText] = useState(initialFeedback);
   const [scoreValue, setScoreValue] = useState<string>(
@@ -50,8 +52,12 @@ export const FeedbackPreviewModal: React.FC<FeedbackPreviewModalProps> = ({
     return Number.isNaN(num) ? null : num;
   };
 
-  const handleApprove = async () => {
-    await onApprove(feedbackText, parseScore());
+  const handleDraft = async () => {
+    await onDraft(feedbackText, parseScore());
+  };
+
+  const handleReturn = async () => {
+    await onReturn(feedbackText, parseScore());
   };
 
   return (
@@ -69,7 +75,7 @@ export const FeedbackPreviewModal: React.FC<FeedbackPreviewModalProps> = ({
                 Feedback Preview — {studentName}
               </h3>
               <p className="text-[11px] text-gray-400">
-                Review and edit the feedback document before approving for Google Classroom
+                Review and edit the feedback document before saving as a draft or returning in Google Classroom
               </p>
             </div>
           </div>
@@ -173,13 +179,24 @@ export const FeedbackPreviewModal: React.FC<FeedbackPreviewModalProps> = ({
 
           <button
             type="button"
-            data-testid="preview-modal-approve-button"
-            onClick={handleApprove}
+            data-testid="preview-modal-draft-button"
+            onClick={handleDraft}
+            disabled={isApproving}
+            className="flex items-center space-x-1.5 px-3.5 py-1.5 rounded-lg border border-[#D4AF37]/40 bg-[#22262C] hover:bg-[#2D323A] text-xs font-semibold text-[#F3E5AB] transition-colors disabled:opacity-50 cursor-pointer"
+          >
+            {isApproving ? <Loader2 className="w-3.5 h-3.5 animate-spin text-[#D4AF37]" /> : <Save className="w-3.5 h-3.5 text-[#D4AF37]" />}
+            <span>Draft</span>
+          </button>
+
+          <button
+            type="button"
+            data-testid="preview-modal-return-button"
+            onClick={handleReturn}
             disabled={isApproving}
             className="flex items-center space-x-1.5 px-3.5 py-1.5 rounded-lg bg-[#D4AF37] hover:bg-[#E5B869] text-xs font-semibold text-[#121316] shadow-sm transition-colors disabled:opacity-50 cursor-pointer"
           >
-            {isApproving ? <Loader2 className="w-3.5 h-3.5 animate-spin text-[#121316]" /> : <Check className="w-3.5 h-3.5" />}
-            <span>Approve &amp; Send to Classroom</span>
+            {isApproving ? <Loader2 className="w-3.5 h-3.5 animate-spin text-[#121316]" /> : <Send className="w-3.5 h-3.5" />}
+            <span>Return</span>
           </button>
         </div>
       </div>

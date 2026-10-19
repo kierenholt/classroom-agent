@@ -8,14 +8,12 @@ const STORAGE_KEY_FEEDBACK_USE_RUBRIC = 'classroom_agent_feedback_use_rubric';
 const STORAGE_KEY_FEEDBACK_PROVIDE_NEXT_STEPS = 'classroom_agent_feedback_provide_next_steps';
 const STORAGE_KEY_FEEDBACK_SHOW_SCORES = 'classroom_agent_feedback_show_scores';
 const STORAGE_KEY_CUSTOM_AGENT_INSTRUCTIONS = 'classroom_agent_custom_agent_instructions';
-const STORAGE_KEY_GRADING_MODE = 'classroom_agent_grading_mode';
 const STORAGE_KEY_SHOW_TOOL_CALLS = 'classroom_agent_show_tool_calls';
 const STORAGE_KEY_SHOW_QUICK_ACTIONS = 'classroom_agent_show_quick_actions';
 const STORAGE_KEY_QUICK_ACTIONS = 'classroom_agent_quick_actions';
 
 export type FeedbackTone = 'encouraging' | 'constructive' | 'direct' | 'formal' | 'warm';
 export type FeedbackDetailLevel = 'brief' | 'standard' | 'comprehensive';
-export type GradingMode = 'no-draft' | 'draft';
 
 export interface QuickActionItem {
   id: string;
@@ -69,7 +67,6 @@ export interface FeedbackSettings {
 
 const VALID_TONES: FeedbackTone[] = ['encouraging', 'constructive', 'direct', 'formal', 'warm'];
 const VALID_DETAIL_LEVELS: FeedbackDetailLevel[] = ['brief', 'standard', 'comprehensive'];
-const VALID_GRADING_MODES: GradingMode[] = ['no-draft', 'draft'];
 
 interface SettingsContextValue {
   showExtractedTextToggle: boolean;
@@ -99,8 +96,6 @@ interface SettingsContextValue {
   setShowScores: (enabled: boolean) => void;
   customAgentInstructions: string;
   setCustomAgentInstructions: (instructions: string) => void;
-  gradingMode: GradingMode;
-  setGradingMode: (mode: GradingMode) => void;
   feedbackSettings: FeedbackSettings;
 }
 
@@ -207,15 +202,6 @@ export const SettingsProvider: React.FC<{ children: React.ReactNode }> = ({ chil
       return stored !== null ? stored : '';
     } catch {
       return '';
-    }
-  });
-
-  const [gradingMode, setGradingModeState] = useState<GradingMode>(() => {
-    try {
-      const stored = window.localStorage.getItem(STORAGE_KEY_GRADING_MODE) as GradingMode | null;
-      return stored && VALID_GRADING_MODES.includes(stored) ? stored : 'no-draft';
-    } catch {
-      return 'no-draft';
     }
   });
 
@@ -356,15 +342,6 @@ export const SettingsProvider: React.FC<{ children: React.ReactNode }> = ({ chil
     }
   };
 
-  const setGradingMode = (mode: GradingMode) => {
-    setGradingModeState(mode);
-    try {
-      window.localStorage.setItem(STORAGE_KEY_GRADING_MODE, mode);
-    } catch (err) {
-      console.error('Failed to persist grading mode to localStorage:', err);
-    }
-  };
-
   const feedbackSettings: FeedbackSettings = {
     tone: feedbackTone,
     detailLevel: feedbackDetailLevel,
@@ -404,8 +381,6 @@ export const SettingsProvider: React.FC<{ children: React.ReactNode }> = ({ chil
         setShowScores,
         customAgentInstructions,
         setCustomAgentInstructions,
-        gradingMode,
-        setGradingMode,
         feedbackSettings,
       }}
     >

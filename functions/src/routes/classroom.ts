@@ -8,6 +8,7 @@ import {
   cloneCourseWorkUnderApp,
   listCourseWorkSubmissions,
   fetchLiveWorkspaceFromClassroom,
+  fetchCourseWorkRubricFromClassroom,
   parseAssignmentId,
   patchSubmissionGrade,
   returnSubmission,
@@ -26,6 +27,48 @@ function getUpstreamErrorStatus(err: any): number {
     return 401;
   }
   return 500;
+}
+
+async function copyRubricToClonedAssignment(
+  accessToken: string,
+  courseId: string,
+  sourceCourseWorkId: string,
+  newCourseWorkId: string
+): Promise<void> {
+  if (!courseId || !sourceCourseWorkId || !newCourseWorkId) return;
+  try {
+    const db = admin.firestore();
+    const sourceAssignmentId = `${courseId}_${sourceCourseWorkId}`;
+    const targetAssignmentId = `${courseId}_${newCourseWorkId}`;
+
+    let sourceRubric: any = null;
+    const sourceSnap = await db.collection('assignments').doc(sourceAssignmentId).get();
+    if (sourceSnap.exists && Array.isArray(sourceSnap.data()?.rubric?.criteria) && sourceSnap.data()!.rubric.criteria.length > 0) {
+      sourceRubric = sourceSnap.data()!.rubric;
+    } else {
+      sourceRubric = await fetchCourseWorkRubricFromClassroom(accessToken, courseId, sourceCourseWorkId);
+    }
+
+    if (sourceRubric && Array.isArray(sourceRubric.criteria) && sourceRubric.criteria.length > 0) {
+      const now = new Date().toISOString();
+      await db
+        .collection('assignments')
+        .doc(targetAssignmentId)
+        .set(
+          {
+            rubric: {
+              ...sourceRubric,
+              id: `cloned_rubric_${newCourseWorkId}`,
+              updatedAt: now,
+            },
+            updatedAt: now,
+          },
+          { merge: true }
+        );
+    }
+  } catch (err: any) {
+    logger.warn(`Failed to copy rubric from ${sourceCourseWorkId} to ${newCourseWorkId}: ${err.message}`);
+  }
 }
 
 // 0. Preload Courses and Coursework in Parallel for Instant UI
@@ -77,7 +120,7 @@ classroomRouter.get('/courses/:courseId/coursework', requireAuth, async (req: Au
 // 2b. Create New Coursework for Course (Live in Google Classroom API)
 classroomRouter.post('/courses/:courseId/coursework', requireAuth, async (req: AuthenticatedRequest, res: Response): Promise<void> => {
   const { courseId } = req.params;
-  const { title, description, maxPoints, dueDate, state } = req.body || {};
+  const { title, description, maxPoints, dueDate, state, sourceCourseWorkId } = req.body || {};
 
   if (!courseId || !courseId.trim()) {
     res.status(400).json({ error: 'courseId is required to create coursework. Fail-fast enabled.' });
@@ -96,6 +139,16 @@ classroomRouter.post('/courses/:courseId/coursework', requireAuth, async (req: A
       dueDate: dueDate ? String(dueDate).trim() : undefined,
       state: state === 'DRAFT' ? 'DRAFT' : 'PUBLISHED',
     });
+
+    if (sourceCourseWorkId && String(sourceCourseWorkId).trim() && created.id) {
+      await copyRubricToClonedAssignment(
+        req.googleAccessToken!,
+        courseId,
+        String(sourceCourseWorkId).trim(),
+        created.id
+      );
+    }
+
     res.json({ success: true, courseWork: created });
   } catch (err: any) {
     logger.error(`Failed to create coursework in course ${courseId}: ${err.message}`, (req as any).executionId, {
@@ -118,6 +171,9 @@ classroomRouter.post('/courses/:courseId/coursework/clone', requireAuth, async (
 
   try {
     const cloned = await cloneCourseWorkUnderApp(req.googleAccessToken!, courseId, courseWorkId);
+    if (cloned.id) {
+      await copyRubricToClonedAssignment(req.googleAccessToken!, courseId, String(courseWorkId).trim(), cloned.id);
+    }
     res.json({ success: true, clonedCourseWork: cloned });
   } catch (err: any) {
     res.status(getUpstreamErrorStatus(err)).json({ error: `Failed to clone coursework: ${err.message}` });
@@ -341,7 +397,7 @@ classroomRouter.post(
       let syncError: string | undefined;
 
       if (hasNumericGrade && submissionId) {
-        syncStatus = 'SYNCED_DRAFT';
+        syncStatus = 'DRAFT';
         try {
           await patchSubmissionGrade(token, courseId, courseWorkId, submissionId, draftGrade, undefined);
         } catch (err: any) {
@@ -403,7 +459,7 @@ classroomRouter.post(
       submissionId: bodySubmissionId,
       studentName: bodyStudentName,
       assignmentTitle: bodyAssignmentTitle,
-      gradingMode: bodyGradingMode,
+      action: bodyAction,
     } = req.body;
 
     try {
@@ -414,7 +470,7 @@ classroomRouter.post(
       const evalSnap = await evalRef.get();
       const existingEval = evalSnap.exists ? evalSnap.data() : null;
 
-      const isDraftMode = bodyGradingMode === 'draft';
+      const effectiveAction: 'draft' | 'return' = bodyAction === 'draft' ? 'draft' : 'return';
 
       const effectiveGrade =
         bodyDraftGrade !== undefined
@@ -435,7 +491,7 @@ classroomRouter.post(
 
       if (!hasScore && !hasFeedbackDoc) {
         res.status(400).json({
-          error: 'Nothing to approve: neither a score nor a feedback document was provided.',
+          error: 'Nothing to submit: neither a score nor a feedback document was provided.',
         });
         return;
       }
@@ -467,10 +523,10 @@ classroomRouter.post(
 
       let feedbackDocId: string | undefined = existingEval?.feedbackDocId;
       let feedbackDocUrl: string | undefined = existingEval?.feedbackDocUrl;
-      let syncStatus = isDraftMode ? 'DRAFT' : 'APPROVED';
+      let syncStatus: 'DRAFT' | 'RETURNED' = effectiveAction === 'draft' ? 'DRAFT' : 'RETURNED';
       const syncWarnings: string[] = [];
 
-      // 1. If a feedback document is present, create a formatted Google Doc in Drive & attach to the Classroom submission (always final)
+      // 1. If a feedback document is present, create a formatted Google Doc in Drive & attach to the Classroom submission
       if (hasFeedbackDoc) {
         const docTitle = `Feedback - ${assignmentTitle} - ${studentName}`;
         try {
@@ -494,39 +550,51 @@ classroomRouter.post(
         }
       }
 
-      // 2. If a numerical score is present, patch grade according to gradingMode
+      // 2. If a numerical score is present, patch grade according to effectiveAction ('draft' vs 'return')
       if (hasScore) {
         try {
-          if (isDraftMode) {
-            // Draft Mode: patch draftGrade only, do NOT return submission to student
+          if (effectiveAction === 'draft') {
+            // Draft action: patch draftGrade only, do NOT return submission to student
             await patchSubmissionGrade(token, courseId, courseWorkId, submissionId, effectiveGrade, undefined);
             syncStatus = 'DRAFT';
           } else {
-            // No Draft Mode (default): patch draftGrade + assignedGrade and return submission
+            // Return action: patch draftGrade + assignedGrade and return submission
             await patchSubmissionGrade(token, courseId, courseWorkId, submissionId, effectiveGrade, effectiveGrade);
             try {
               await returnSubmission(token, courseId, courseWorkId, submissionId);
-              syncStatus = 'RETURNED';
-            } catch {
-              syncStatus = 'APPROVED';
+            } catch (returnErr: any) {
+              syncWarnings.push(`Grade patched, but Classroom return warning: ${returnErr.message}`);
             }
+            syncStatus = 'RETURNED';
           }
         } catch (gradeErr: any) {
           if (gradeErr.message && gradeErr.message.includes('403')) {
-            syncStatus = 'LOCAL_ONLY_PERMISSION_DENIED';
             syncWarnings.push(
-              'Google Classroom API grade write-back requires coursework created by this app. Grade approved in Classroom Agent sidecar.'
+              'Google Classroom API grade write-back requires coursework created by this app. Grade saved in Classroom Agent sidecar.'
             );
           } else {
-            syncStatus = 'ERROR';
             syncWarnings.push(gradeErr.message || 'Failed to patch grade in Google Classroom.');
           }
+          if (effectiveAction === 'return') {
+            try {
+              await returnSubmission(token, courseId, courseWorkId, submissionId);
+            } catch {
+              // ignore secondary error
+            }
+            syncStatus = 'RETURNED';
+          }
         }
-      } else if (syncWarnings.length > 0 && syncWarnings.some((w) => w.includes('requires coursework created by this app'))) {
-        syncStatus = 'LOCAL_ONLY_PERMISSION_DENIED';
+      } else if (effectiveAction === 'return') {
+        // Feedback-doc-only return: still return submission in Classroom and set RETURNED
+        try {
+          await returnSubmission(token, courseId, courseWorkId, submissionId);
+        } catch (returnErr: any) {
+          syncWarnings.push(`Classroom return warning: ${returnErr.message}`);
+        }
+        syncStatus = 'RETURNED';
       }
 
-      const approvedAt = new Date().toISOString();
+      const timestamp = new Date().toISOString();
       const effectiveRubricBreakdown =
         bodyRubricBreakdown !== undefined ? bodyRubricBreakdown : existingEval?.rubricBreakdown || [];
       const comments = existingEval?.comments ? [...existingEval.comments] : [];
@@ -537,16 +605,16 @@ classroomRouter.post(
           studentId,
           submissionId,
           draftGrade: hasScore ? effectiveGrade : null,
-          ...(hasScore && !isDraftMode ? { assignedGrade: effectiveGrade } : {}),
+          ...(hasScore && effectiveAction === 'return' ? { assignedGrade: effectiveGrade } : {}),
           rubricBreakdown: effectiveRubricBreakdown,
           overallFeedback: cleanFeedback,
           comments,
           ...(feedbackDocId ? { feedbackDocId } : {}),
           ...(feedbackDocUrl ? { feedbackDocUrl } : {}),
-          approvedAt,
+          ...(effectiveAction === 'draft' ? { draftedAt: timestamp } : { approvedAt: timestamp }),
           classroomSyncStatus: syncStatus,
           classroomSyncError: syncError,
-          updatedAt: approvedAt,
+          updatedAt: timestamp,
         },
         { merge: true }
       );
@@ -556,11 +624,11 @@ classroomRouter.post(
         studentId,
         submissionId,
         draftGrade: hasScore ? effectiveGrade : null,
-        assignedGrade: hasScore && !isDraftMode ? effectiveGrade : null,
+        assignedGrade: hasScore && effectiveAction === 'return' ? effectiveGrade : null,
         overallFeedback: cleanFeedback,
         feedbackDocId: feedbackDocId || null,
         feedbackDocUrl: feedbackDocUrl || null,
-        approvedAt,
+        approvedAt: effectiveAction === 'draft' ? existingEval?.approvedAt || null : timestamp,
         classroomSyncStatus: syncStatus,
         classroomSyncError: syncError,
       });
@@ -580,7 +648,7 @@ classroomRouter.post(
   requireAuth,
   async (req: AuthenticatedRequest, res: Response): Promise<void> => {
     const { assignmentId } = req.params;
-    const { studentIds } = req.body;
+    const { studentIds, grades: bodyGrades } = req.body;
 
     if (!Array.isArray(studentIds) || studentIds.length === 0) {
       res.status(400).json({ error: 'studentIds array is required. Fail-fast enabled.' });
@@ -601,56 +669,75 @@ classroomRouter.post(
 
       for (const studentId of studentIds) {
         const liveSub = liveSubMap.get(studentId);
-        if (!liveSub) {
-          results.push({ studentId, studentName: studentId, status: 'ERROR', error: 'Submission not found in Classroom' });
-          continue;
-        }
-
         const evalRef = assignRef.collection('evaluations').doc(studentId);
         const evalSnap = await evalRef.get();
         const evalData = evalSnap.exists ? evalSnap.data() : null;
 
+        const submissionId = liveSub?.submissionId || evalData?.submissionId;
+        const studentName = liveSub?.studentName || evalData?.studentName || studentId;
+
+        if (!submissionId) {
+          results.push({ studentId, studentName, status: 'ERROR', error: 'Submission not found in Classroom' });
+          continue;
+        }
+
+        const overrideGrade =
+          bodyGrades && typeof bodyGrades === 'object' && typeof bodyGrades[studentId] === 'number'
+            ? bodyGrades[studentId]
+            : undefined;
+
         const gradeToAssign =
-          evalData?.draftGrade ?? liveSub.draftGrade ?? evalData?.assignedGrade ?? liveSub.assignedGrade ?? 0;
+          overrideGrade ??
+          evalData?.draftGrade ??
+          liveSub?.draftGrade ??
+          evalData?.assignedGrade ??
+          liveSub?.assignedGrade ??
+          undefined;
+        const hasGrade = typeof gradeToAssign === 'number' && !Number.isNaN(gradeToAssign);
+        const syncWarnings: string[] = [];
+
+        if (hasGrade) {
+          try {
+            await patchSubmissionGrade(
+              token,
+              courseId,
+              courseWorkId,
+              submissionId,
+              gradeToAssign,
+              gradeToAssign
+            );
+          } catch (gradeErr: any) {
+            syncWarnings.push(gradeErr.message);
+          }
+        }
 
         try {
-          await patchSubmissionGrade(
-            token,
-            courseId,
-            courseWorkId,
-            liveSub.submissionId,
-            undefined,
-            gradeToAssign
-          );
-
-          await returnSubmission(token, courseId, courseWorkId, liveSub.submissionId);
-
-          await evalRef.set(
-            {
-              studentId,
-              submissionId: liveSub.submissionId,
-              assignedGrade: gradeToAssign,
-              classroomSyncStatus: 'RETURNED',
-              classroomSyncError: null,
-              updatedAt: new Date().toISOString(),
-            },
-            { merge: true }
-          );
-
-          results.push({
-            studentId,
-            studentName: liveSub.studentName,
-            status: 'RETURNED',
-            assignedGrade: gradeToAssign,
-          });
-        } catch (err: any) {
-          results.push({
-            studentId,
-            studentName: liveSub.studentName,
-            status: 'ERROR',
-            error: err.message,
-          });
+          await returnSubmission(token, courseId, courseWorkId, submissionId);
+        } catch (retErr: any) {
+          syncWarnings.push(retErr.message);
         }
+
+        const timestamp = new Date().toISOString();
+        await evalRef.set(
+          {
+            studentId,
+            submissionId,
+            ...(hasGrade ? { draftGrade: gradeToAssign, assignedGrade: gradeToAssign } : {}),
+            approvedAt: timestamp,
+            classroomSyncStatus: 'RETURNED',
+            classroomSyncError: syncWarnings.length > 0 ? syncWarnings.join(' ') : null,
+            updatedAt: timestamp,
+          },
+          { merge: true }
+        );
+
+        results.push({
+          studentId,
+          studentName,
+          status: 'RETURNED',
+          assignedGrade: hasGrade ? gradeToAssign : null,
+          warning: syncWarnings.length > 0 ? syncWarnings.join(' ') : undefined,
+        });
       }
 
       res.json({

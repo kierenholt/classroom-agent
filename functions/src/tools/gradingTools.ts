@@ -541,56 +541,65 @@ export async function executeGradingTool(
 
       for (const studentId of studentIds) {
         const liveSub = liveSubMap.get(studentId);
-        if (!liveSub) {
-          results.push({ studentId, studentName: studentId, status: 'ERROR', error: 'Submission not found in Classroom' });
-          continue;
-        }
-
         const evalRef = assignRef.collection('evaluations').doc(studentId);
         const evalSnap = await evalRef.get();
         const evalData = evalSnap.exists ? evalSnap.data() : null;
 
+        const submissionId = liveSub?.submissionId || evalData?.submissionId;
+        const studentName = liveSub?.studentName || evalData?.studentName || studentId;
+
+        if (!submissionId) {
+          results.push({ studentId, studentName, status: 'ERROR', error: 'Submission not found in Classroom' });
+          continue;
+        }
+
         const gradeToAssign =
-          evalData?.draftGrade ?? liveSub.draftGrade ?? evalData?.assignedGrade ?? liveSub.assignedGrade ?? 0;
+          evalData?.draftGrade ?? liveSub?.draftGrade ?? evalData?.assignedGrade ?? liveSub?.assignedGrade ?? undefined;
+        const hasGrade = typeof gradeToAssign === 'number' && !Number.isNaN(gradeToAssign);
+        const syncWarnings: string[] = [];
+
+        if (hasGrade) {
+          try {
+            await patchSubmissionGrade(
+              googleAccessToken,
+              courseId,
+              courseWorkId,
+              submissionId,
+              gradeToAssign,
+              gradeToAssign
+            );
+          } catch (gradeErr: any) {
+            syncWarnings.push(gradeErr.message);
+          }
+        }
 
         try {
-          await patchSubmissionGrade(
-            googleAccessToken,
-            courseId,
-            courseWorkId,
-            liveSub.submissionId,
-            undefined,
-            gradeToAssign
-          );
-
-          await returnSubmission(googleAccessToken, courseId, courseWorkId, liveSub.submissionId);
-
-          await evalRef.set(
-            {
-              studentId,
-              submissionId: liveSub.submissionId,
-              assignedGrade: gradeToAssign,
-              classroomSyncStatus: 'RETURNED',
-              classroomSyncError: null,
-              updatedAt: new Date().toISOString(),
-            },
-            { merge: true }
-          );
-
-          results.push({
-            studentId,
-            studentName: liveSub.studentName,
-            status: 'RETURNED',
-            assignedGrade: gradeToAssign,
-          });
-        } catch (err: any) {
-          results.push({
-            studentId,
-            studentName: liveSub.studentName,
-            status: 'ERROR',
-            error: err.message,
-          });
+          await returnSubmission(googleAccessToken, courseId, courseWorkId, submissionId);
+        } catch (retErr: any) {
+          syncWarnings.push(retErr.message);
         }
+
+        const timestamp = new Date().toISOString();
+        await evalRef.set(
+          {
+            studentId,
+            submissionId,
+            ...(hasGrade ? { draftGrade: gradeToAssign, assignedGrade: gradeToAssign } : {}),
+            approvedAt: timestamp,
+            classroomSyncStatus: 'RETURNED',
+            classroomSyncError: syncWarnings.length > 0 ? syncWarnings.join(' ') : null,
+            updatedAt: timestamp,
+          },
+          { merge: true }
+        );
+
+        results.push({
+          studentId,
+          studentName,
+          status: 'RETURNED',
+          assignedGrade: hasGrade ? gradeToAssign : null,
+          warning: syncWarnings.length > 0 ? syncWarnings.join(' ') : undefined,
+        });
       }
 
       return {

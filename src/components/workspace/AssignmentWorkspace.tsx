@@ -173,7 +173,11 @@ export const AssignmentWorkspace: React.FC<AssignmentWorkspaceProps> = ({
       const sidecar = evaluationsMap[liveSub.studentId];
       if (!sidecar) return liveSub;
 
-      const isReturned = sidecar.classroomSyncStatus === 'RETURNED' || liveSub.state === 'RETURNED';
+      const isReturned =
+        sidecar.classroomSyncStatus === 'RETURNED' ||
+        sidecar.classroomSyncStatus === 'APPROVED' ||
+        Boolean(sidecar.approvedAt) ||
+        liveSub.state === 'RETURNED';
       const feedbackDocId = sidecar.feedbackDocId || liveSub.feedbackDocId;
       const feedbackDocUrl = sidecar.feedbackDocUrl || liveSub.feedbackDocUrl;
 
@@ -273,7 +277,12 @@ export const AssignmentWorkspace: React.FC<AssignmentWorkspaceProps> = ({
       const next = { ...prev };
       let changed = false;
       for (const studentId of Object.keys(evaluationsMap)) {
-        if (next[studentId] && !next[studentId].dirty) {
+        const evalDoc = evaluationsMap[studentId];
+        const isEvalReturned =
+          evalDoc?.classroomSyncStatus === 'RETURNED' ||
+          evalDoc?.classroomSyncStatus === 'APPROVED' ||
+          Boolean(evalDoc?.approvedAt);
+        if (next[studentId] && (!next[studentId].dirty || isEvalReturned)) {
           delete next[studentId];
           changed = true;
         }
@@ -401,15 +410,27 @@ export const AssignmentWorkspace: React.FC<AssignmentWorkspaceProps> = ({
     }
   };
 
-  // Return submissions for target studentIds (saves draft first if dirty or graded, then returns)
+  // Return submissions for target studentIds (saves any dirty edits and returns with effective grades)
   const handleReturnStudents = async (studentIds: string[]) => {
     const targetIds = studentIds.length > 0 ? studentIds : selectedStudentId ? [selectedStudentId] : [];
     if (targetIds.length === 0) return;
 
     setIsReturning(true);
     try {
-      // Save draft grades first so any unsaved scores/feedback are persisted
-      await handleSaveDraftStudents(targetIds);
+      const dirtyIds = targetIds.filter((id) => localEditsMap[id]?.dirty);
+      if (dirtyIds.length > 0) {
+        await handleSaveDraftStudents(dirtyIds);
+      }
+
+      const grades: Record<string, number> = {};
+      for (const studentId of targetIds) {
+        const sub = mergedSubmissions.find((s) => s.studentId === studentId);
+        if (!sub) continue;
+        const edit = getStudentEffectiveEdit(sub);
+        if (typeof edit.totalGrade === 'number' && !Number.isNaN(edit.totalGrade)) {
+          grades[studentId] = edit.totalGrade;
+        }
+      }
 
       const headers = await getAuthHeaders();
       const res = await fetch(`${env.API_BASE_URL}/classroom/assignments/${assignmentId}/return`, {
@@ -420,6 +441,7 @@ export const AssignmentWorkspace: React.FC<AssignmentWorkspaceProps> = ({
         },
         body: JSON.stringify({
           studentIds: targetIds,
+          grades,
         }),
       });
 
@@ -427,6 +449,14 @@ export const AssignmentWorkspace: React.FC<AssignmentWorkspaceProps> = ({
         const errText = await res.text();
         throw new Error(`Failed to return submissions: ${errText}`);
       }
+
+      setLocalEditsMap((prev) => {
+        const next = { ...prev };
+        for (const id of targetIds) {
+          delete next[id];
+        }
+        return next;
+      });
     } catch (err: any) {
       console.error('Return submission error:', err);
       alert(err.message || 'Failed to return submission');

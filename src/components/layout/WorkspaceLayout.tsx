@@ -223,7 +223,7 @@ export const WorkspaceLayout: React.FC = () => {
                   selectedStudentId={session.selectedStudentId}
                   checkedStudentIds={session.checkedStudentIds || []}
                   openTabs={openTabsDigest}
-                  title="Grading Agent Co-Pilot"
+                  title="Agent"
                   onOpenAssignment={handleOpenAssignment}
                 />
               </div>

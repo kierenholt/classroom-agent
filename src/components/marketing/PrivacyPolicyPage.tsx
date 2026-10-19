@@ -110,7 +110,7 @@ export const PrivacyPolicyPage: React.FC<PrivacyPolicyPageProps> = ({ onNavigate
           <p className="text-sm text-gray-300 leading-relaxed">
             Classroom Agent (&ldquo;we&rdquo;, &ldquo;our&rdquo;, or &ldquo;us&rdquo;), operated by Kieren Holt and hosted at{' '}
             <code className="text-xs bg-[#161b22] px-1.5 py-0.5 rounded border border-[#30363d]">
-              https://classroom-agent-511917.web.app
+              https://classroomagent.co.uk
             </code>
             , is an AI-assisted grading and feedback workstation built for educators using Google Classroom. This Privacy Policy explains what information we collect, why we request specific Google OAuth permissions, how data is processed and stored, and how you can exercise your data rights.
           </p>

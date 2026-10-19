@@ -3,9 +3,15 @@ import { type Page } from '@playwright/test';
 import {
   setupLiveClassroomBatchFixture,
   teardownLiveClassroomBatchFixture,
+  getLiveStudentSubmissionFromClassroom,
   LiveBatchFixture,
 } from '../helpers/classroomSandboxSeeder';
-import { seedTestAssignment, seedTestSubmission, cleanupTestAssignment } from '../helpers/testSeeder';
+import {
+  seedTestAssignment,
+  seedTestSubmission,
+  seedTestChatMessage,
+  cleanupTestAssignment,
+} from '../helpers/testSeeder';
 
 // Increase timeout for live Google Classroom + Gemini API E2E suite
 test.setTimeout(120000);
@@ -39,15 +45,15 @@ async function openBatchAssignmentInWorkspace(page: Page, fixture: LiveBatchFixt
   await expect(courseBtn).toBeVisible({ timeout: 30000 });
   await courseBtn.click();
 
-  // Locate the specific batch assignment card by its unique courseWorkId, select it, and click OK
+  // Locate the specific batch assignment card by its unique courseWorkId and click its Open button
   await expect(page.locator('[data-testid="assignment-picker-section"]')).toBeVisible({ timeout: 30000 });
   const assignmentCard = page.locator(`[data-testid="assignment-card-${fixture.courseWork.id}"]`);
   await expect(assignmentCard).toBeVisible({ timeout: 30000 });
-  await assignmentCard.click();
+  await expect(page.locator(`[data-testid="clone-assignment-button-${fixture.courseWork.id}"]`)).toBeVisible();
 
-  const okBtn = page.locator('[data-testid="assignment-picker-ok-button"]');
-  await expect(okBtn).toBeEnabled();
-  await okBtn.click();
+  const openBtn = page.locator(`[data-testid="open-assignment-button-${fixture.courseWork.id}"]`);
+  await expect(openBtn).toBeVisible();
+  await openBtn.click();
 
   // Verify the assignment tab is active and the 3 zones + ChatPanel are mounted
   await expect(page.locator(`[data-testid="assignment-tab-${fixture.assignmentId}"]`)).toBeVisible({ timeout: 30000 });
@@ -359,7 +365,7 @@ test.describe('Classroom Agent MVP — 7 Core User Stories (Live Classroom Batch
     await expect(page.locator('[data-testid="assignment-picker-modal"]')).toBeVisible();
 
     // Close modal and return to the open Assignment Tab
-    await page.locator('[data-testid="assignment-picker-cancel-button"]').click();
+    await page.locator('[data-testid="assignment-picker-close-button"]').click();
     await expect(page.locator('[data-testid="assignment-picker-modal"]')).toBeHidden();
 
     // Verify the unsent chat input draft and active student selection are preserved without unmounting
@@ -388,7 +394,7 @@ test.describe('Classroom Agent MVP — 7 Core User Stories (Live Classroom Batch
       submissionId: batchFixture!.submissionId,
       draftGrade: 90,
       overallFeedback: 'Great recursive solution.',
-      classroomSyncStatus: 'SYNCED_DRAFT',
+      classroomSyncStatus: 'DRAFT',
       rubricBreakdown: [
         { criterionId: 'crit_logic', score: 55, comment: 'Solid base case' },
         { criterionId: 'crit_docs', score: 35, comment: 'Clear docstring' },
@@ -396,13 +402,9 @@ test.describe('Classroom Agent MVP — 7 Core User Stories (Live Classroom Batch
       comments: [],
     });
 
-    await page.addInitScript(() => {
-      window.localStorage.setItem('classroom_agent_grading_mode', 'draft');
-    });
-
     await openBatchAssignmentInWorkspace(page, batchFixture!);
 
-    // Adjust total score manually to 95 in the left sidebar and check the student checkbox to reveal Save Draft & Return
+    // Adjust total score manually to 95 in the left sidebar and check the student checkbox to enable Return Selected
     const totalGradeInput = page.locator('[data-testid="total-grade-input"]');
     await expect(totalGradeInput).toHaveValue('90');
     await totalGradeInput.fill('95');
@@ -410,20 +412,186 @@ test.describe('Classroom Agent MVP — 7 Core User Stories (Live Classroom Batch
     const studentCheckbox = page.locator(`[data-testid="student-checkbox-${batchFixture!.student.userId}"]`);
     await studentCheckbox.check();
 
-    await page.locator('[data-testid="save-draft-grade-button"]').click();
-    await expect(page.locator(`[data-testid="student-row-${batchFixture!.student.userId}"]`)).toContainText(
-      /Draft Graded|Returned/,
-      { timeout: 30000 }
-    );
-    await expect(page.locator(`[data-testid="student-grade-badge-${batchFixture!.student.userId}"]`)).toContainText(
-      /95|100/
-    );
-
-    // Click Return to officially return the grade to the student in Google Classroom
+    // Click Return Selected to save the updated score and officially return the submission in Google Classroom
     await page.locator('[data-testid="return-submission-button"]').click();
     await expect(page.locator(`[data-testid="student-row-${batchFixture!.student.userId}"]`)).toContainText(
       'Returned',
       { timeout: 30000 }
     );
+    await expect(page.locator(`[data-testid="student-grade-badge-${batchFixture!.student.userId}"]`)).toContainText(
+      /95|100/
+    );
+  });
+
+  // =========================================================================
+  // US-8: Preview Evaluation -> Click "Draft" -> Assert Classroom API has Draft Score
+  // =========================================================================
+  test('previewEvaluationThenDraft_stagedEvaluationInChat_savesDraftScoreToClassroomApi_test', async ({ page }) => {
+    expect(batchFixture).not.toBeNull();
+    const studentId = batchFixture!.student.userId;
+    const messageId = `test_preview_draft_msg_${Date.now()}`;
+
+    await seedTestSubmission(batchFixture!.assignmentId, studentId, {
+      submissionId: batchFixture!.submissionId,
+      studentName: batchFixture!.student.fullName,
+      draftGrade: 86,
+      overallFeedback: '### Draft Feedback\nStrong recursive base case and clear complexity analysis.',
+      classroomSyncStatus: 'PENDING_APPROVAL',
+    });
+
+    await seedTestChatMessage(batchFixture!.assignmentId, messageId, {
+      sender: 'agent',
+      content: 'I have evaluated the submission and staged the feedback and score for your review.',
+      toolCalls: [
+        {
+          id: 'call_preview_draft_1',
+          name: 'evaluate_and_grade_submission',
+          args: {
+            studentId,
+            draftGrade: 86,
+            overallFeedback: '### Draft Feedback\nStrong recursive base case and clear complexity analysis.',
+          },
+          status: 'success',
+          result: {
+            success: true,
+            studentId,
+            studentName: batchFixture!.student.fullName,
+            submissionId: batchFixture!.submissionId,
+            grade: 86,
+            maxPoints: 100,
+            feedback: '### Draft Feedback\nStrong recursive base case and clear complexity analysis.',
+            hasScore: true,
+            hasFeedbackDoc: true,
+            classroomSyncStatus: 'PENDING_APPROVAL',
+          },
+        },
+      ],
+    });
+
+    await openBatchAssignmentInWorkspace(page, batchFixture!);
+
+    // 1. Click "Preview" on the staged evaluation card in the chat panel
+    const previewBtn = page.locator(`[data-testid="preview-evaluation-button-${studentId}"]`);
+    await expect(previewBtn).toBeVisible({ timeout: 20000 });
+    await previewBtn.click();
+
+    // 2. Verify Feedback Preview Modal opens, adjust score to 88, and click "Draft"
+    const previewModal = page.locator('[data-testid="feedback-preview-modal"]');
+    await expect(previewModal).toBeVisible();
+    const scoreInput = page.locator('[data-testid="preview-modal-score-input"]');
+    await expect(scoreInput).toBeVisible();
+    await scoreInput.fill('88');
+
+    const draftBtn = page.locator('[data-testid="preview-modal-draft-button"]');
+    await expect(draftBtn).toBeVisible();
+    await draftBtn.click();
+
+    await expect(previewModal).toBeHidden({ timeout: 30000 });
+    await expect(page.locator(`[data-testid="evaluation-draft-badge-${studentId}"]`)).toBeVisible({
+      timeout: 20000,
+    });
+    await expect(page.locator(`[data-testid="student-row-${studentId}"]`)).toContainText('Draft Graded', {
+      timeout: 20000,
+    });
+
+    // 3. Query the live Google Classroom API directly and assert draftGrade === 88
+    const liveSubmission = await getLiveStudentSubmissionFromClassroom(
+      batchFixture!.courseId,
+      batchFixture!.courseWork.id,
+      batchFixture!.submissionId
+    );
+    expect(liveSubmission.draftGrade).toBe(88);
+  });
+
+  // =========================================================================
+  // US-9: Preview Evaluation -> Click "Return" -> Assert Classroom API has Attached Feedback File
+  // =========================================================================
+  test('previewEvaluationThenReturn_stagedEvaluationInChat_attachesFeedbackFileAndReturnsInClassroomApi_test', async ({
+    page,
+  }) => {
+    expect(batchFixture).not.toBeNull();
+    const studentId = batchFixture!.student.userId;
+    const messageId = `test_preview_return_msg_${Date.now()}`;
+    const feedbackMarkdown =
+      '### Final Feedback\nExcellent recursive factorial implementation and O(n) complexity proof.';
+
+    await seedTestSubmission(batchFixture!.assignmentId, studentId, {
+      submissionId: batchFixture!.submissionId,
+      studentName: batchFixture!.student.fullName,
+      draftGrade: 94,
+      overallFeedback: feedbackMarkdown,
+      classroomSyncStatus: 'PENDING_APPROVAL',
+    });
+
+    await seedTestChatMessage(batchFixture!.assignmentId, messageId, {
+      sender: 'agent',
+      content: 'I have evaluated the submission and staged the feedback and score for your review.',
+      toolCalls: [
+        {
+          id: 'call_preview_return_1',
+          name: 'evaluate_and_grade_submission',
+          args: {
+            studentId,
+            draftGrade: 94,
+            overallFeedback: feedbackMarkdown,
+          },
+          status: 'success',
+          result: {
+            success: true,
+            studentId,
+            studentName: batchFixture!.student.fullName,
+            submissionId: batchFixture!.submissionId,
+            grade: 94,
+            maxPoints: 100,
+            feedback: feedbackMarkdown,
+            hasScore: true,
+            hasFeedbackDoc: true,
+            classroomSyncStatus: 'PENDING_APPROVAL',
+          },
+        },
+      ],
+    });
+
+    await openBatchAssignmentInWorkspace(page, batchFixture!);
+
+    // 1. Click "Preview" on the staged evaluation card in the chat panel
+    const previewBtn = page.locator(`[data-testid="preview-evaluation-button-${studentId}"]`);
+    await expect(previewBtn).toBeVisible({ timeout: 20000 });
+    await previewBtn.click();
+
+    // 2. Verify Feedback Preview Modal opens and click "Return"
+    const previewModal = page.locator('[data-testid="feedback-preview-modal"]');
+    await expect(previewModal).toBeVisible();
+    const returnBtn = page.locator('[data-testid="preview-modal-return-button"]');
+    await expect(returnBtn).toBeVisible();
+    await returnBtn.click();
+
+    await expect(previewModal).toBeHidden({ timeout: 30000 });
+    await expect(page.locator(`[data-testid="evaluation-approved-badge-${studentId}"]`)).toBeVisible({
+      timeout: 20000,
+    });
+    await expect(page.locator(`[data-testid="feedback-doc-link-${studentId}"]`)).toBeVisible({
+      timeout: 20000,
+    });
+    await expect(page.locator(`[data-testid="student-row-${studentId}"]`)).toContainText('Returned', {
+      timeout: 20000,
+    });
+
+    // 3. Query the live Google Classroom API directly and assert the attached Feedback Google Doc exists and submission is RETURNED
+    const liveSubmission = await getLiveStudentSubmissionFromClassroom(
+      batchFixture!.courseId,
+      batchFixture!.courseWork.id,
+      batchFixture!.submissionId
+    );
+    expect(liveSubmission.assignedGrade).toBe(94);
+    expect(liveSubmission.state).toBe('RETURNED');
+
+    const attachments = liveSubmission.assignmentSubmission?.attachments || [];
+    const feedbackAttachment = attachments.find(
+      (att) => att.driveFile?.title && /^Feedback\s*[-—]/.test(att.driveFile.title)
+    );
+    expect(feedbackAttachment).toBeDefined();
+    expect(feedbackAttachment?.driveFile?.id).toBeTruthy();
   });
 });
+

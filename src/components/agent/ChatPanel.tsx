@@ -3,14 +3,14 @@ import {
   Send,
   Bot,
   User,
-  Sparkles,
   Loader2,
   AlertCircle,
   Paperclip,
   FileText,
   X,
   Eye,
-  Check,
+  Save,
+  Clock,
   CheckCircle2,
   ExternalLink,
   ChevronDown,
@@ -55,7 +55,8 @@ interface ExtractedEvaluationItem {
   feedback: string;
   hasScore: boolean;
   hasFeedbackDoc: boolean;
-  isApproved: boolean;
+  isDrafted: boolean;
+  isReturned: boolean;
   feedbackDocUrl?: string;
 }
 
@@ -75,7 +76,7 @@ export const ChatPanel: React.FC<ChatPanelProps> = ({
   selectedStudentId,
   checkedStudentIds = [],
   openTabs = [],
-  title = 'Grading Agent Co-Pilot',
+  title = 'Agent',
   promptStarters = [
     'Generate a grading rubric based on the assignment instructions',
     'Evaluate and grade the currently selected student\'s submission',
@@ -87,7 +88,6 @@ export const ChatPanel: React.FC<ChatPanelProps> = ({
   const { getAuthHeaders } = useAuth();
   const {
     feedbackSettings,
-    gradingMode,
     showRubricPane,
     showToolCalls,
     showExtractedTextToggle,
@@ -259,8 +259,8 @@ export const ChatPanel: React.FC<ChatPanelProps> = ({
       if (!hasScore && !hasFeedbackDoc) continue;
 
       const syncStatus = sidecar?.classroomSyncStatus || res.classroomSyncStatus || 'PENDING_APPROVAL';
-      const isApproved =
-        syncStatus === 'RETURNED' || syncStatus === 'APPROVED' || Boolean(sidecar?.approvedAt);
+      const isReturned = syncStatus === 'RETURNED' || syncStatus === 'APPROVED';
+      const isDrafted = !isReturned && syncStatus === 'DRAFT';
 
       items.push({
         studentId,
@@ -271,7 +271,8 @@ export const ChatPanel: React.FC<ChatPanelProps> = ({
         feedback,
         hasScore,
         hasFeedbackDoc,
-        isApproved,
+        isDrafted,
+        isReturned,
         feedbackDocUrl: sidecar?.feedbackDocUrl,
       });
     }
@@ -308,8 +309,9 @@ export const ChatPanel: React.FC<ChatPanelProps> = ({
     return items;
   };
 
-  const handleApproveEvaluation = async (
+  const handleSubmitEvaluation = async (
     item: ExtractedEvaluationItem,
+    action: 'draft' | 'return',
     overrideFeedback?: string,
     overrideScore?: number | null
   ) => {
@@ -333,30 +335,35 @@ export const ChatPanel: React.FC<ChatPanelProps> = ({
             studentName: item.studentName,
             draftGrade: scoreToSend,
             overallFeedback: feedbackToSend,
-            gradingMode,
+            action,
           }),
         }
       );
 
       if (!res.ok) {
         const errText = await res.text();
-        throw new Error(`Approval failed for ${item.studentName}: ${errText}`);
+        throw new Error(
+          `${action === 'draft' ? 'Draft save' : 'Return'} failed for ${item.studentName}: ${errText}`
+        );
       }
 
       if (previewTarget?.studentId === item.studentId) {
         setPreviewTarget(null);
       }
     } catch (err: any) {
-      setErrorText(err.message || `Failed to approve evaluation for ${item.studentName}`);
+      setErrorText(
+        err.message ||
+          `Failed to ${action === 'draft' ? 'save draft' : 'return evaluation'} for ${item.studentName}`
+      );
     } finally {
       setApprovingStudentIds((prev) => ({ ...prev, [item.studentId]: false }));
     }
   };
 
-  const handleApproveAllInMessage = async (items: ExtractedEvaluationItem[]) => {
+  const handleReturnAllInMessage = async (items: ExtractedEvaluationItem[]) => {
     for (const item of items) {
-      if (!item.isApproved) {
-        await handleApproveEvaluation(item);
+      if (!item.isReturned) {
+        await handleSubmitEvaluation(item, 'return');
       }
     }
   };
@@ -459,7 +466,6 @@ export const ChatPanel: React.FC<ChatPanelProps> = ({
         workspaceContext: {
           openTabs,
           checkedStudentIds,
-          gradingMode,
           showRubricPane,
           showToolCalls,
           showExtractedTextToggle,
@@ -540,7 +546,11 @@ export const ChatPanel: React.FC<ChatPanelProps> = ({
       {/* Pane Header */}
       <div className="h-10 border-b border-[#333842] px-4 flex items-center justify-between bg-[#1A1D21] shrink-0">
         <div className="flex items-center space-x-2 min-w-0">
-          <Sparkles className="w-4 h-4 text-[#D4AF37] shrink-0" />
+          <img
+            src="/favicon-64x64.png"
+            alt="Classroom Agent"
+            className="w-4 h-4 rounded-sm object-contain shrink-0"
+          />
           <span className="text-xs font-semibold text-gray-300 tracking-wide uppercase truncate">
             {title}
           </span>
@@ -567,7 +577,11 @@ export const ChatPanel: React.FC<ChatPanelProps> = ({
       <div ref={scrollRef} className="flex-1 p-4 overflow-y-auto space-y-4 font-sans select-text">
         {messages.length === 0 ? (
           <div className="h-full flex flex-col items-center justify-center text-center p-6 text-gray-500 space-y-3">
-            <Bot className="w-10 h-10 text-gray-600 mb-1" />
+            <img
+              src="/logo-192x192.png"
+              alt="Classroom Agent"
+              className="w-10 h-10 rounded-lg object-contain mb-1"
+            />
             <p className="text-sm font-medium text-gray-400">{title} Ready</p>
             <p className="text-xs text-gray-500 max-w-xs">
               Command the agent to grade submissions, configure rubrics, or create assignments:
@@ -589,7 +603,7 @@ export const ChatPanel: React.FC<ChatPanelProps> = ({
           messages.map((msg) => {
             const evaluationItems = extractEvaluationsFromMessage(msg);
             const createdAssignments = extractCreatedAssignmentsFromMessage(msg);
-            const unapprovedCount = evaluationItems.filter((i) => !i.isApproved).length;
+            const unreturnedCount = evaluationItems.filter((i) => !i.isReturned).length;
             const isMinimised = msg.sender === 'agent' && minimisedMessageIds.has(msg.id);
 
             return (
@@ -645,14 +659,14 @@ export const ChatPanel: React.FC<ChatPanelProps> = ({
                               .join(', ')
                           : (msg.content?.slice(0, 60) || 'Response')}
                       </span>
-                      {evaluationItems.length > 0 && unapprovedCount > 0 && (
+                      {evaluationItems.length > 0 && unreturnedCount > 0 && (
                         <span className="text-[10px] font-medium text-amber-300/90 bg-amber-950/50 border border-amber-700/40 px-1.5 py-0.5 rounded shrink-0">
-                          {unapprovedCount} Pending
+                          {unreturnedCount} Pending
                         </span>
                       )}
-                      {evaluationItems.length > 0 && unapprovedCount === 0 && (
+                      {evaluationItems.length > 0 && unreturnedCount === 0 && (
                         <span className="text-[10px] font-medium text-emerald-400 bg-emerald-950/50 border border-emerald-700/40 px-1.5 py-0.5 rounded shrink-0">
-                          Approved
+                          Returned
                         </span>
                       )}
                     </div>
@@ -762,7 +776,7 @@ export const ChatPanel: React.FC<ChatPanelProps> = ({
                     </div>
                   )}
 
-                  {/* Staged Evaluation Action Cards (Preview & Approve) */}
+                  {/* Staged Evaluation Action Cards (Preview, Draft & Return) */}
                   {evaluationItems.length > 0 && (
                     <div
                       data-testid="evaluation-actions-container"
@@ -773,15 +787,15 @@ export const ChatPanel: React.FC<ChatPanelProps> = ({
                           <span className="text-[11px] font-medium text-[#F3E5AB]">
                             {evaluationItems.length} Student Evaluations
                           </span>
-                          {unapprovedCount > 0 && (
+                          {unreturnedCount > 0 && (
                             <button
                               type="button"
-                              data-testid="approve-all-evaluations-button"
-                              onClick={() => handleApproveAllInMessage(evaluationItems)}
+                              data-testid="return-all-evaluations-button"
+                              onClick={() => handleReturnAllInMessage(evaluationItems)}
                               className="flex items-center space-x-1 px-2.5 py-1 rounded bg-[#D4AF37] hover:bg-[#E5B869] text-[#121316] text-[11px] font-semibold transition-colors shadow-xs cursor-pointer"
                             >
-                              <Check className="w-3 h-3" />
-                              <span>Approve All ({unapprovedCount})</span>
+                              <Send className="w-3 h-3" />
+                              <span>Return All ({unreturnedCount})</span>
                             </button>
                           )}
                         </div>
@@ -811,17 +825,25 @@ export const ChatPanel: React.FC<ChatPanelProps> = ({
                                 )}
                               </div>
 
-                              {item.isApproved ? (
+                              {item.isReturned ? (
                                 <span
                                   data-testid={`evaluation-approved-badge-${item.studentId}`}
                                   className="flex items-center space-x-1 text-[11px] font-medium text-emerald-400 shrink-0"
                                 >
                                   <CheckCircle2 className="w-3.5 h-3.5" />
-                                  <span>Approved</span>
+                                  <span>Returned</span>
+                                </span>
+                              ) : item.isDrafted ? (
+                                <span
+                                  data-testid={`evaluation-draft-badge-${item.studentId}`}
+                                  className="flex items-center space-x-1 text-[11px] font-medium text-[#F3E5AB] shrink-0"
+                                >
+                                  <Clock className="w-3.5 h-3.5 text-[#D4AF37]" />
+                                  <span>Draft Saved</span>
                                 </span>
                               ) : (
                                 <span className="text-[10px] font-medium text-amber-300/90 bg-amber-950/50 border border-amber-700/40 px-1.5 py-0.5 rounded shrink-0">
-                                  Pending Approval
+                                  Pending Action
                                 </span>
                               )}
                             </div>
@@ -868,11 +890,26 @@ export const ChatPanel: React.FC<ChatPanelProps> = ({
 
                               <button
                                 type="button"
-                                data-testid={`approve-evaluation-button-${item.studentId}`}
-                                onClick={() => handleApproveEvaluation(item)}
+                                data-testid={`draft-evaluation-button-${item.studentId}`}
+                                onClick={() => handleSubmitEvaluation(item, 'draft')}
                                 disabled={isApproving}
-                                className={`flex items-center space-x-1 px-2.5 py-1 rounded text-[11px] font-semibold transition-colors disabled:opacity-50 ${
-                                  item.isApproved
+                                className="flex items-center space-x-1 px-2.5 py-1 rounded border border-[#D4AF37]/40 bg-[#22262C] hover:bg-[#2D323A] text-[#F3E5AB] text-[11px] font-semibold transition-colors disabled:opacity-50 cursor-pointer"
+                              >
+                                {isApproving ? (
+                                  <Loader2 className="w-3 h-3 animate-spin text-[#D4AF37]" />
+                                ) : (
+                                  <Save className="w-3 h-3 text-[#D4AF37]" />
+                                )}
+                                <span>Draft</span>
+                              </button>
+
+                              <button
+                                type="button"
+                                data-testid={`return-evaluation-button-${item.studentId}`}
+                                onClick={() => handleSubmitEvaluation(item, 'return')}
+                                disabled={isApproving}
+                                className={`flex items-center space-x-1 px-2.5 py-1 rounded text-[11px] font-semibold transition-colors disabled:opacity-50 cursor-pointer ${
+                                  item.isReturned
                                     ? 'bg-emerald-900/40 hover:bg-emerald-800/50 text-emerald-300 border border-emerald-600/40'
                                     : 'bg-[#D4AF37] hover:bg-[#E5B869] text-[#121316] shadow-sm'
                                 }`}
@@ -880,9 +917,9 @@ export const ChatPanel: React.FC<ChatPanelProps> = ({
                                 {isApproving ? (
                                   <Loader2 className="w-3 h-3 animate-spin" />
                                 ) : (
-                                  <Check className="w-3 h-3" />
+                                  <Send className="w-3 h-3" />
                                 )}
-                                <span>{item.isApproved ? 'Re-Approve' : 'Approve'}</span>
+                                <span>Return</span>
                               </button>
                             </div>
                           </div>
@@ -1039,8 +1076,11 @@ export const ChatPanel: React.FC<ChatPanelProps> = ({
           hasScore={previewTarget.hasScore}
           isApproving={Boolean(approvingStudentIds[previewTarget.studentId])}
           onClose={() => setPreviewTarget(null)}
-          onApprove={(updatedFeedback, updatedScore) =>
-            handleApproveEvaluation(previewTarget, updatedFeedback, updatedScore)
+          onDraft={(updatedFeedback, updatedScore) =>
+            handleSubmitEvaluation(previewTarget, 'draft', updatedFeedback, updatedScore)
+          }
+          onReturn={(updatedFeedback, updatedScore) =>
+            handleSubmitEvaluation(previewTarget, 'return', updatedFeedback, updatedScore)
           }
         />
       )}

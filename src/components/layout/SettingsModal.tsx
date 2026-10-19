@@ -10,7 +10,6 @@ import {
   ArrowRightCircle,
   Hash,
   Sparkles,
-  FileCheck,
   Layout,
   Wrench,
   Zap,
@@ -19,7 +18,7 @@ import {
   Edit2,
   RotateCcw,
 } from 'lucide-react';
-import { useSettings, FeedbackTone, FeedbackDetailLevel, GradingMode } from '../../context/SettingsContext';
+import { useSettings, FeedbackTone, FeedbackDetailLevel } from '../../context/SettingsContext';
 
 interface SettingsModalProps {
   isOpen: boolean;
@@ -27,11 +26,6 @@ interface SettingsModalProps {
 }
 
 export type SettingsTab = 'feedback' | 'display' | 'advanced' | 'quick-actions';
-
-const GRADING_MODE_OPTIONS: { value: GradingMode; label: string }[] = [
-  { value: 'no-draft', label: 'No Draft Mode (Direct to Final)' },
-  { value: 'draft', label: 'Draft Mode (Review Before Final)' },
-];
 
 const TONE_OPTIONS: { value: FeedbackTone; label: string }[] = [
   { value: 'encouraging', label: 'Encouraging & Supportive' },
@@ -75,8 +69,6 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose })
     setShowScores,
     customAgentInstructions,
     setCustomAgentInstructions,
-    gradingMode,
-    setGradingMode,
   } = useSettings();
 
   const [activeTab, setActiveTab] = useState<SettingsTab>('feedback');
@@ -195,37 +187,6 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose })
               <div className="text-[11px] font-semibold uppercase tracking-wider text-[#D4AF37]">
                 Feedback Options
               </div>
-
-            {/* Grading Mode Setting */}
-            <div className="flex items-center justify-between space-x-4 p-3 rounded-lg bg-[#121316] border border-[#333842]">
-              <div className="flex items-start space-x-3">
-                <div className="p-2 rounded-lg bg-[#D4AF37]/15 border border-[#D4AF37]/30 text-[#D4AF37] mt-0.5">
-                  <FileCheck className="w-4 h-4" />
-                </div>
-                <div>
-                  <label htmlFor="grading-mode-select" className="text-xs font-medium text-gray-200 block">
-                    Grading Mode
-                  </label>
-                  <p className="text-[11px] text-gray-400 mt-0.5 leading-relaxed">
-                    Choose whether approving evaluations and saving scores publishes final grades immediately or saves as drafts for review.
-                  </p>
-                </div>
-              </div>
-
-              <select
-                id="grading-mode-select"
-                data-testid="grading-mode-select"
-                value={gradingMode}
-                onChange={(e) => setGradingMode(e.target.value as GradingMode)}
-                className="bg-[#22262C] border border-[#333842] rounded-md px-2.5 py-1.5 text-xs text-gray-200 focus:outline-hidden focus:border-[#D4AF37] shrink-0"
-              >
-                {GRADING_MODE_OPTIONS.map((opt) => (
-                  <option key={opt.value} value={opt.value}>
-                    {opt.label}
-                  </option>
-                ))}
-              </select>
-            </div>
 
             {/* Tone Setting */}
             <div className="flex items-center justify-between space-x-4 p-3 rounded-lg bg-[#121316] border border-[#333842]">

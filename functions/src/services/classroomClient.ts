@@ -114,7 +114,7 @@ export async function cloneCourseWorkUnderApp(
   const original = await getCourseWork(accessToken, courseId, sourceCourseWorkId);
 
   const newCourseWork: classroom_v1.Schema$CourseWork = {
-    title: `${original.title || 'Assignment'} (Classroom Agent)`,
+    title: `${original.title || 'Assignment'} (Clone)`,
     description: original.description,
     state: 'PUBLISHED',
     workType: original.workType || 'ASSIGNMENT',
@@ -350,7 +350,7 @@ export function mapLiveClassroomSubmission(
     rubricBreakdown: [],
     overallFeedback: '',
     comments: [],
-    classroomSyncStatus: isReturned ? 'RETURNED' : hasDraft ? 'SYNCED_DRAFT' : 'UNSAVED',
+    classroomSyncStatus: isReturned ? 'RETURNED' : hasDraft ? 'DRAFT' : 'UNSAVED',
     updatedAt: sub.updateTime || new Date().toISOString(),
   };
 }

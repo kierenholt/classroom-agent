@@ -13,13 +13,15 @@ Fill in the **Branding** page in the Google Cloud Console with these exact value
 | **App Name** | `Classroom Agent` |
 | **User Support Email** | `kierenholt@gmail.com` |
 | **App Logo (`120x120 px` PNG)** | Upload [`public/oauth-logo-120x120.png`](file:///home/kieren/Documents/code/classroom-agent/public/oauth-logo-120x120.png) |
-| **Application Home Page** | `https://classroom-agent-511917.web.app` |
-| **Application Privacy Policy Link** | `https://classroom-agent-511917.web.app/privacy` |
-| **Application Terms of Service Link** | `https://classroom-agent-511917.web.app/terms` |
-| **Authorized Domains** | `classroom-agent-511917.web.app` and `classroom-agent-511917.firebaseapp.com` |
+| **Application Home Page** | `https://classroomagent.co.uk` |
+| **Application Privacy Policy Link** | `https://classroomagent.co.uk/privacy` |
+| **Application Terms of Service Link** | `https://classroomagent.co.uk/terms` |
+| **Authorized Domains** | `classroomagent.co.uk`, `classroom-agent-511917.web.app`, and `classroom-agent-511917.firebaseapp.com` |
 | **Developer Contact Information** | `kierenholt@gmail.com` |
 
-> **Pre-Submission Check**: Make sure you deploy the latest frontend build (`npm run build` + `firebase deploy --only hosting`) *before* clicking **Submit for Verification** so Google's automated crawler can verify the homepage, `/privacy`, and `/terms` links live at `https://classroom-agent-511917.web.app`.
+> **Pre-Submission Check**:
+> 1. Make sure `classroomagent.co.uk` is verified in [Google Search Console](https://search.google.com/search-console) under the same Google account (`kierenholt@gmail.com`)—Google OAuth Verification requires Search Console ownership verification for all custom Authorized Domains.
+> 2. Deploy the latest frontend build (`Publish: Deploy Frontend Hosting`) *before* clicking **Submit for Verification** so Google's automated crawler can verify the homepage, `/privacy`, and `/terms` links live at `https://classroomagent.co.uk`.
 
 ---
 
@@ -41,7 +43,7 @@ Ensure only the following **6 scopes** (plus standard `openid`, `email`, `profil
 Copy and paste the text below into the corresponding justification fields in the Google Cloud Console OAuth Verification form:
 
 ### Overall Justification: How does your application use the requested Google API scopes?
-> Classroom Agent is a web-based AI grading and feedback workstation built exclusively for Google Classroom educators. Teachers sign in with their Google Classroom account to open an interactive 70/30 grading workspace. All 6 requested scopes are required immediately upon sign-in because the application preloads the teacher's active Google Classroom courses and coursework assignments on login, displays the class student roster with profile avatars, renders student-submitted Google Drive files (Google Docs, Slides, Sheets, PDFs, images, and code files) inside the grading preview canvas, and writes teacher-approved grades and formatted Google Doc feedback documents back to the student's Google Classroom submission.
+> Classroom Agent (https://classroomagent.co.uk) is a web-based AI grading and feedback workstation built exclusively for Google Classroom educators. Teachers sign in with their Google Classroom account to open an interactive 70/30 grading workspace. All 6 requested scopes are required immediately upon sign-in because the application preloads the teacher's active Google Classroom courses and coursework assignments on login, displays the class student roster with profile avatars, renders student-submitted Google Drive files (Google Docs, Slides, Sheets, PDFs, images, and code files) inside the grading preview canvas, and writes teacher-approved grades and formatted Google Doc feedback documents back to the student's Google Classroom submission.
 
 ### Why isn't a narrower scope sufficient? (General / `drive.readonly` explanation)
 > Classroom Agent must read and render student-submitted coursework attachments stored in Google Drive (e.g., essays in Google Docs, slide decks, and PDFs turned in by students via Google Classroom). Because these student files were created and uploaded by students inside Google Classroom—rather than created by the Classroom Agent app itself or opened via a standalone Google Drive file picker—the narrower `drive.file` scope cannot read or export student submission attachments (`403 Insufficient Permission`). Therefore, `https://www.googleapis.com/auth/drive.readonly` is strictly required to preview student submissions in the workspace canvas and extract text when the teacher requests an AI rubric evaluation. For creating new feedback documents, we strictly use `https://www.googleapis.com/auth/drive.file`.
@@ -72,7 +74,7 @@ Copy and paste the text below into the corresponding justification fields in the
 
 Google requires an **unlisted YouTube video** demonstrating the complete OAuth grant process and every requested scope in action. Follow this checklist while recording your screen:
 
-1. **Start on the Public Homepage (`https://classroom-agent-511917.web.app`)**:
+1. **Start on the Public Homepage (`https://classroomagent.co.uk`)**:
    - Show the URL bar clearly.
    - Scroll briefly to show the **Features**, **How Classroom Agent Uses & Protects Your Google Data**, and click/hover the **Privacy Policy** (`/privacy`) and **Terms of Service** (`/terms`) links.
 2. **Trigger the OAuth Consent Screen (Crucial Requirements!)**:

@@ -1,4 +1,4 @@
-import { FeedbackSettings, GradingMode } from '../../context/SettingsContext';
+import { FeedbackSettings } from '../../context/SettingsContext';
 
 export interface WorkspaceContextDigest {
   openTabs?: Array<{
@@ -8,7 +8,6 @@ export interface WorkspaceContextDigest {
     isActive: boolean;
   }>;
   checkedStudentIds?: string[];
-  gradingMode?: GradingMode;
   showRubricPane?: boolean;
   showToolCalls?: boolean;
   showExtractedTextToggle?: boolean;

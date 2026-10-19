@@ -536,3 +536,23 @@ export async function deleteLiveClassroomAssignmentFixture(
     console.warn(`[Classroom Sandbox Seeder] Warning deleting courseWork ${courseWorkId}: ${err.message}`);
   }
 }
+
+/**
+ * Fetches a StudentSubmission directly from the live Google Classroom API to assert
+ * draftGrade, assignedGrade, state, and attached feedback Google Docs.
+ */
+export async function getLiveStudentSubmissionFromClassroom(
+  courseId: string,
+  courseWorkId: string,
+  submissionId: string
+) {
+  const token = await getLiveTeacherAccessToken();
+  const { classroom } = getAuthenticatedClients(token);
+  const res = await classroom.courses.courseWork.studentSubmissions.get({
+    courseId,
+    courseWorkId,
+    id: submissionId,
+  });
+  return res.data;
+}
+

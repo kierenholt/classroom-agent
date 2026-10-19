@@ -1,7 +1,6 @@
 import React, { useState } from 'react';
-import { RefreshCw, Send, Save, CheckCircle2, Clock, User, ExternalLink } from 'lucide-react';
+import { RefreshCw, Send, CheckCircle2, Clock, User, ExternalLink } from 'lucide-react';
 import { AssignmentDoc, StudentSubmissionDoc, CriterionEvaluation } from '../../types/classroom';
-import { useSettings } from '../../context/SettingsContext';
 
 interface StudentEffectiveEdit {
   totalGrade: number | '';
@@ -110,15 +109,12 @@ export const StudentRosterZone: React.FC<StudentRosterZoneProps> = ({
   onToggleCheckStudent,
   onSelectStudent,
   onSyncClassroom,
-  onSaveDraftStudents,
   onReturnStudents,
   onUpdateStudentScore,
   getStudentEffectiveEdit,
   isSyncing,
-  isSaving,
   isReturning,
 }) => {
-  const { gradingMode } = useSettings();
   const [statusFilter, setStatusFilter] = useState<FilterStatus>('ALL');
 
   const filteredSubmissions = submissions.filter((sub) => {
@@ -196,7 +192,7 @@ export const StudentRosterZone: React.FC<StudentRosterZoneProps> = ({
         </div>
       </div>
 
-      {/* Contextual Action Buttons: always visible, disabled if no student is selected */}
+      {/* Contextual Action Buttons: Return Selected & Return All */}
       <div data-testid="grading-header" className="p-2.5 border-b border-[#333842] bg-[#121316]/50 space-y-2">
         <div className="flex items-center justify-between">
           <span className="text-[11px] font-semibold uppercase tracking-wider text-gray-400">
@@ -205,39 +201,37 @@ export const StudentRosterZone: React.FC<StudentRosterZoneProps> = ({
         </div>
 
         <div className="flex items-center space-x-2 pt-0.5">
-          {gradingMode === 'draft' ? (
-            <>
-              <button
-                data-testid="save-draft-grade-button"
-                onClick={() => onSaveDraftStudents(checkedStudentIds)}
-                disabled={isSaving || checkedStudentIds.length === 0}
-                className="flex-1 flex items-center justify-center space-x-1 py-1 px-2 rounded bg-[#22262C] hover:bg-[#2D323A] text-gray-200 border border-[#333842] transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
-              >
-                <Save className="w-3 h-3 text-[#D4AF37]" />
-                <span>{isSaving ? 'Saving...' : checkedStudentIds.length > 0 ? `Save Draft (${checkedStudentIds.length})` : 'Save Draft'}</span>
-              </button>
+          <button
+            data-testid="return-submission-button"
+            onClick={() => onReturnStudents(checkedStudentIds)}
+            disabled={isReturning || checkedStudentIds.length === 0}
+            className="flex-1 flex items-center justify-center space-x-1 py-1 px-2 rounded bg-[#22262C] hover:bg-[#2D323A] text-gray-200 border border-[#333842] font-medium transition-colors disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer"
+          >
+            <Send className="w-3 h-3 text-[#D4AF37]" />
+            <span>
+              {isReturning
+                ? 'Returning...'
+                : checkedStudentIds.length > 0
+                  ? `Return Selected (${checkedStudentIds.length})`
+                  : 'Return Selected'}
+            </span>
+          </button>
 
-              <button
-                data-testid="return-submission-button"
-                onClick={() => onReturnStudents(checkedStudentIds)}
-                disabled={isReturning || checkedStudentIds.length === 0}
-                className="flex-1 flex items-center justify-center space-x-1 py-1 px-2 rounded bg-emerald-600 hover:bg-emerald-500 text-white font-medium transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
-              >
-                <Send className="w-3 h-3" />
-                <span>{isReturning ? 'Returning...' : checkedStudentIds.length > 0 ? `Return (${checkedStudentIds.length})` : 'Return'}</span>
-              </button>
-            </>
-          ) : (
-            <button
-              data-testid="return-submission-button"
-              onClick={() => onReturnStudents(checkedStudentIds)}
-              disabled={isReturning || checkedStudentIds.length === 0}
-              className="w-full flex items-center justify-center space-x-1.5 py-1 px-2 rounded bg-emerald-600 hover:bg-emerald-500 text-white font-medium transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
-            >
-              <Send className="w-3 h-3" />
-              <span>{isReturning ? 'Publishing...' : checkedStudentIds.length > 0 ? `Return / Publish (${checkedStudentIds.length})` : 'Return / Publish'}</span>
-            </button>
-          )}
+          <button
+            data-testid="return-all-submissions-button"
+            onClick={() => {
+              const unreturnedIds = submissions
+                .filter((s) => s.state !== 'RETURNED')
+                .map((s) => s.studentId);
+              const targetIds = unreturnedIds.length > 0 ? unreturnedIds : submissions.map((s) => s.studentId);
+              onReturnStudents(targetIds);
+            }}
+            disabled={isReturning || submissions.length === 0}
+            className="flex-1 flex items-center justify-center space-x-1 py-1 px-2 rounded bg-emerald-600 hover:bg-emerald-500 text-white font-medium transition-colors disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer"
+          >
+            <Send className="w-3 h-3" />
+            <span>{isReturning ? 'Returning...' : 'Return All'}</span>
+          </button>
         </div>
       </div>
 

@@ -14,6 +14,7 @@ interface CreateCourseworkPayload {
   description?: string;
   maxPoints?: number;
   dueDate?: string;
+  sourceCourseWorkId?: string;
 }
 
 interface ClassroomDataContextType {
@@ -277,6 +278,7 @@ export const ClassroomDataProvider: React.FC<{ children: React.ReactNode }> = ({
           maxPoints: payload.maxPoints ?? 100,
           dueDate: payload.dueDate?.trim() || undefined,
           state: 'PUBLISHED',
+          sourceCourseWorkId: payload.sourceCourseWorkId?.trim() || undefined,
         }),
       });
 

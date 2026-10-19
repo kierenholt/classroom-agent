@@ -73,7 +73,7 @@ export const TermsOfServicePage: React.FC<TermsOfServicePageProps> = ({ onNaviga
         <section className="space-y-3">
           <h2 className="text-xl font-semibold text-white">1. Agreement to Terms</h2>
           <p className="text-sm text-gray-300 leading-relaxed">
-            By accessing or using Classroom Agent (<code className="text-xs bg-[#161b22] px-1.5 py-0.5 rounded border border-[#30363d]">https://classroom-agent-511917.web.app</code>), operated by Kieren Holt (&ldquo;we&rdquo;, &ldquo;us&rdquo;, or &ldquo;our&rdquo;), you agree to be bound by these Terms of Service and our{' '}
+            By accessing or using Classroom Agent (<code className="text-xs bg-[#161b22] px-1.5 py-0.5 rounded border border-[#30363d]">https://classroomagent.co.uk</code>), operated by Kieren Holt (&ldquo;we&rdquo;, &ldquo;us&rdquo;, or &ldquo;our&rdquo;), you agree to be bound by these Terms of Service and our{' '}
             <a
               href="/privacy"
               onClick={(e) => handleNav(e, '/privacy')}

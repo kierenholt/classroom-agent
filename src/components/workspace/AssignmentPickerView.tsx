@@ -11,6 +11,10 @@ import {
   RefreshCw,
   PlusCircle,
   ArrowLeft,
+  Lock,
+  Copy,
+  FolderOpen,
+  Info,
 } from 'lucide-react';
 import { ClassroomCoursework } from '../../types/classroom';
 import { useClassroomData } from '../../context/ClassroomDataContext';
@@ -40,12 +44,13 @@ export const AssignmentPickerView: React.FC<AssignmentPickerViewProps> = ({
   } = useClassroomData();
 
   const [selectedCourseId, setSelectedCourseId] = useState<string | null>(null);
-  const [selectedCourseworkId, setSelectedCourseworkId] = useState<string | null>(null);
   const [localError, setLocalError] = useState<string | null>(null);
   const [isRefreshing, setIsRefreshing] = useState<boolean>(false);
 
-  // New assignment creation state
+  // New assignment creation / cloning state
   const [isCreatingAssignment, setIsCreatingAssignment] = useState<boolean>(false);
+  const [cloningSourceCw, setCloningSourceCw] = useState<ClassroomCoursework | null>(null);
+  const [infoModalCw, setInfoModalCw] = useState<ClassroomCoursework | null>(null);
   const [newTitle, setNewTitle] = useState<string>('');
   const [newDescription, setNewDescription] = useState<string>('');
   const [newMaxPoints, setNewMaxPoints] = useState<string>('100');
@@ -56,9 +61,10 @@ export const AssignmentPickerView: React.FC<AssignmentPickerViewProps> = ({
   useEffect(() => {
     if (isOpen) {
       setSelectedCourseId(null);
-      setSelectedCourseworkId(null);
       setLocalError(null);
       setIsCreatingAssignment(false);
+      setCloningSourceCw(null);
+      setInfoModalCw(null);
       setNewTitle('');
       setNewDescription('');
       setNewMaxPoints('100');
@@ -74,13 +80,15 @@ export const AssignmentPickerView: React.FC<AssignmentPickerViewProps> = ({
   // When selectedCourseId changes, fetch coursework if not already cached
   useEffect(() => {
     if (!isOpen || !selectedCourseId) {
-      setSelectedCourseworkId(null);
       setIsCreatingAssignment(false);
+      setCloningSourceCw(null);
+      setInfoModalCw(null);
       return;
     }
 
-    setSelectedCourseworkId(null);
     setLocalError(null);
+    setCloningSourceCw(null);
+    setInfoModalCw(null);
 
     if (!courseworkByCourseId[selectedCourseId]) {
       fetchCourseworkForCourse(selectedCourseId).catch((err: any) => {
@@ -93,29 +101,71 @@ export const AssignmentPickerView: React.FC<AssignmentPickerViewProps> = ({
     return null;
   }
 
-  const currentCoursework: ClassroomCoursework[] = selectedCourseId ? courseworkByCourseId[selectedCourseId] || [] : [];
+  const rawCoursework: ClassroomCoursework[] = selectedCourseId ? courseworkByCourseId[selectedCourseId] || [] : [];
+  // Keep all assignments visible, ordering eligible (Classroom Agent) assignments first followed by native assignments
+  const currentCoursework: ClassroomCoursework[] = [...rawCoursework].sort((a, b) => {
+    const aEligible = a.associatedWithDeveloper === true ? 1 : 0;
+    const bEligible = b.associatedWithDeveloper === true ? 1 : 0;
+    return bEligible - aEligible;
+  });
+
   const isCourseworkLoading = selectedCourseId
     ? !!globalLoadingCoursework[selectedCourseId] && currentCoursework.length === 0
     : false;
   const isCoursesLoading = globalLoadingCourses && courses.length === 0;
   const error = localError || globalError;
 
-  const handleSelectAssignment = (cw: ClassroomCoursework) => {
-    setIsCreatingAssignment(false);
-    setSelectedCourseworkId(cw.id);
-    if (selectedCourseId) {
-      prefetchWorkspace(selectedCourseId, cw.id);
+  const handleOpenAssignmentDirect = (cw: ClassroomCoursework, e?: React.MouseEvent) => {
+    if (e) {
+      e.stopPropagation();
     }
+    if (!selectedCourseId || cw.associatedWithDeveloper !== true) {
+      return;
+    }
+    const selectedCourse = courses.find((c) => c.id === selectedCourseId);
+    const assignmentId = `${selectedCourseId}_${cw.id}`;
+    onOpenAssignment(assignmentId, {
+      courseName: selectedCourse?.name || 'Classroom Course',
+      assignmentTitle: cw.title,
+    });
+    onClose();
   };
 
   const handleOpenCreateForm = () => {
-    setSelectedCourseworkId(null);
     setLocalError(null);
+    setCloningSourceCw(null);
+    setNewTitle('');
+    setNewDescription('');
+    setNewMaxPoints('100');
+    setNewDueDate('');
+    setIsCreatingAssignment(true);
+  };
+
+  const handleCloneAssignment = (cw: ClassroomCoursework, e?: React.MouseEvent) => {
+    if (e) {
+      e.stopPropagation();
+    }
+    setLocalError(null);
+    setCloningSourceCw(cw);
+    setNewTitle(`${cw.title} (Clone)`);
+    setNewDescription(cw.description || '');
+    setNewMaxPoints(String(cw.maxPoints ?? 100));
+
+    if (cw.dueDate && cw.dueDate.year && cw.dueDate.month && cw.dueDate.day) {
+      const yyyy = String(cw.dueDate.year).padStart(4, '0');
+      const mm = String(cw.dueDate.month).padStart(2, '0');
+      const dd = String(cw.dueDate.day).padStart(2, '0');
+      setNewDueDate(`${yyyy}-${mm}-${dd}`);
+    } else {
+      setNewDueDate('');
+    }
+
     setIsCreatingAssignment(true);
   };
 
   const handleCancelCreateForm = () => {
     setIsCreatingAssignment(false);
+    setCloningSourceCw(null);
     setLocalError(null);
   };
 
@@ -133,6 +183,7 @@ export const AssignmentPickerView: React.FC<AssignmentPickerViewProps> = ({
         description: newDescription.trim() || undefined,
         maxPoints: !Number.isNaN(parsedPoints) && parsedPoints >= 0 ? parsedPoints : 100,
         dueDate: newDueDate.trim() || undefined,
+        sourceCourseWorkId: cloningSourceCw?.id || undefined,
       });
 
       const selectedCourse = courses.find((c) => c.id === selectedCourseId);
@@ -149,24 +200,6 @@ export const AssignmentPickerView: React.FC<AssignmentPickerViewProps> = ({
     }
   };
 
-  const handleConfirmSelection = () => {
-    if (isCreatingAssignment) {
-      handleCreateAssignment();
-      return;
-    }
-    if (!selectedCourseId || !selectedCourseworkId) return;
-    const selectedCourse = courses.find((c) => c.id === selectedCourseId);
-    const selectedCw = currentCoursework.find((cw) => cw.id === selectedCourseworkId);
-    if (!selectedCw) return;
-
-    const assignmentId = `${selectedCourseId}_${selectedCw.id}`;
-    onOpenAssignment(assignmentId, {
-      courseName: selectedCourse?.name || 'Classroom Course',
-      assignmentTitle: selectedCw.title,
-    });
-    onClose();
-  };
-
   const handleManualRefresh = async () => {
     setIsRefreshing(true);
     setLocalError(null);
@@ -178,10 +211,6 @@ export const AssignmentPickerView: React.FC<AssignmentPickerViewProps> = ({
       setIsRefreshing(false);
     }
   };
-
-  const isConfirmDisabled = isCreatingAssignment
-    ? !selectedCourseId || !newTitle.trim() || isSubmittingCreate
-    : !selectedCourseId || !selectedCourseworkId;
 
   return (
     <div
@@ -203,7 +232,7 @@ export const AssignmentPickerView: React.FC<AssignmentPickerViewProps> = ({
             <div>
               <h2 className="text-sm font-semibold text-white">Open Assignment</h2>
               <p className="text-[11px] text-gray-400">
-                Select a class, then choose an existing assignment or create a new one
+                Select a class, then open an eligible assignment, clone an assignment, or create a new one
               </p>
             </div>
           </div>
@@ -290,7 +319,11 @@ export const AssignmentPickerView: React.FC<AssignmentPickerViewProps> = ({
             <div data-testid="assignment-picker-section" className="space-y-3 pt-2 border-t border-[#333842]">
               <div className="flex items-center justify-between">
                 <label className="block text-[11px] font-semibold uppercase tracking-wider text-gray-400">
-                  {isCreatingAssignment ? '2. Create New Assignment' : '2. Select an Assignment'}
+                  {isCreatingAssignment
+                    ? cloningSourceCw
+                      ? '2. Clone Assignment for Classroom Agent'
+                      : '2. Create New Assignment'
+                    : '2. Choose an Assignment'}
                 </label>
                 {!isCreatingAssignment ? (
                   <button
@@ -322,6 +355,20 @@ export const AssignmentPickerView: React.FC<AssignmentPickerViewProps> = ({
                   onSubmit={handleCreateAssignment}
                   className="p-4 bg-[#121316] border border-[#333842] rounded-lg space-y-3.5"
                 >
+                  {cloningSourceCw && (
+                    <div
+                      data-testid="cloning-source-banner"
+                      className="p-2.5 rounded-md bg-[#D4AF37]/10 border border-[#D4AF37]/30 text-[11px] text-[#F3E5AB] flex items-start space-x-2"
+                    >
+                      <Copy className="w-3.5 h-3.5 text-[#D4AF37] shrink-0 mt-0.5" />
+                      <div>
+                        <span className="font-semibold">Cloning assignment:</span>{' '}
+                        <span className="text-white">{cloningSourceCw.title}</span>. Review or edit the details below
+                        before creating — any existing rubric will also be copied automatically.
+                      </div>
+                    </div>
+                  )}
+
                   <div>
                     <label className="block text-xs font-medium text-gray-300 mb-1">
                       Assignment Title <span className="text-red-400">*</span>
@@ -381,6 +428,24 @@ export const AssignmentPickerView: React.FC<AssignmentPickerViewProps> = ({
                       />
                     </div>
                   </div>
+
+                  <div className="flex items-center justify-end pt-2 border-t border-[#333842]/60">
+                    <button
+                      type="submit"
+                      data-testid="create-assignment-submit-button"
+                      disabled={!selectedCourseId || !newTitle.trim() || isSubmittingCreate}
+                      className="px-4 py-1.5 rounded-lg bg-[#D4AF37] hover:bg-[#E5B869] text-[#121316] text-xs font-semibold transition-colors disabled:opacity-40 disabled:cursor-not-allowed inline-flex items-center space-x-1.5 cursor-pointer shadow-xs"
+                    >
+                      {isSubmittingCreate ? (
+                        <>
+                          <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                          <span>Creating...</span>
+                        </>
+                      ) : (
+                        <span>Create &amp; Open</span>
+                      )}
+                    </button>
+                  </div>
                 </form>
               ) : isCourseworkLoading ? (
                 <div className="flex items-center space-x-2 text-xs text-gray-400 p-6 bg-[#121316] border border-[#333842] rounded-lg justify-center">
@@ -402,46 +467,144 @@ export const AssignmentPickerView: React.FC<AssignmentPickerViewProps> = ({
                   </button>
                 </div>
               ) : (
-                <div className="space-y-2 max-h-60 overflow-y-auto pr-1">
+                <div className="space-y-2.5 max-h-80 overflow-y-auto pr-1">
                   {currentCoursework.map((cw) => {
-                    const isSelected = selectedCourseworkId === cw.id;
+                    const isEligible = cw.associatedWithDeveloper === true;
+
+                    if (isEligible) {
+                      return (
+                        <div
+                          key={cw.id}
+                          data-testid={`assignment-card-${cw.id}`}
+                          data-native-assignment="false"
+                          onMouseEnter={() => selectedCourseId && prefetchWorkspace(selectedCourseId, cw.id)}
+                          className="w-full text-left p-3.5 rounded-lg border bg-[#121316] border-[#333842] text-gray-200 hover:border-[#D4AF37]/50 transition-all space-y-2.5"
+                        >
+                          <div className="min-w-0">
+                            <div className="font-semibold text-sm text-gray-100 truncate" title={cw.title}>
+                              {cw.title}
+                            </div>
+                            {cw.description && (
+                              <p className="text-xs text-gray-400 line-clamp-1 mt-1">{cw.description}</p>
+                            )}
+                          </div>
+
+                          <div className="flex items-center justify-between gap-3 pt-1">
+                            <div className="flex items-center space-x-4 text-[11px] text-gray-400 font-mono">
+                              <span className="flex items-center space-x-1">
+                                <Award className="w-3.5 h-3.5 text-[#D4AF37]" />
+                                <span>{cw.maxPoints ?? 100} points</span>
+                              </span>
+                              {cw.dueDate && (
+                                <span className="flex items-center space-x-1">
+                                  <Calendar className="w-3.5 h-3.5 text-blue-400" />
+                                  <span>
+                                    Due {cw.dueDate.year}-{cw.dueDate.month}-{cw.dueDate.day}
+                                  </span>
+                                </span>
+                              )}
+                            </div>
+
+                            <div className="flex items-center space-x-2 shrink-0">
+                              <button
+                                type="button"
+                                data-testid={`clone-assignment-button-${cw.id}`}
+                                onClick={(e) => handleCloneAssignment(cw, e)}
+                                className="inline-flex items-center space-x-1.5 px-3 py-1.5 rounded-md bg-[#22262C] hover:bg-[#2D323A] border border-[#333842] text-gray-200 text-xs font-medium transition-colors cursor-pointer"
+                                title="Clone this assignment"
+                              >
+                                <Copy className="w-3.5 h-3.5 text-[#D4AF37]" />
+                                <span>Clone</span>
+                              </button>
+                              <button
+                                type="button"
+                                data-testid={`open-assignment-button-${cw.id}`}
+                                onClick={(e) => handleOpenAssignmentDirect(cw, e)}
+                                className="inline-flex items-center space-x-1.5 px-3.5 py-1.5 rounded-md bg-[#D4AF37] hover:bg-[#E5B869] text-[#121316] text-xs font-semibold transition-colors cursor-pointer shadow-xs"
+                                title="Open this assignment in the workspace"
+                              >
+                                <FolderOpen className="w-3.5 h-3.5" />
+                                <span>Open</span>
+                              </button>
+                            </div>
+                          </div>
+                        </div>
+                      );
+                    }
+
+                    // Native Classroom assignment (associatedWithDeveloper !== true): recoloured locked card, no inline badge or explanation, bottom-right Info + Clone + disabled Open button (which opens explanation modal)
                     return (
-                      <button
+                      <div
                         key={cw.id}
-                        type="button"
                         data-testid={`assignment-card-${cw.id}`}
-                        onClick={() => handleSelectAssignment(cw)}
-                        onMouseEnter={() => selectedCourseId && prefetchWorkspace(selectedCourseId, cw.id)}
-                        className={`w-full text-left p-3.5 rounded-lg border transition-all flex items-start justify-between ${
-                          isSelected
-                            ? 'bg-[#D4AF37]/15 border-[#D4AF37] text-white shadow-sm'
-                            : 'bg-[#121316] border-[#333842] text-gray-200 hover:bg-[#22262C]'
-                        }`}
+                        data-native-assignment="true"
+                        className="w-full text-left p-3.5 rounded-lg border bg-[#16181E]/70 border-[#262932] text-gray-500 space-y-2.5"
                       >
-                        <div className="min-w-0 pr-3 flex-1">
-                          <div className="font-semibold text-sm text-gray-100 truncate" title={cw.title}>
+                        <div className="min-w-0">
+                          <div className="font-semibold text-sm text-gray-400 truncate" title={cw.title}>
                             {cw.title}
                           </div>
                           {cw.description && (
-                            <p className="text-xs text-gray-400 line-clamp-1 mt-1">{cw.description}</p>
+                            <p className="text-xs text-gray-500 line-clamp-1 mt-1">{cw.description}</p>
                           )}
-                          <div className="flex items-center space-x-4 mt-2 text-[11px] text-gray-400 font-mono">
+                        </div>
+
+                        <div className="flex items-center justify-between gap-3 pt-1">
+                          <div className="flex items-center space-x-4 text-[11px] text-gray-500 font-mono">
                             <span className="flex items-center space-x-1">
-                              <Award className="w-3.5 h-3.5 text-[#D4AF37]" />
+                              <Award className="w-3.5 h-3.5 text-gray-500" />
                               <span>{cw.maxPoints ?? 100} points</span>
                             </span>
                             {cw.dueDate && (
                               <span className="flex items-center space-x-1">
-                                <Calendar className="w-3.5 h-3.5 text-blue-400" />
+                                <Calendar className="w-3.5 h-3.5 text-gray-500" />
                                 <span>
                                   Due {cw.dueDate.year}-{cw.dueDate.month}-{cw.dueDate.day}
                                 </span>
                               </span>
                             )}
                           </div>
+
+                          <div className="flex items-center space-x-2 shrink-0">
+                            <button
+                              type="button"
+                              data-testid={`native-assignment-info-button-${cw.id}`}
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                setInfoModalCw(cw);
+                              }}
+                              className="p-1.5 rounded-md text-gray-400 hover:text-gray-200 hover:bg-[#22262C] transition-colors cursor-pointer"
+                              title="Why can't this assignment be opened directly?"
+                            >
+                              <Info className="w-3.5 h-3.5" />
+                            </button>
+                            <button
+                              type="button"
+                              data-testid={`clone-assignment-button-${cw.id}`}
+                              onClick={(e) => handleCloneAssignment(cw, e)}
+                              className="inline-flex items-center space-x-1.5 px-3 py-1.5 rounded-md bg-[#22262C] hover:bg-[#2D323A] border border-[#333842] text-gray-200 text-xs font-medium transition-colors cursor-pointer"
+                              title="Clone this assignment into Classroom Agent so grades and feedback can be synced"
+                            >
+                              <Copy className="w-3.5 h-3.5 text-[#D4AF37]" />
+                              <span>Clone</span>
+                            </button>
+                            <button
+                              type="button"
+                              data-testid={`locked-open-assignment-button-${cw.id}`}
+                              data-disabled="true"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                setInfoModalCw(cw);
+                              }}
+                              className="inline-flex items-center space-x-1.5 px-3.5 py-1.5 rounded-md bg-[#22262C]/50 border border-[#333842]/60 text-gray-500 text-xs font-semibold opacity-60 cursor-not-allowed transition-colors"
+                              title="Click to see why this native Google Classroom assignment cannot be opened directly"
+                            >
+                              <Lock className="w-3.5 h-3.5" />
+                              <span>Open</span>
+                            </button>
+                          </div>
                         </div>
-                        {isSelected && <CheckCircle className="w-4 h-4 text-[#D4AF37] shrink-0 mt-0.5" />}
-                      </button>
+                      </div>
                     );
                   })}
                 </div>
@@ -449,36 +612,80 @@ export const AssignmentPickerView: React.FC<AssignmentPickerViewProps> = ({
             </div>
           )}
         </div>
-
-        {/* Modal Footer */}
-        <div className="px-6 py-3.5 border-t border-[#333842] bg-[#121316] flex items-center justify-end space-x-2.5">
-          <button
-            type="button"
-            data-testid="assignment-picker-cancel-button"
-            onClick={onClose}
-            disabled={isSubmittingCreate}
-            className="px-4 py-1.5 rounded-lg bg-[#22262C] hover:bg-[#2D323A] text-gray-300 text-xs font-medium transition-colors disabled:opacity-50"
-          >
-            Cancel
-          </button>
-          <button
-            type="button"
-            data-testid="assignment-picker-ok-button"
-            onClick={handleConfirmSelection}
-            disabled={isConfirmDisabled}
-            className="px-5 py-1.5 rounded-lg bg-[#D4AF37] hover:bg-[#E5B869] text-[#121316] text-xs font-semibold transition-colors disabled:opacity-40 disabled:cursor-not-allowed inline-flex items-center space-x-1.5 cursor-pointer shadow-xs"
-          >
-            {isSubmittingCreate ? (
-              <>
-                <Loader2 className="w-3.5 h-3.5 animate-spin" />
-                <span>Creating...</span>
-              </>
-            ) : (
-              <span>{isCreatingAssignment ? 'Create & Open' : 'OK'}</span>
-            )}
-          </button>
-        </div>
       </div>
+
+      {/* Native Classroom Assignment Explanation Modal */}
+      {infoModalCw && (
+        <div
+          data-testid="native-assignment-info-modal"
+          className="fixed inset-0 z-60 flex items-center justify-center bg-black/75 backdrop-blur-xs p-4"
+          onClick={() => setInfoModalCw(null)}
+        >
+          <div
+            className="w-full max-w-md bg-[#1A1D22] border border-[#333842] rounded-xl shadow-2xl overflow-hidden"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="px-5 py-4 border-b border-[#333842] flex items-center justify-between bg-[#22262C]/60">
+              <div className="flex items-center space-x-2.5">
+                <div className="p-1.5 rounded-lg bg-[#D4AF37]/10 border border-[#D4AF37]/20 text-[#D4AF37]">
+                  <Lock className="w-4 h-4" />
+                </div>
+                <h4 className="text-sm font-semibold text-white">Native Google Classroom Assignment</h4>
+              </div>
+              <button
+                type="button"
+                data-testid="close-native-info-modal-button"
+                onClick={() => setInfoModalCw(null)}
+                className="p-1 rounded-lg text-gray-400 hover:text-white hover:bg-[#333842]/60 transition-colors cursor-pointer"
+                title="Close"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            <div
+              data-testid={`native-assignment-explanation-${infoModalCw.id}`}
+              className="p-5 space-y-3 text-xs text-gray-300 leading-relaxed"
+            >
+              <p>
+                <span className="font-semibold text-white">{infoModalCw.title}</span> was created directly in the native
+                Google Classroom UI rather than through Classroom Agent.
+              </p>
+              <p>
+                Google Classroom blocks third-party apps from writing grades or attaching feedback files to assignments
+                created directly in the native Classroom UI.
+              </p>
+              <p>
+                Click <span className="font-semibold text-[#F3E5AB]">Clone</span> to recreate this assignment under
+                Classroom Agent with full grading, feedback attachment, and return support.
+              </p>
+            </div>
+
+            <div className="px-5 py-3.5 border-t border-[#333842] bg-[#121316]/60 flex items-center justify-end space-x-2.5">
+              <button
+                type="button"
+                onClick={() => setInfoModalCw(null)}
+                className="px-3.5 py-1.5 rounded-lg bg-[#22262C] hover:bg-[#2D323A] border border-[#333842] text-gray-200 text-xs font-medium transition-colors cursor-pointer"
+              >
+                Close
+              </button>
+              <button
+                type="button"
+                data-testid={`modal-clone-assignment-button-${infoModalCw.id}`}
+                onClick={(e) => {
+                  const targetCw = infoModalCw;
+                  setInfoModalCw(null);
+                  handleCloneAssignment(targetCw, e);
+                }}
+                className="inline-flex items-center space-x-1.5 px-3.5 py-1.5 rounded-lg bg-[#D4AF37] hover:bg-[#E5B869] text-[#121316] text-xs font-semibold transition-colors cursor-pointer shadow-xs"
+              >
+                <Copy className="w-3.5 h-3.5" />
+                <span>Clone Assignment</span>
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };

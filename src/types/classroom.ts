@@ -79,7 +79,7 @@ export type SubmissionState = 'CREATED' | 'TURNED_IN' | 'RETURNED' | 'RECLAIMED_
 export type ClassroomSyncStatus =
   | 'PENDING_APPROVAL'
   | 'APPROVED'
-  | 'SYNCED_DRAFT'
+  | 'DRAFT'
   | 'RETURNED'
   | 'LOCAL_ONLY_PERMISSION_DENIED'
   | 'ERROR'

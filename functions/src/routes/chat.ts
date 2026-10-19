@@ -204,10 +204,6 @@ chatRouter.post('/', requireAuth, async (req: AuthenticatedRequest, res: Respons
 
     const teacherName = req.user.name || (req.user.email ? req.user.email.split('@')[0] : 'Teacher');
     const teacherEmail = req.user.email || 'Unknown email';
-    const activeGradingMode =
-      workspaceContext?.gradingMode === 'draft'
-        ? 'Draft Mode (Review Before Final — approving saves as unreturned draftGrade; roster shows Save Draft + Return buttons)'
-        : 'No Draft Mode (Direct to Final — approving immediately publishes final assignedGrade and returns to student; roster shows single Return / Publish button)';
     const showRubricPaneStatus = workspaceContext?.showRubricPane === false ? 'Hidden' : 'Visible';
     const showToolCallsStatus = workspaceContext?.showToolCalls === true ? 'Visible' : 'Hidden';
     const activeRubric = sidecarData?.rubric || workspaceData.assignment.rubric || null;
@@ -233,7 +229,6 @@ Workspace & UI Context:
 - Open Assignment Tabs: ${openTabsSummary}
 - Currently Focused Student in Preview Canvas: ${focusedStudentSummary}
 - Checked Students in Roster (for batch actions): ${checkedStudentsSummary}
-- Active Grading Mode: ${activeGradingMode}
 - Workspace Display State: Rubric Breakdown Pane is ${showRubricPaneStatus}, Tool Call Telemetry Badges are ${showToolCallsStatus}
 
 Assignment Context (Live from Google Classroom):
