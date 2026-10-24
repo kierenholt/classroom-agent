@@ -138,10 +138,9 @@ chatRouter.post('/', requireAuth, async (req: AuthenticatedRequest, res: Respons
     const mergedSubs = liveSubs.map((sub: any) => {
       const sidecarEval = evalMap.get(sub.studentId);
       const isReturned = sidecarEval?.classroomSyncStatus === 'RETURNED' || sub.state === 'RETURNED';
-      const isTurnedIn = sidecarEval?.clonedSubmissionState === 'TURNED_IN' || sub.state === 'TURNED_IN';
       return {
         ...sub,
-        state: isReturned ? 'RETURNED' : isTurnedIn ? 'TURNED_IN' : sub.state,
+        state: isReturned ? 'RETURNED' : sub.state,
         draftGrade:
           sidecarEval?.draftGrade !== undefined && sidecarEval?.draftGrade !== null
             ? sidecarEval.draftGrade

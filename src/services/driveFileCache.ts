@@ -145,8 +145,10 @@ export async function fetchDrivePreviewUrl(
       );
 
       if (!res.ok) {
-        failedPreviewFileIds.add(fileId);
-        return '';
+        const fallbackPreviewUrl = `https://drive.google.com/file/d/${encodeURIComponent(fileId)}/preview`;
+        previewUrlMemoryCache.set(fileId, fallbackPreviewUrl);
+        failedPreviewFileIds.delete(fileId);
+        return fallbackPreviewUrl;
       }
 
       const blob = await res.blob();

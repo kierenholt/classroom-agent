@@ -27,38 +27,18 @@ Fill in the **Branding** page in the Google Cloud Console with these exact value
 
 ## 2. Exact OAuth Scopes (`Google Auth Platform > Data Access`)
 
-Google Cloud Console groups your 5 scopes into two sections:
+Classroom Agent requests strictly **4 Non-Sensitive Scopes** (zero Sensitive or Restricted scopes, so no CASA Tier 2 assessment is required):
 
-- **Non-Sensitive Scopes** *(No justification box required)*:
-  1. `https://www.googleapis.com/auth/classroom.courses.readonly`
-  2. `https://www.googleapis.com/auth/classroom.rosters.readonly`
-  3. `https://www.googleapis.com/auth/classroom.coursework.students`
-  4. `https://www.googleapis.com/auth/drive.file`
-- **Restricted Scopes** *(Requires justification below)*:
-  5. `https://www.googleapis.com/auth/drive.readonly`
+1. `https://www.googleapis.com/auth/classroom.courses.readonly`
+2. `https://www.googleapis.com/auth/classroom.rosters.readonly`
+3. `https://www.googleapis.com/auth/classroom.coursework.students`
+4. `https://www.googleapis.com/auth/drive.file`
 
 ---
 
-## 3. Copy-Paste Scope Justifications (`Google Auth Platform > Data Access`)
+## 3. YouTube Demo Video Script (90 Seconds)
 
-Each justification box has a **1,000-character limit** and must explain: (1) why you need that specific scope, (2) how you use it, and (3) why more limited scopes aren't sufficient.
-
-### Restricted Scopes (`.../auth/drive.readonly`) — "How will the scopes be used?" *(812 / 1,000 characters)*
-
-```text
-Classroom Agent requires https://www.googleapis.com/auth/drive.readonly so teachers can view and grade student-submitted coursework files stored in Google Drive:
-
-1) Submission Preview & Cloning: Calls drive.files.get and drive.files.export to render student-submitted Google Docs, Slides, Sheets, PDFs, images, and code files inside the teacher's grading canvas, and copies student submission files when cloning assignments.
-2) Rubric Evaluation: Extracts text from student submission files when the teacher clicks "Grade Selected" to draft rubric-aligned feedback.
-
-Why narrower scopes (drive.file / Google Picker) aren't sufficient: Student coursework files are uploaded by students in Google Classroom, not created by our app, so drive.file fails with 403 Insufficient Permission, and batch-grading 30+ students cannot use a manual file picker per student.
-```
-
----
-
-## 4. YouTube Demo Video Script (90 Seconds)
-
-Google requires an **unlisted YouTube video** demonstrating the complete OAuth grant process and every requested scope in action. Follow this checklist while recording your screen:
+If Google requests a demo video showing the OAuth grant process and the requested scopes in action, follow this checklist while recording your screen:
 
 1. **Start on the Public Homepage (`https://classroomagent.co.uk`)**:
    - Show the URL bar clearly.
@@ -72,15 +52,7 @@ Google requires an **unlisted YouTube video** demonstrating the complete OAuth g
 3. **Demonstrate Every Scope in the App**:
    - **Courses (`classroom.courses.readonly`) & Coursework (`classroom.coursework.students`)**: Click `+ Assignment` in the top tab bar to open the Assignment Picker modal, select a course, and select an assignment (or create a new assignment).
    - **Roster (`classroom.rosters.readonly`)**: Point the cursor at the left-hand **Student Roster (Zone A)** showing student names and Turn-In statuses.
-   - **Drive Read (`drive.readonly`)**: Click on a student with a turned-in submission to show their Google Doc / PDF rendering live inside the **Submission Preview Canvas (Zone B)** and the Rubric pane at the bottom.
    - **AI Grading + Feedback Doc Creation (`drive.file`) + Grade Write-Back (`classroom.coursework.students`)**:
      - Click **Grade Selected** in the right-hand AI Co-Pilot pane.
      - Once the evaluation finishes streaming, click **Preview** on the generated feedback card, show the editable feedback modal, and click **Approve** (or click **Return / Publish** in the roster bar) to demonstrate creating the feedback Google Doc (`drive.file`) and syncing the grade back to Google Classroom (`classroom.coursework.students`).
 
----
-
-## 5. Restricted Scope (`drive.readonly`) — CASA Tier 2 Security Assessment
-
-Because `https://www.googleapis.com/auth/drive.readonly` is a **Restricted Scope**:
-1. Once Google approves your initial Brand & Scope Verification (usually within 3–5 business days), Google's Trust & Safety team will send you an email inviting you to complete the **CASA (Cloud Application Security Assessment) Tier 2** verification.
-2. For single-developer / small web applications, CASA Tier 2 allows a **free self-assessment scan** using the open-source fluidattacks / OWASP ZAP container against your Cloud Functions + Firebase Hosting deployment, followed by submitting the generated scan report in the CASA portal.

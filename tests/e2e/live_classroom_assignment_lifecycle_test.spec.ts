@@ -50,7 +50,7 @@ async function openBatchAssignmentInWorkspace(page: Page, fixture: LiveBatchFixt
   await expect(page.locator('[data-testid="assignment-picker-section"]')).toBeVisible({ timeout: 30000 });
   const assignmentCard = page.locator(`[data-testid="assignment-card-${fixture.courseWork.id}"]`);
   await expect(assignmentCard).toBeVisible({ timeout: 30000 });
-  await expect(page.locator(`[data-testid="clone-assignment-button-${fixture.courseWork.id}"]`)).toBeVisible();
+  await expect(page.locator(`[data-testid="clone-assignment-button-${fixture.courseWork.id}"]`)).toHaveCount(0);
 
   const openBtn = page.locator(`[data-testid="open-assignment-button-${fixture.courseWork.id}"]`);
   await expect(openBtn).toBeVisible();

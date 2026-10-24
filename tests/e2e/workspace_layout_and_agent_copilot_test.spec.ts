@@ -1124,14 +1124,14 @@ test.describe('Classroom Agent - Workspace and Agent Co-Pilot Tests', () => {
       const fullAssignmentId = tabTestId!.replace('assignment-tab-', '');
       createdCourseWorkId = fullAssignmentId.replace(`${createdCourseId}_`, '');
 
-      // Re-open "+ Assignment" and select the same class to verify the newly created assignment is in the existing assignments list with Clone and Open buttons
+      // Re-open "+ Assignment" and select the same class to verify the newly created assignment is in the existing assignments list with an Open button and no Clone button
       await newAssignmentTabBtn.click();
       await expect(modal).toBeVisible({ timeout: 10000 });
       await page.locator(`[data-testid="course-select-${createdCourseId}"]`).click();
       await expect(page.locator(`[data-testid="assignment-card-${createdCourseWorkId}"]`)).toBeVisible({
         timeout: 10000,
       });
-      await expect(page.locator(`[data-testid="clone-assignment-button-${createdCourseWorkId}"]`)).toBeVisible();
+      await expect(page.locator(`[data-testid="clone-assignment-button-${createdCourseWorkId}"]`)).toHaveCount(0);
       await expect(page.locator(`[data-testid="open-assignment-button-${createdCourseWorkId}"]`)).toBeVisible();
       await page.locator('[data-testid="assignment-picker-close-button"]').click();
     } finally {
@@ -2022,20 +2022,15 @@ test.describe('Classroom Agent - Workspace and Agent Co-Pilot Tests', () => {
   test('submissionPreviewZone_submittedAndFeedbackDocs_cachesDriveFilesAndPersistsPdfIframes_test', async ({
     page,
   }) => {
-    let googleToken = '';
-    let customToken = '';
-    try {
-      const { getLiveTeacherAccessToken, getLiveTestTeacherCustomToken } = await import(
-        '../helpers/classroomSandboxSeeder'
-      );
-      [googleToken, customToken] = await Promise.all([
-        getLiveTeacherAccessToken(),
-        getLiveTestTeacherCustomToken(),
-      ]);
-    } catch {
-      googleToken = '';
-      customToken = '';
-    }
+    test.setTimeout(90000);
+    const {
+      setupLiveClassroomBatchFixture,
+      teardownLiveClassroomBatchFixture,
+    } = await import('../helpers/classroomSandboxSeeder');
+
+    const fixture = await setupLiveClassroomBatchFixture({
+      title: `[E2E Test] Preview Cache & PDF Iframe Pool ${Date.now()}`,
+    });
 
     await page.addInitScript(
       ({ gToken, cToken }) => {
@@ -2046,96 +2041,83 @@ test.describe('Classroom Agent - Workspace and Agent Co-Pilot Tests', () => {
           window.sessionStorage.setItem('classroom_agent_custom_token', cToken);
         }
       },
-      { gToken: googleToken, cToken: customToken }
+      { gToken: fixture.teacherAccessToken, cToken: fixture.customAuthToken }
     );
 
-    await page.goto('/');
-
-    const newAssignmentTabBtn = page.locator('[data-testid="new-assignment-tab-button"]');
-    await expect(newAssignmentTabBtn).toBeVisible({ timeout: 15000 });
-    await newAssignmentTabBtn.click();
-    await expect(page.locator('[data-testid="assignment-picker-modal"]')).toBeVisible({ timeout: 15000 });
-
-    const courseButtons = page.locator('[data-testid^="course-select-"]');
-    await expect(courseButtons.first()).toBeVisible({ timeout: 15000 });
-    const courseCount = await courseButtons.count();
-
-    let openedAssignmentId = '';
-    for (let i = 0; i < courseCount; i++) {
-      const courseBtn = courseButtons.nth(i);
-      const courseTestId = await courseBtn.getAttribute('data-testid');
-      const cId = courseTestId!.replace('course-select-', '');
-      await courseBtn.click();
-      await expect(page.locator('[data-testid="assignment-picker-section"]')).toBeVisible({ timeout: 5000 });
-      const openBtn = page.locator('[data-testid^="open-assignment-button-"]').first();
-      try {
-        await expect(openBtn).toBeVisible({ timeout: 5000 });
-        const btnTestId = await openBtn.getAttribute('data-testid');
-        const cwId = btnTestId!.replace('open-assignment-button-', '');
-        openedAssignmentId = `${cId}_${cwId}`;
-        await openBtn.click();
-        break;
-      } catch {
-        // Continue to next course
-      }
-    }
-    expect(openedAssignmentId).toBeTruthy();
-
-    await expect(page.locator('[data-testid="student-roster-list"]')).toBeVisible({ timeout: 15000 });
-    const studentRows = page.locator('[data-testid^="student-row-"]');
-    await expect(studentRows.first()).toBeVisible({ timeout: 10000 });
-    const studentRowTestId = await studentRows.first().getAttribute('data-testid');
-    const activeStudentId = studentRowTestId!.replace('student-row-', '');
-
-    // Wait for initial submitted document PDF preview iframe to render
-    const activePdfFrame = page.locator('[data-testid="preview-pdf-frame"]');
-    await expect(activePdfFrame).toBeVisible({ timeout: 30000 });
-    const initialSubBlobSrc = await activePdfFrame.getAttribute('src');
-    expect(initialSubBlobSrc).toMatch(/^blob:/);
-
-    const attachmentTabs = page.locator('[data-testid^="attachment-tab-"]');
-    const firstTab = attachmentTabs.first();
-    const firstTabTestId = await firstTab.getAttribute('data-testid');
-    const submittedFileId = firstTabTestId!.replace('attachment-tab-', '');
-
-    const mockFeedbackDocId = `feedback_doc_test_${Date.now()}`;
-    let feedbackPreviewFetchCount = 0;
-    let submittedPreviewFetchCountAfterLoad = 0;
-
-    await page.route(`**/classroom/drive-file/${mockFeedbackDocId}*`, async (route) => {
-      const url = route.request().url();
-      if (url.includes('exportType=preview')) {
-        feedbackPreviewFetchCount++;
-        const minimalPdf = Buffer.from(
-          '%PDF-1.4\n1 0 obj<<>>endobj\ntrailer<<>>\n%%EOF',
-          'utf-8'
-        );
-        await route.fulfill({
-          status: 200,
-          contentType: 'application/pdf',
-          body: minimalPdf,
-        });
-      } else {
-        await route.fulfill({
-          status: 200,
-          contentType: 'text/plain',
-          body: 'Feedback Document Text Content',
-        });
-      }
-    });
-
-    await page.route(`**/classroom/drive-file/${submittedFileId}*`, async (route) => {
-      const url = route.request().url();
-      if (url.includes('exportType=preview')) {
-        submittedPreviewFetchCountAfterLoad++;
-      }
-      await route.continue();
-    });
+    const openedAssignmentId = fixture.assignmentId;
+    const activeStudentId = fixture.student.userId;
 
     try {
+      await page.goto('/');
+
+      const newAssignmentTabBtn = page.locator('[data-testid="new-assignment-tab-button"]');
+      await expect(newAssignmentTabBtn).toBeVisible({ timeout: 15000 });
+      await newAssignmentTabBtn.click();
+      await expect(page.locator('[data-testid="assignment-picker-modal"]')).toBeVisible({ timeout: 15000 });
+
+      const courseBtn = page.locator(`[data-testid="course-select-${fixture.courseId}"]`);
+      await expect(courseBtn).toBeVisible({ timeout: 15000 });
+      await courseBtn.click();
+      await expect(page.locator('[data-testid="assignment-picker-section"]')).toBeVisible({ timeout: 5000 });
+
+      const openBtn = page.locator(`[data-testid="open-assignment-button-${fixture.courseWork.id}"]`);
+      await expect(openBtn).toBeVisible({ timeout: 15000 });
+      await openBtn.click();
+
+      await expect(page.locator('[data-testid="student-roster-list"]')).toBeVisible({ timeout: 15000 });
+      const studentRow = page.locator(`[data-testid="student-row-${activeStudentId}"]`);
+      await expect(studentRow).toBeVisible({ timeout: 10000 });
+
+      // Select the Google Doc attachment tab so the PDF preview iframe renders
+      const googleDocTab = page.locator(`[data-testid="attachment-tab-${fixture.googleDocFileId}"]`);
+      await expect(googleDocTab).toBeVisible({ timeout: 15000 });
+      await googleDocTab.click();
+
+      // Wait for initial submitted document PDF preview iframe to render
+      const activePdfFrame = page.locator('[data-testid="preview-pdf-frame"]');
+      await expect(activePdfFrame).toBeVisible({ timeout: 30000 });
+      const initialSubBlobSrc = await activePdfFrame.getAttribute('src');
+      expect(initialSubBlobSrc).toMatch(/^blob:/);
+
+      const submittedFileId = fixture.googleDocFileId;
+
+      const mockFeedbackDocId = `feedback_doc_test_${Date.now()}`;
+      let feedbackPreviewFetchCount = 0;
+      let submittedPreviewFetchCountAfterLoad = 0;
+
+      await page.route(`**/classroom/drive-file/${mockFeedbackDocId}*`, async (route) => {
+        const url = route.request().url();
+        if (url.includes('exportType=preview')) {
+          feedbackPreviewFetchCount++;
+          const minimalPdf = Buffer.from(
+            '%PDF-1.4\n1 0 obj<<>>endobj\ntrailer<<>>\n%%EOF',
+            'utf-8'
+          );
+          await route.fulfill({
+            status: 200,
+            contentType: 'application/pdf',
+            body: minimalPdf,
+          });
+        } else {
+          await route.fulfill({
+            status: 200,
+            contentType: 'text/plain',
+            body: 'Feedback Document Text Content',
+          });
+        }
+      });
+
+      await page.route(`**/classroom/drive-file/${submittedFileId}*`, async (route) => {
+        const url = route.request().url();
+        if (url.includes('exportType=preview')) {
+          submittedPreviewFetchCountAfterLoad++;
+        }
+        await route.continue();
+      });
+
       await seedTestSubmission(openedAssignmentId, activeStudentId, {
         studentId: activeStudentId,
-        submissionId: `sub_${activeStudentId}`,
+        submissionId: fixture.submissionId,
         draftGrade: 92,
         overallFeedback: '# Great Essay\n\nWell structured argument.',
         classroomSyncStatus: 'APPROVED',
@@ -2170,7 +2152,7 @@ test.describe('Classroom Agent - Workspace and Agent Co-Pilot Tests', () => {
       await expect(cachedSubmittedFrame).toHaveAttribute('src', initialSubBlobSrc!);
 
       // Switch back to the Submitted Document tab -> instant, same blob URL, 0 new network fetches
-      await firstTab.click();
+      await googleDocTab.click();
       await expect(activePdfFrame).toBeVisible();
       await expect(activePdfFrame).toHaveAttribute('src', initialSubBlobSrc!);
       await expect(cachedFeedbackFrame).toBeAttached();
@@ -2183,6 +2165,7 @@ test.describe('Classroom Agent - Workspace and Agent Co-Pilot Tests', () => {
       expect(submittedPreviewFetchCountAfterLoad).toBe(0);
     } finally {
       await cleanupTestAssignment(openedAssignmentId, [activeStudentId]).catch(() => null);
+      await teardownLiveClassroomBatchFixture(fixture).catch(() => null);
     }
   });
 
@@ -2535,26 +2518,26 @@ test.describe('Classroom Agent - Workspace and Agent Co-Pilot Tests', () => {
       const nativeCardTestId = await nativeCardLocator.getAttribute('data-testid');
       sourceNativeCwId = nativeCardTestId!.replace('assignment-card-', '');
 
-      // 1. Verify native assignment is visible without the old badge or inline explanation, and has Info + Clone + disabled Open button
+      // 1. Verify native assignment is visible without the old badge, inline explanation, or Clone button, and has Info + disabled Open button
       await expect(page.locator(`[data-testid="native-assignment-badge-${sourceNativeCwId}"]`)).toBeHidden();
       await expect(page.locator(`[data-testid="native-assignment-explanation-${sourceNativeCwId}"]`)).toBeHidden();
       await expect(page.locator(`[data-testid="open-assignment-button-${sourceNativeCwId}"]`)).toBeHidden();
+      await expect(page.locator(`[data-testid="clone-assignment-button-${sourceNativeCwId}"]`)).toHaveCount(0);
 
       const infoBtn = page.locator(`[data-testid="native-assignment-info-button-${sourceNativeCwId}"]`);
       const lockedOpenBtn = page.locator(`[data-testid="locked-open-assignment-button-${sourceNativeCwId}"]`);
-      const cloneBtn = page.locator(`[data-testid="clone-assignment-button-${sourceNativeCwId}"]`);
       await expect(infoBtn).toBeVisible();
-      await expect(cloneBtn).toBeVisible();
       await expect(lockedOpenBtn).toBeVisible();
       await expect(lockedOpenBtn).toContainText('Open');
 
-      // Clicking the "i" icon opens the explanation modal
+      // Clicking the "i" icon opens the explanation modal (with no Clone button)
       await infoBtn.click();
       const infoModal = page.locator('[data-testid="native-assignment-info-modal"]');
       await expect(infoModal).toBeVisible();
       await expect(page.locator(`[data-testid="native-assignment-explanation-${sourceNativeCwId}"]`)).toContainText(
         'Google Classroom blocks third-party apps from writing grades or attaching feedback files'
       );
+      await expect(page.locator(`[data-testid="modal-clone-assignment-button-${sourceNativeCwId}"]`)).toHaveCount(0);
       await page.locator('[data-testid="close-native-info-modal-button"]').click();
       await expect(infoModal).toBeHidden();
 
@@ -2567,104 +2550,95 @@ test.describe('Classroom Agent - Workspace and Agent Co-Pilot Tests', () => {
       await page.locator('[data-testid="close-native-info-modal-button"]').click();
       await expect(infoModal).toBeHidden();
 
-      // Verify eligible assignments in the list have BOTH Clone and active Open buttons
+      // Verify eligible assignments in the list have ONLY the active Open button (and no Clone button)
       const eligibleOpenBtn = page.locator('[data-testid^="open-assignment-button-"]').first();
       if ((await eligibleOpenBtn.count()) > 0) {
         const eligibleTestId = await eligibleOpenBtn.getAttribute('data-testid');
         const eligibleCwId = eligibleTestId!.replace('open-assignment-button-', '');
-        await expect(page.locator(`[data-testid="clone-assignment-button-${eligibleCwId}"]`)).toBeVisible();
+        await expect(page.locator(`[data-testid="clone-assignment-button-${eligibleCwId}"]`)).toHaveCount(0);
         await expect(page.locator(`[data-testid="open-assignment-button-${eligibleCwId}"]`)).toBeVisible();
       }
 
-      // 2. Seed a rubric on the source native assignment in Firestore to verify rubric copying on Clone
+      // 2. Seed a rubric on the older assignment in Firestore to verify Copy Rubric during rubric creation
       await seedTestAssignment(`${targetCourseId}_${sourceNativeCwId}`, {
         courseId: targetCourseId,
         courseWorkId: sourceNativeCwId,
         title: 'Native Source Assignment',
         rubric: {
           id: `native_rubric_${sourceNativeCwId}`,
-          title: 'Cloned Rubric Verification',
+          title: 'Copied Rubric Verification',
           criteria: [
             {
-              id: 'crit_clone_1',
+              id: 'crit_copy_1',
               title: 'Cloned Criterion Alpha',
-              description: 'Evaluates cloned criterion accuracy',
+              description: 'Evaluates copied criterion accuracy',
               maxPoints: 60,
             },
             {
-              id: 'crit_clone_2',
+              id: 'crit_copy_2',
               title: 'Cloned Criterion Beta',
-              description: 'Evaluates cloned criterion completeness',
+              description: 'Evaluates copied criterion completeness',
               maxPoints: 40,
             },
           ],
         },
       });
 
-      // 3. Click the Clone button on the native assignment card
-      await expect(cloneBtn).toBeVisible();
-      await cloneBtn.click();
-
-      // 3b. If the source assignment has existing student submissions, verify the Clone Submissions prompt modal appears
-      const clonePromptModal = page.locator('[data-testid="clone-submissions-prompt-modal"]');
+      // 3. Create a new assignment via "+ New Assignment"
+      await page.locator('[data-testid="create-new-assignment-button"]').click();
       const createForm = page.locator('[data-testid="create-assignment-form"]');
-      await expect(clonePromptModal.or(createForm)).toBeVisible({ timeout: 15000 });
+      await expect(createForm).toBeVisible({ timeout: 15000 });
+      await expect(page.locator('[data-testid="cloning-source-banner"]')).toHaveCount(0);
 
-      let didCloneSubmissions = false;
-      if (await clonePromptModal.isVisible()) {
-        await expect(clonePromptModal).toContainText(
-          'This assignment already has student submissions, would you like to clone those as well?'
-        );
-        await expect(page.locator('[data-testid="clone-without-submissions-button"]')).toBeVisible();
-        const cloneWithSubsBtn = page.locator('[data-testid="clone-with-submissions-button"]');
-        await expect(cloneWithSubsBtn).toBeVisible();
-        await cloneWithSubsBtn.click();
-        didCloneSubmissions = true;
-      }
-
-      // 4. Verify the creation form opens pre-filled with "(Clone)" appended to the title and cloning banner visible
-      await expect(createForm).toBeVisible();
-      const cloningBanner = page.locator('[data-testid="cloning-source-banner"]');
-      await expect(cloningBanner).toBeVisible();
-      if (didCloneSubmissions) {
-        await expect(cloningBanner).toContainText('existing student submissions & documents will also be cloned');
-      }
-
-      const titleInput = page.locator('[data-testid="new-assignment-title-input"]');
-      const prefilledTitle = await titleInput.inputValue();
-      expect(prefilledTitle.startsWith('Clone of ')).toBe(true);
-
-      // Prefix with [E2E Test] so orphan sweeper can identify it if needed while keeping Clone of <original name>
-      const finalCloneTitle = `[E2E Test] ${prefilledTitle}`;
-      await titleInput.fill(finalCloneTitle);
+      const newAssignmentTitle = `[E2E Test] Copy Rubric Target ${Date.now()}`;
+      await page.locator('[data-testid="new-assignment-title-input"]').fill(newAssignmentTitle);
 
       const submitCreateBtn = page.locator('[data-testid="create-assignment-submit-button"]');
       await expect(submitCreateBtn).toBeEnabled();
-      await expect(submitCreateBtn).toContainText('Create & Open');
       await submitCreateBtn.click();
 
-      // 5. Verify the cloned assignment opens in a workspace tab and has the copied rubric (and cloned submissions if present)
+      // 4. Verify the new assignment opens in a workspace tab without a rubric initially
       await expect(modal).toBeHidden({ timeout: 30000 });
 
       const openTab = page.locator(`[data-testid^="assignment-tab-${targetCourseId}_"]`).first();
       await expect(openTab).toBeVisible({ timeout: 15000 });
-      await expect(openTab).toContainText(finalCloneTitle);
+      await expect(openTab).toContainText(newAssignmentTitle);
 
       const tabTestId = await openTab.getAttribute('data-testid');
-      const fullClonedAssignmentId = tabTestId!.replace('assignment-tab-', '');
-      clonedCourseWorkId = fullClonedAssignmentId.replace(`${targetCourseId}_`, '');
+      const fullNewAssignmentId = tabTestId!.replace('assignment-tab-', '');
+      clonedCourseWorkId = fullNewAssignmentId.replace(`${targetCourseId}_`, '');
+
+      // 5. Click "Copy Rubric" in the Rubric Breakdown empty state
+      const copyRubricBtn = page.locator('[data-testid="copy-rubric-button"]');
+      await expect(copyRubricBtn).toBeVisible({ timeout: 15000 });
+      await copyRubricBtn.click();
+
+      const rubricModal = page.locator('[data-testid="rubric-edit-modal"]');
+      await expect(rubricModal).toBeVisible();
+
+      const copyPickerPanel = page.locator('[data-testid="copy-rubric-picker-panel"]');
+      await expect(copyPickerPanel).toBeVisible();
+
+      // Select the older assignment to copy its rubric
+      const sourceRubricBtn = page.locator(`[data-testid="copy-rubric-source-${sourceNativeCwId}"]`);
+      await expect(sourceRubricBtn).toBeVisible({ timeout: 15000 });
+      await sourceRubricBtn.click();
+
+      // Verify the picker closes and the copied rubric title & criteria populate the editor
+      await expect(copyPickerPanel).toBeHidden({ timeout: 10000 });
+      await expect(page.locator('[data-testid="rubric-title-input"]')).toHaveValue('Copied Rubric Verification');
+      await expect(page.locator('[data-testid="criterion-title-input-0"]')).toHaveValue('Cloned Criterion Alpha');
+      await expect(page.locator('[data-testid="criterion-title-input-1"]')).toHaveValue('Cloned Criterion Beta');
+
+      // Save the copied rubric
+      await page.locator('[data-testid="save-rubric-modal-button"]').click();
+      await expect(rubricModal).toBeHidden({ timeout: 15000 });
 
       // Verify the copied rubric is displayed in the workspace Rubric Breakdown zone
       const rubricZone = page.locator('[data-testid="rubric-breakdown-list"]');
       await expect(rubricZone).toBeVisible({ timeout: 15000 });
       await expect(rubricZone).toContainText('Cloned Criterion Alpha', { timeout: 15000 });
       await expect(rubricZone).toContainText('Cloned Criterion Beta', { timeout: 15000 });
-
-      if (didCloneSubmissions) {
-        await expect(page.locator('[data-testid="student-roster-list"]')).toContainText('Turned In', {
-          timeout: 15000,
-        });
-      }
     } finally {
       if (targetCourseId && sourceNativeCwId) {
         await cleanupTestAssignment(`${targetCourseId}_${sourceNativeCwId}`, []).catch(() => null);

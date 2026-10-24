@@ -97,8 +97,6 @@ export interface StudentEvaluationSidecarDoc {
   classroomSyncError?: string;
   feedbackDocId?: string;
   feedbackDocUrl?: string;
-  clonedSubmissionState?: 'TURNED_IN';
-  clonedShortAnswer?: string;
   approvedAt?: string;
   updatedAt: string;
 }

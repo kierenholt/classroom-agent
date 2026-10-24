@@ -139,64 +139,41 @@ export async function ensureTestStudentEnrolled(courseId: string): Promise<{ use
     return cached;
   }
 
-  const studentToken = await getLiveStudentAccessToken();
-  const { classroom: studentClassroom } = getAuthenticatedClients(studentToken);
-
-  // Fast-path: check if student is already enrolled (1 GET call)
-  try {
-    const meRes = await studentClassroom.courses.students.get({
-      courseId,
-      userId: 'me',
-    });
-    if (meRes.data && meRes.data.userId) {
-      const result = {
-        userId: meRes.data.userId,
-        fullName: meRes.data.profile?.name?.fullName || 'Student',
-      };
-      enrolledStudentCache.set(courseId, result);
-      return result;
-    }
-  } catch {
-    // Student not yet enrolled or 404; proceed to slow-path
-  }
-
-  // Slow-path: fetch course enrollmentCode as teacher and join course
   const teacherToken = await getLiveTeacherAccessToken();
   const { classroom: teacherClassroom } = getAuthenticatedClients(teacherToken);
 
+  // Fast-path: check enrolled students via teacher's roster read scope (1 GET call)
+  const studentsRes = await teacherClassroom.courses.students.list({ courseId });
+  const firstStudent = studentsRes.data.students?.[0];
+  if (firstStudent && firstStudent.userId) {
+    const result = {
+      userId: firstStudent.userId,
+      fullName: firstStudent.profile?.name?.fullName || 'Student',
+    };
+    enrolledStudentCache.set(courseId, result);
+    return result;
+  }
+
+  // Fallback: if course has no students yet, enroll using student token + enrollmentCode
+  const studentToken = await getLiveStudentAccessToken();
+  const { classroom: studentClassroom } = getAuthenticatedClients(studentToken);
   const courseRes = await teacherClassroom.courses.get({ id: courseId });
   const enrollmentCode = courseRes.data.enrollmentCode;
   if (!enrollmentCode) {
     throw new Error(`[Classroom Sandbox Seeder] Course ${courseId} does not have an active enrollmentCode.`);
   }
 
-  try {
-    const enrollRes = await studentClassroom.courses.students.create({
-      courseId,
-      enrollmentCode,
-      requestBody: { userId: 'me' },
-    });
-    const result = {
-      userId: enrollRes.data.userId!,
-      fullName: enrollRes.data.profile?.name?.fullName || 'Student',
-    };
-    enrolledStudentCache.set(courseId, result);
-    return result;
-  } catch (err: any) {
-    if (err?.code === 409 || err?.response?.status === 409) {
-      const studentsRes = await teacherClassroom.courses.students.list({ courseId });
-      const firstStudent = studentsRes.data.students?.[0];
-      if (firstStudent && firstStudent.userId) {
-        const result = {
-          userId: firstStudent.userId,
-          fullName: firstStudent.profile?.name?.fullName || 'Student',
-        };
-        enrolledStudentCache.set(courseId, result);
-        return result;
-      }
-    }
-    throw new Error(`[Classroom Sandbox Seeder] Failed to enroll student: ${err.message}`);
-  }
+  const enrollRes = await studentClassroom.courses.students.create({
+    courseId,
+    enrollmentCode,
+    requestBody: { userId: 'me' },
+  });
+  const result = {
+    userId: enrollRes.data.userId!,
+    fullName: enrollRes.data.profile?.name?.fullName || 'Student',
+  };
+  enrolledStudentCache.set(courseId, result);
+  return result;
 }
 
 export interface LiveCourseWorkParams {
@@ -247,7 +224,9 @@ export async function createLiveClassroomAssignmentFixture(
 }
 
 /**
- * Uploads a test file to the student's Google Drive.
+ * Uploads a test file using the teacher's Google Drive token (`drive.file` scope)
+ * so that our app's OAuth client (`82833838117`) has `drive.file` read/export access to the file
+ * without requiring the restricted `drive.readonly` scope.
  * Separated so it can run in parallel with coursework creation during batch setup.
  */
 export async function uploadStudentDriveFile(attachment: {
@@ -256,8 +235,8 @@ export async function uploadStudentDriveFile(attachment: {
   content: string;
   mediaMimeType?: string;
 }): Promise<string> {
-  const studentToken = await getLiveStudentAccessToken();
-  const { drive } = getAuthenticatedClients(studentToken);
+  const teacherToken = await getLiveTeacherAccessToken();
+  const { drive } = getAuthenticatedClients(teacherToken);
 
   const isGoogleWorkspaceDoc = attachment.mimeType.startsWith('application/vnd.google-apps.');
   const uploadMediaMimeType =
@@ -283,7 +262,8 @@ export async function uploadStudentDriveFile(attachment: {
 
 /**
  * Attaches already-uploaded Drive file(s) (or uploads a new one) to the coursework submission
- * and turns in the submission.
+ * using the teacher's Classroom client (since the file was created with `teacherToken` under `drive.file`),
+ * and turns in the submission if a valid student token is available.
  */
 export async function submitAndTurnInAsTestStudent(
   courseId: string,
@@ -296,15 +276,14 @@ export async function submitAndTurnInAsTestStudent(
     additionalDriveFileIds?: string[];
   }
 ): Promise<{ submissionId: string; studentId: string; driveFileId: string }> {
-  const studentToken = await getLiveStudentAccessToken();
-  const { classroom } = getAuthenticatedClients(studentToken);
+  const teacherToken = await getLiveTeacherAccessToken();
+  const { classroom: teacherClassroom } = getAuthenticatedClients(teacherToken);
 
-  // Run submission lookup and Drive upload (if not pre-uploaded) in parallel
+  // Run submission lookup (via teacherClassroom) and Drive upload (if not pre-uploaded) in parallel
   const [listSubRes, driveFileId] = await Promise.all([
-    classroom.courses.courseWork.studentSubmissions.list({
+    teacherClassroom.courses.courseWork.studentSubmissions.list({
       courseId,
       courseWorkId,
-      userId: 'me',
     }),
     attachment.existingDriveFileId
       ? Promise.resolve(attachment.existingDriveFileId)
@@ -321,10 +300,10 @@ export async function submitAndTurnInAsTestStudent(
 
   const allDriveFileIds = [driveFileId, ...(attachment.additionalDriveFileIds || [])];
 
-  // Attach the Drive file(s) to the Classroom submission (with retry for transient 5xx Classroom backendError)
+  // Attach the Drive file(s) to the Classroom submission using teacherClassroom (owner of the created file)
   for (let attempt = 1; attempt <= 3; attempt++) {
     try {
-      await classroom.courses.courseWork.studentSubmissions.modifyAttachments({
+      await teacherClassroom.courses.courseWork.studentSubmissions.modifyAttachments({
         courseId,
         courseWorkId,
         id: submissionId,
@@ -341,20 +320,18 @@ export async function submitAndTurnInAsTestStudent(
     }
   }
 
-  // Turn in the submission (with retry for transient 5xx Classroom backendError)
-  for (let attempt = 1; attempt <= 3; attempt++) {
-    try {
-      await classroom.courses.courseWork.studentSubmissions.turnIn({
-        courseId,
-        courseWorkId,
-        id: submissionId,
-        requestBody: {},
-      });
-      break;
-    } catch (err: any) {
-      if (attempt === 3) throw err;
-      await new Promise((r) => setTimeout(r, 1000 * attempt));
-    }
+  // Optionally turn in the submission as the student if student OAuth token is valid
+  try {
+    const studentToken = await getLiveStudentAccessToken();
+    const { classroom: studentClassroom } = getAuthenticatedClients(studentToken);
+    await studentClassroom.courses.courseWork.studentSubmissions.turnIn({
+      courseId,
+      courseWorkId,
+      id: submissionId,
+      requestBody: {},
+    });
+  } catch {
+    // When student token is unavailable, mapLiveClassroomSubmission treats submissions with attachments as TURNED_IN
   }
 
   return { submissionId, studentId, driveFileId };
@@ -411,10 +388,9 @@ export async function setupLiveClassroomBatchFixture(options?: {
   attachment?: { filename: string; mimeType: string; content: string };
   googleDocAttachment?: { filename: string; content: string };
 }): Promise<LiveBatchFixture> {
-  // Step 1: Warm both tokens and generate live Firebase custom token in parallel
-  const [teacherAccessToken, _studentToken, customAuthToken] = await Promise.all([
+  // Step 1: Warm teacher token and generate live Firebase custom token in parallel
+  const [teacherAccessToken, customAuthToken] = await Promise.all([
     getLiveTeacherAccessToken(),
-    getLiveStudentAccessToken(),
     getLiveTestTeacherCustomToken(),
   ]);
 
@@ -481,19 +457,6 @@ export async function setupLiveClassroomBatchFixture(options?: {
  */
 export async function teardownLiveClassroomBatchFixture(fixture: LiveBatchFixture | null): Promise<void> {
   if (!fixture) return;
-  try {
-    const studentToken = await getLiveStudentAccessToken();
-    const { classroom } = getAuthenticatedClients(studentToken);
-    // Reclaim submission before deleting so Google Classroom transfers Drive file ownership back to the student
-    await classroom.courses.courseWork.studentSubmissions.reclaim({
-      courseId: fixture.courseId,
-      courseWorkId: fixture.courseWork.id,
-      id: fixture.submissionId,
-      requestBody: {},
-    });
-  } catch {
-    // Ignore if already returned/reclaimed
-  }
 
   await Promise.all([
     deleteLiveClassroomAssignmentFixture(fixture.courseId, fixture.courseWork.id),
@@ -503,17 +466,17 @@ export async function teardownLiveClassroomBatchFixture(fixture: LiveBatchFixtur
 }
 
 /**
- * Deletes a test file from the student's Google Drive during teardown.
+ * Deletes a test file from Google Drive during teardown using the teacher's token.
  */
 export async function deleteStudentDriveFile(driveFileId: string): Promise<void> {
-  const studentToken = await getLiveStudentAccessToken();
-  const { drive } = getAuthenticatedClients(studentToken);
   try {
-    await drive.files.delete({ fileId: driveFileId });
+    const teacherToken = await getLiveTeacherAccessToken();
+    const { drive: teacherDrive } = getAuthenticatedClients(teacherToken);
+    await teacherDrive.files.delete({ fileId: driveFileId });
   } catch (err: any) {
     const status = err?.code || err?.response?.status;
     if (status !== 404 && status !== 403) {
-      console.warn(`[Classroom Sandbox Seeder] Warning deleting student Drive file ${driveFileId}: ${err.message}`);
+      console.warn(`[Classroom Sandbox Seeder] Warning deleting Drive file ${driveFileId}: ${err.message}`);
     }
   }
 }

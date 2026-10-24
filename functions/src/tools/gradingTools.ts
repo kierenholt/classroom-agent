@@ -400,10 +400,9 @@ export async function executeGradingTool(
       const mergedSubs = liveSubs.map((sub) => {
         const evalData = evalMap.get(sub.studentId);
         const isReturned = evalData?.classroomSyncStatus === 'RETURNED' || sub.state === 'RETURNED';
-        const isTurnedIn = evalData?.clonedSubmissionState === 'TURNED_IN' || sub.state === 'TURNED_IN';
         return {
           ...sub,
-          state: isReturned ? 'RETURNED' : isTurnedIn ? 'TURNED_IN' : sub.state,
+          state: isReturned ? 'RETURNED' : sub.state,
           draftGrade: evalData?.draftGrade !== undefined && evalData?.draftGrade !== null ? evalData.draftGrade : sub.draftGrade,
           assignedGrade: evalData?.assignedGrade !== undefined && evalData?.assignedGrade !== null ? evalData.assignedGrade : sub.assignedGrade,
         };
@@ -463,15 +462,11 @@ export async function executeGradingTool(
         };
       }
 
-      const [{ submissions }, evalSnap] = await Promise.all([
-        fetchLiveWorkspaceFromClassroom(googleAccessToken, courseId, courseWorkId),
-        assignRef.collection('evaluations').doc(studentId).get(),
-      ]);
+      const { submissions } = await fetchLiveWorkspaceFromClassroom(googleAccessToken, courseId, courseWorkId);
       const subData = submissions.find((s) => s.studentId === studentId || s.submissionId === studentId);
       if (!subData) {
         throw new Error(`Student submission ${studentId} not found in Google Classroom.`);
       }
-      const evalData = evalSnap.exists ? evalSnap.data() : null;
 
       // Each time the agent fetches a student's work, deduct 1 AI credit (clamped at 0)
       let remainingAiCredits: number | undefined;
@@ -513,18 +508,10 @@ export async function executeGradingTool(
         }
       }
 
-      if (evalData?.clonedShortAnswer && !extractedItems.some((i) => i.type === 'SHORT_ANSWER')) {
-        extractedItems.push({
-          title: 'Short Answer Response',
-          type: 'SHORT_ANSWER',
-          content: evalData.clonedShortAnswer,
-        });
-      }
-
       return {
         studentId: subData.studentId,
         studentName: subData.studentName,
-        state: evalData?.clonedSubmissionState === 'TURNED_IN' && subData.state !== 'RETURNED' ? 'TURNED_IN' : subData.state,
+        state: subData.state,
         late: subData.late,
         attachments: extractedItems,
         ...(remainingAiCredits !== undefined ? { remainingAiCredits } : {}),

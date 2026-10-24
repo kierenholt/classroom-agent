@@ -121,9 +121,9 @@ If you ever need to regenerate `TEST_TEACHER_REFRESH_TOKEN` or `TEST_STUDENT_REF
 ### Generating the Teacher Refresh Token
 1. Open [Google OAuth 2.0 Playground](https://developers.google.com/oauthplayground).
 2. Click the **Gear icon (⚙️)** (top right) $\rightarrow$ check **"Use your own OAuth credentials"** $\rightarrow$ enter `TEST_GOOGLE_CLIENT_ID` and `TEST_GOOGLE_CLIENT_SECRET`.
-3. In **Step 1**, paste the 6 Teacher scopes:
+3. In **Step 1**, paste the 4 Non-Sensitive Teacher scopes:
    ```text
-   https://www.googleapis.com/auth/classroom.courses.readonly https://www.googleapis.com/auth/classroom.coursework.students https://www.googleapis.com/auth/classroom.rosters.readonly https://www.googleapis.com/auth/classroom.student-submissions.students.readonly https://www.googleapis.com/auth/drive.readonly https://www.googleapis.com/auth/drive.file
+   https://www.googleapis.com/auth/classroom.courses.readonly https://www.googleapis.com/auth/classroom.coursework.students https://www.googleapis.com/auth/classroom.rosters.readonly https://www.googleapis.com/auth/drive.file
    ```
 4. Click **Authorize APIs**, sign in with the **Teacher** Google account, and approve.
 5. In **Step 2**, click **Exchange authorization code for tokens** and copy `refresh_token` into `TEST_TEACHER_REFRESH_TOKEN` in [.env.local](file:///home/kieren/Documents/code/classroom-agent/.env.local).

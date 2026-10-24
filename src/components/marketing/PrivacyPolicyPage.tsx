@@ -163,18 +163,10 @@ export const PrivacyPolicyPage: React.FC<PrivacyPolicyPageProps> = ({ onNavigate
                 </tr>
                 <tr>
                   <td className="py-3 px-4 font-mono text-[11px] text-[#D4AF37]">
-                    .../auth/drive.readonly
-                  </td>
-                  <td className="py-3 px-4">
-                    Reads and renders student-submitted Google Drive attachments (Google Docs, Slides, Sheets, PDFs, code files, and images) in the submission preview canvas and extracts text only when you explicitly request AI grading or evaluation for a student.
-                  </td>
-                </tr>
-                <tr>
-                  <td className="py-3 px-4 font-mono text-[11px] text-[#D4AF37]">
                     .../auth/drive.file
                   </td>
                   <td className="py-3 px-4">
-                    Creates formatted Google Doc feedback documents in Google Drive and attaches them to student submissions when you click Approve / Publish.
+                    Accesses Google Drive files created or opened with Classroom Agent, and creates formatted Google Doc feedback documents in Google Drive and attaches them to student submissions when you click Approve / Publish.
                   </td>
                 </tr>
               </tbody>

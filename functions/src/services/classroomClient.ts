@@ -98,40 +98,6 @@ export async function getCourseWork(
   return res.data;
 }
 
-/**
- * Clones existing coursework under the application's OAuth client ID.
- * This guarantees full write-back eligibility for draftGrade, assignedGrade, and return.
- */
-export async function cloneCourseWorkUnderApp(
-  accessToken: string,
-  courseId: string,
-  sourceCourseWorkId: string
-): Promise<classroom_v1.Schema$CourseWork> {
-  if (!courseId || !sourceCourseWorkId) {
-    throw new Error('[Classroom Client] courseId and sourceCourseWorkId are required to clone.');
-  }
-  const classroom = getClassroomClient(accessToken);
-  const original = await getCourseWork(accessToken, courseId, sourceCourseWorkId);
-
-  const newCourseWork: classroom_v1.Schema$CourseWork = {
-    title: `Clone of ${original.title || 'Assignment'}`,
-    description: original.description,
-    state: 'PUBLISHED',
-    workType: original.workType || 'ASSIGNMENT',
-    maxPoints: original.maxPoints || 100,
-    dueDate: original.dueDate,
-    dueTime: original.dueTime,
-    submissionModificationMode: original.submissionModificationMode || 'MODIFIABLE_UNTIL_TURNED_IN',
-  };
-
-  const created = await classroom.courses.courseWork.create({
-    courseId,
-    requestBody: newCourseWork,
-  });
-
-  return created.data;
-}
-
 export interface CreateCourseWorkInput {
   title: string;
   description?: string;
@@ -759,61 +725,3 @@ export async function attachDriveFileToSubmission(
   });
   return res.data;
 }
-
-/**
- * Copies a student's Google Drive file into the authenticated teacher's Drive via drive.files.copy
- * so that the teacher owns the copy and can attach it to a cloned assignment's studentSubmission.
- */
-export async function copyDriveFileForClonedSubmission(
-  accessToken: string,
-  sourceFileId: string,
-  title?: string
-): Promise<{ fileId: string; title: string; webViewLink?: string }> {
-  if (!sourceFileId) {
-    throw new Error('[Classroom Client] sourceFileId is required to copy Drive file.');
-  }
-  const drive = getDriveClient(accessToken);
-  const copied = await drive.files.copy({
-    fileId: sourceFileId,
-    requestBody: {
-      ...(title ? { name: title } : {}),
-    },
-    fields: 'id, name, webViewLink',
-  });
-  const fileId = copied.data.id;
-  if (!fileId) {
-    throw new Error('[Classroom Client] Google Drive did not return a file ID for copied submission document.');
-  }
-  return {
-    fileId,
-    title: copied.data.name || title || 'Submitted Document',
-    webViewLink: copied.data.webViewLink || undefined,
-  };
-}
-
-/**
- * Attaches multiple Drive files and/or web links to a student's submission in Google Classroom via studentSubmissions.modifyAttachments.
- */
-export async function modifySubmissionAttachments(
-  accessToken: string,
-  courseId: string,
-  courseWorkId: string,
-  submissionId: string,
-  addAttachments: classroom_v1.Schema$Attachment[]
-) {
-  if (!courseId || !courseWorkId || !submissionId || !Array.isArray(addAttachments) || addAttachments.length === 0) {
-    throw new Error('[Classroom Client] courseId, courseWorkId, submissionId, and non-empty addAttachments are required.');
-  }
-  const classroom = getClassroomClient(accessToken);
-  const res = await classroom.courses.courseWork.studentSubmissions.modifyAttachments({
-    courseId,
-    courseWorkId,
-    id: submissionId,
-    requestBody: {
-      addAttachments,
-    },
-  });
-  return res.data;
-}
-
-

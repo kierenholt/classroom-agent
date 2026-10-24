@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Edit3, Plus } from 'lucide-react';
+import { Edit3, Plus, Copy } from 'lucide-react';
 import { AssignmentDoc, StudentSubmissionDoc, CriterionEvaluation } from '../../types/classroom';
 import { RubricEditModal } from './RubricEditModal';
 
@@ -23,6 +23,7 @@ export const RubricMarkingZone: React.FC<RubricMarkingZoneProps> = ({
   onUpdateRubricAndFeedback,
 }) => {
   const [isModalOpen, setIsModalOpen] = useState(false);
+  const [initialShowCopyPicker, setInitialShowCopyPicker] = useState(false);
 
   const handleCriterionScoreChange = (criterionId: string, score: number) => {
     const exists = rubricBreakdown.some((item) => item.criterionId === criterionId);
@@ -52,7 +53,10 @@ export const RubricMarkingZone: React.FC<RubricMarkingZoneProps> = ({
               <button
                 type="button"
                 data-testid="edit-rubric-button"
-                onClick={() => setIsModalOpen(true)}
+                onClick={() => {
+                  setInitialShowCopyPicker(false);
+                  setIsModalOpen(true);
+                }}
                 className="flex items-center space-x-1 text-[11px] font-medium text-[#D4AF37] hover:text-[#f3e5ab] hover:bg-[#D4AF37]/10 px-2 py-0.5 rounded transition-colors"
               >
                 <Edit3 className="w-3 h-3" />
@@ -69,11 +73,26 @@ export const RubricMarkingZone: React.FC<RubricMarkingZoneProps> = ({
                   <button
                     type="button"
                     data-testid="create-rubric-button"
-                    onClick={() => setIsModalOpen(true)}
-                    className="inline-flex items-center space-x-1 px-3 py-1 bg-[#D4AF37] text-black font-semibold text-xs rounded hover:bg-[#c29d2b] transition-colors shadow-sm"
+                    onClick={() => {
+                      setInitialShowCopyPicker(false);
+                      setIsModalOpen(true);
+                    }}
+                    className="inline-flex items-center space-x-1 px-3 py-1 bg-[#D4AF37] text-black font-semibold text-xs rounded hover:bg-[#c29d2b] transition-colors shadow-sm cursor-pointer"
                   >
                     <Plus className="w-3.5 h-3.5" />
                     <span>Create Rubric</span>
+                  </button>
+                  <button
+                    type="button"
+                    data-testid="copy-rubric-button"
+                    onClick={() => {
+                      setInitialShowCopyPicker(true);
+                      setIsModalOpen(true);
+                    }}
+                    className="inline-flex items-center space-x-1 px-3 py-1 bg-[#22262C] hover:bg-[#2D323A] border border-[#333842] text-gray-200 font-medium text-xs rounded transition-colors shadow-sm cursor-pointer"
+                  >
+                    <Copy className="w-3.5 h-3.5 text-[#D4AF37]" />
+                    <span>Copy Rubric</span>
                   </button>
                 </div>
                 <p className="text-[11px] text-[#D4AF37]">
@@ -124,6 +143,7 @@ export const RubricMarkingZone: React.FC<RubricMarkingZoneProps> = ({
         isOpen={isModalOpen}
         assignmentId={assignment.id}
         initialRubric={assignment.rubric}
+        initialShowCopyPicker={initialShowCopyPicker}
         onClose={() => setIsModalOpen(false)}
       />
     </div>

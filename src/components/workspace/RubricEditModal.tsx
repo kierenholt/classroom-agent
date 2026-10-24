@@ -1,13 +1,15 @@
 import React, { useState, useEffect, useMemo } from 'react';
-import { X, Plus, Trash2, Loader2, Sparkles, AlertCircle } from 'lucide-react';
-import { AssignmentRubric, RubricCriterion } from '../../types/classroom';
+import { X, Plus, Trash2, Loader2, Sparkles, AlertCircle, Copy, Award } from 'lucide-react';
+import { AssignmentRubric, RubricCriterion, ClassroomCoursework } from '../../types/classroom';
 import { useAuth } from '../../context/AuthContext';
+import { useClassroomData } from '../../context/ClassroomDataContext';
 import { env } from '../../config/env';
 
 export interface RubricEditModalProps {
   isOpen: boolean;
   assignmentId: string;
   initialRubric?: AssignmentRubric;
+  initialShowCopyPicker?: boolean;
   onClose: () => void;
   onSaved?: (rubric: AssignmentRubric, maxPoints: number) => void;
 }
@@ -23,18 +25,38 @@ export const RubricEditModal: React.FC<RubricEditModalProps> = ({
   isOpen,
   assignmentId,
   initialRubric,
+  initialShowCopyPicker = false,
   onClose,
   onSaved,
 }) => {
   const { getAuthHeaders } = useAuth();
+  const {
+    courses,
+    courseworkByCourseId,
+    loadingCoursework,
+    preloadAssignments,
+    fetchCourseworkForCourse,
+  } = useClassroomData();
+
+  const currentCourseId = useMemo(() => assignmentId.split('_')[0] || '', [assignmentId]);
+  const currentCourseWorkId = useMemo(() => assignmentId.split('_').slice(1).join('_') || '', [assignmentId]);
+
   const [title, setTitle] = useState('Grading Rubric');
   const [criteria, setCriteria] = useState<EditableCriterion[]>([]);
   const [isSaving, setIsSaving] = useState(false);
   const [validationError, setValidationError] = useState<string | null>(null);
 
+  const [showCopyPicker, setShowCopyPicker] = useState(false);
+  const [selectedCopyCourseId, setSelectedCopyCourseId] = useState<string>('');
+  const [loadingCopyCwId, setLoadingCopyCwId] = useState<string | null>(null);
+
   useEffect(() => {
     if (isOpen) {
       setValidationError(null);
+      setShowCopyPicker(!!initialShowCopyPicker);
+      setSelectedCopyCourseId(currentCourseId);
+      setLoadingCopyCwId(null);
+
       if (initialRubric && initialRubric.criteria && initialRubric.criteria.length > 0) {
         setTitle(initialRubric.title || 'Grading Rubric');
         setCriteria(
@@ -58,13 +80,74 @@ export const RubricEditModal: React.FC<RubricEditModalProps> = ({
         ]);
       }
     }
-  }, [isOpen, initialRubric]);
+  }, [isOpen, initialRubric, initialShowCopyPicker, currentCourseId]);
+
+  useEffect(() => {
+    if (!isOpen || !showCopyPicker) return;
+    if (courses.length === 0) {
+      preloadAssignments(false);
+    }
+    const targetCourseId = selectedCopyCourseId || currentCourseId;
+    if (targetCourseId && !courseworkByCourseId[targetCourseId]) {
+      fetchCourseworkForCourse(targetCourseId).catch(() => {
+        // Handled in UI if empty
+      });
+    }
+  }, [isOpen, showCopyPicker, selectedCopyCourseId, currentCourseId, courses.length, courseworkByCourseId, preloadAssignments, fetchCourseworkForCourse]);
 
   const totalPoints = useMemo(() => {
     return criteria.reduce((sum, c) => sum + (Number(c.maxPoints) || 0), 0);
   }, [criteria]);
 
   if (!isOpen) return null;
+
+  const activeCopyCourseId = selectedCopyCourseId || currentCourseId;
+  const copySourceAssignments: ClassroomCoursework[] = (courseworkByCourseId[activeCopyCourseId] || []).filter(
+    (cw) => !(activeCopyCourseId === currentCourseId && cw.id === currentCourseWorkId)
+  );
+  const isCopyCourseworkLoading = !!loadingCoursework[activeCopyCourseId] && copySourceAssignments.length === 0;
+
+  const handleCopyRubricFromAssignment = async (sourceCw: ClassroomCoursework) => {
+    if (!activeCopyCourseId || loadingCopyCwId) return;
+    setLoadingCopyCwId(sourceCw.id);
+    setValidationError(null);
+
+    try {
+      const headers = await getAuthHeaders();
+      const sourceAssignmentId = `${activeCopyCourseId}_${sourceCw.id}`;
+      const res = await fetch(`${env.API_BASE_URL}/classroom/assignments/${encodeURIComponent(sourceAssignmentId)}/rubric`, {
+        headers,
+      });
+
+      if (!res.ok) {
+        const errText = await res.text();
+        throw new Error(errText || 'Failed to load rubric from assignment');
+      }
+
+      const data = await res.json();
+      const fetchedRubric: AssignmentRubric | null = data.rubric || null;
+
+      if (!fetchedRubric || !Array.isArray(fetchedRubric.criteria) || fetchedRubric.criteria.length === 0) {
+        setValidationError(`No rubric found on "${sourceCw.title}".`);
+        return;
+      }
+
+      setTitle(fetchedRubric.title || 'Grading Rubric');
+      setCriteria(
+        fetchedRubric.criteria.map((c: RubricCriterion, idx: number) => ({
+          id: c.id || `crit_${Date.now()}_${idx}`,
+          title: c.title,
+          maxPoints: c.maxPoints,
+          description: c.description || '',
+        }))
+      );
+      setShowCopyPicker(false);
+    } catch (err: any) {
+      setValidationError(err.message || `Failed to copy rubric from "${sourceCw.title}".`);
+    } finally {
+      setLoadingCopyCwId(null);
+    }
+  };
 
   const handleAddCriterion = () => {
     setCriteria((prev) => [
@@ -182,14 +265,31 @@ export const RubricEditModal: React.FC<RubricEditModalProps> = ({
                 : 'Create Grading Rubric'}
             </h2>
           </div>
-          <button
-            data-testid="close-rubric-modal-button"
-            onClick={onClose}
-            disabled={isSaving}
-            className="text-gray-400 hover:text-white p-1 rounded-md hover:bg-[#22262C] transition-colors"
-          >
-            <X className="w-4 h-4" />
-          </button>
+          <div className="flex items-center space-x-2">
+            <button
+              type="button"
+              data-testid="toggle-copy-rubric-picker-button"
+              onClick={() => setShowCopyPicker((prev) => !prev)}
+              disabled={isSaving}
+              className={`inline-flex items-center space-x-1.5 px-2.5 py-1 rounded-md border text-xs font-medium transition-colors cursor-pointer ${
+                showCopyPicker
+                  ? 'bg-[#D4AF37]/15 border-[#D4AF37] text-[#F3E5AB]'
+                  : 'bg-[#22262C] hover:bg-[#2D323A] border-[#333842] text-gray-200'
+              }`}
+              title="Copy rubric criteria from an older assignment"
+            >
+              <Copy className="w-3.5 h-3.5 text-[#D4AF37]" />
+              <span>Copy Rubric</span>
+            </button>
+            <button
+              data-testid="close-rubric-modal-button"
+              onClick={onClose}
+              disabled={isSaving}
+              className="text-gray-400 hover:text-white p-1 rounded-md hover:bg-[#22262C] transition-colors"
+            >
+              <X className="w-4 h-4" />
+            </button>
+          </div>
         </div>
 
         {/* Scrollable Content */}
@@ -201,6 +301,103 @@ export const RubricEditModal: React.FC<RubricEditModalProps> = ({
             >
               <AlertCircle className="w-4 h-4 shrink-0 text-red-400" />
               <span>{validationError}</span>
+            </div>
+          )}
+
+          {/* Copy Rubric from Older Assignment Picker Panel */}
+          {showCopyPicker && (
+            <div
+              data-testid="copy-rubric-picker-panel"
+              className="p-4 bg-[#121316] border border-[#D4AF37]/40 rounded-lg space-y-3"
+            >
+              <div className="flex items-center justify-between">
+                <div className="flex items-center space-x-2">
+                  <Copy className="w-3.5 h-3.5 text-[#D4AF37]" />
+                  <span className="font-semibold text-gray-200">
+                    Copy Rubric from an Existing Assignment
+                  </span>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setShowCopyPicker(false)}
+                  className="text-[11px] text-gray-400 hover:text-gray-200"
+                >
+                  Hide
+                </button>
+              </div>
+
+              {courses.length > 1 && (
+                <div>
+                  <label className="block text-[10px] font-semibold uppercase tracking-wider text-gray-400 mb-1">
+                    Class
+                  </label>
+                  <select
+                    data-testid="copy-rubric-course-select"
+                    value={activeCopyCourseId}
+                    onChange={(e) => setSelectedCopyCourseId(e.target.value)}
+                    className="w-full bg-[#1A1D21] border border-[#333842] rounded-md px-2.5 py-1.5 text-xs text-gray-200 focus:outline-none focus:border-[#D4AF37]"
+                  >
+                    {courses.map((c) => (
+                      <option key={c.id} value={c.id}>
+                        {c.name}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              )}
+
+              <div className="space-y-1.5 max-h-44 overflow-y-auto pr-1">
+                {isCopyCourseworkLoading ? (
+                  <div className="flex items-center justify-center space-x-2 py-4 text-gray-400">
+                    <Loader2 className="w-3.5 h-3.5 animate-spin text-[#D4AF37]" />
+                    <span>Loading assignments...</span>
+                  </div>
+                ) : copySourceAssignments.length === 0 ? (
+                  <div className="py-3 text-center text-gray-500">
+                    No other assignments found in this class.
+                  </div>
+                ) : (
+                  copySourceAssignments.map((cw) => {
+                    const isLoadingThis = loadingCopyCwId === cw.id;
+                    return (
+                      <button
+                        key={cw.id}
+                        type="button"
+                        data-testid={`copy-rubric-source-${cw.id}`}
+                        disabled={!!loadingCopyCwId}
+                        onClick={() => handleCopyRubricFromAssignment(cw)}
+                        className="w-full text-left p-2.5 rounded-md bg-[#1A1D21] hover:bg-[#22262C] border border-[#333842] hover:border-[#D4AF37]/50 transition-all flex items-center justify-between gap-2 cursor-pointer disabled:opacity-50"
+                      >
+                        <div className="min-w-0">
+                          <div className="font-medium text-gray-200 truncate">{cw.title}</div>
+                          <div className="flex items-center space-x-2 text-[10px] text-gray-400 font-mono mt-0.5">
+                            <span className="inline-flex items-center space-x-1">
+                              <Award className="w-3 h-3 text-[#D4AF37]" />
+                              <span>{cw.maxPoints ?? 100} pts</span>
+                            </span>
+                            {cw.associatedWithDeveloper !== true && (
+                              <span className="text-gray-500">• Native Classroom</span>
+                            )}
+                          </div>
+                        </div>
+                        <span className="inline-flex items-center space-x-1 px-2.5 py-1 rounded bg-[#D4AF37]/15 border border-[#D4AF37]/30 text-[#F3E5AB] text-[11px] font-medium shrink-0">
+                          {isLoadingThis ? (
+                            <>
+                              <Loader2 className="w-3 h-3 animate-spin" />
+                              <span>Copying...</span>
+                            </>
+                          ) : (
+                            <>
+                              <Copy className="w-3 h-3" />
+                              <span>Use Rubric</span>
+                            </>
+                          )}
+                        </span>
+                      </button>
+                    );
+                  })
+                )}
+              </div>
             </div>
           )}
 

@@ -182,18 +182,6 @@ export const AssignmentWorkspace: React.FC<AssignmentWorkspaceProps> = ({
       const feedbackDocUrl = sidecar.feedbackDocUrl || liveSub.feedbackDocUrl;
 
       const baseAttachments = [...(liveSub.attachments || [])];
-      if (
-        sidecar.clonedShortAnswer &&
-        !baseAttachments.some((att) => att.type === 'SHORT_ANSWER')
-      ) {
-        baseAttachments.push({
-          id: `sa_cloned_${liveSub.studentId}`,
-          title: 'Short Answer Response',
-          type: 'SHORT_ANSWER' as const,
-          shortAnswer: sidecar.clonedShortAnswer,
-        });
-      }
-
       const hasFeedbackAttachment = feedbackDocId
         ? baseAttachments.some((att) => att.driveFileId === feedbackDocId || att.id === feedbackDocId)
         : false;
@@ -211,11 +199,9 @@ export const AssignmentWorkspace: React.FC<AssignmentWorkspaceProps> = ({
             ]
           : baseAttachments;
 
-      const isTurnedInViaClone = sidecar.clonedSubmissionState === 'TURNED_IN' || mergedAttachments.length > 0;
-
       return {
         ...liveSub,
-        state: isReturned ? 'RETURNED' : isTurnedInViaClone ? 'TURNED_IN' : liveSub.state,
+        state: isReturned ? 'RETURNED' : liveSub.state,
         attachments: mergedAttachments,
         draftGrade:
           sidecar.draftGrade !== undefined && sidecar.draftGrade !== null
