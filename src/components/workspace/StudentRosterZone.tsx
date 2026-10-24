@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { RefreshCw, Send, CheckCircle2, Clock, User, ExternalLink } from 'lucide-react';
+import { RefreshCw, Send, CheckCircle2, Clock, ExternalLink } from 'lucide-react';
 import { AssignmentDoc, StudentSubmissionDoc, CriterionEvaluation } from '../../types/classroom';
 
 interface StudentEffectiveEdit {
@@ -27,79 +27,6 @@ interface StudentRosterZoneProps {
 }
 
 type FilterStatus = 'ALL' | 'TURNED_IN' | 'UNMARKED' | 'DRAFT' | 'RETURNED' | 'MISSING';
-
-const AVATAR_BG_COLORS = [
-  'bg-emerald-700 text-emerald-100',
-  'bg-blue-700 text-blue-100',
-  'bg-purple-700 text-purple-100',
-  'bg-amber-700 text-amber-100',
-  'bg-rose-700 text-rose-100',
-  'bg-indigo-700 text-indigo-100',
-  'bg-teal-700 text-teal-100',
-  'bg-cyan-700 text-cyan-100',
-];
-
-function getAvatarColor(key: string): string {
-  let hash = 0;
-  for (let i = 0; i < key.length; i++) {
-    hash = (hash << 5) - hash + key.charCodeAt(i);
-    hash |= 0;
-  }
-  const idx = Math.abs(hash) % AVATAR_BG_COLORS.length;
-  return AVATAR_BG_COLORS[idx];
-}
-
-function getInitials(name: string): string {
-  if (!name) return '';
-  const parts = name.trim().split(/\s+/).filter(Boolean);
-  if (parts.length === 0) return '';
-  if (parts.length === 1) return parts[0].slice(0, 2).toUpperCase();
-  return (parts[0][0] + parts[parts.length - 1][0]).toUpperCase();
-}
-
-export const StudentAvatar: React.FC<{
-  avatarUrl?: string;
-  name: string;
-  studentId: string;
-}> = ({ avatarUrl, name, studentId }) => {
-  const [imageError, setImageError] = useState(false);
-  const initials = getInitials(name);
-  const colorClass = getAvatarColor(studentId || name);
-
-  if (avatarUrl && !imageError) {
-    return (
-      <img
-        src={avatarUrl}
-        alt={name}
-        data-testid={`student-avatar-${studentId}`}
-        onError={() => setImageError(true)}
-        className="w-5 h-5 rounded-full shrink-0 border border-gray-700 object-cover"
-        referrerPolicy="no-referrer"
-      />
-    );
-  }
-
-  if (initials) {
-    return (
-      <div
-        data-testid={`student-avatar-${studentId}`}
-        className={`w-5 h-5 rounded-full flex items-center justify-center shrink-0 text-[9px] font-semibold select-none border border-gray-700/60 ${colorClass}`}
-        title={name}
-      >
-        {initials}
-      </div>
-    );
-  }
-
-  return (
-    <div
-      data-testid={`student-avatar-${studentId}`}
-      className="w-5 h-5 rounded-full bg-gray-700 flex items-center justify-center shrink-0 text-gray-300"
-    >
-      <User className="w-3 h-3" />
-    </div>
-  );
-};
 
 export const StudentRosterZone: React.FC<StudentRosterZoneProps> = ({
   assignment,
@@ -282,7 +209,7 @@ export const StudentRosterZone: React.FC<StudentRosterZoneProps> = ({
                     : 'hover:bg-[#22262C]/60'
                 }`}
               >
-                {/* Line 1: Checkbox + Avatar + Full Student Name */}
+                {/* Line 1: Checkbox + Full Student Name */}
                 <div className="flex items-center space-x-2 min-w-0">
                   <input
                     type="checkbox"
@@ -294,12 +221,6 @@ export const StudentRosterZone: React.FC<StudentRosterZoneProps> = ({
                     }}
                     onChange={() => onToggleCheckStudent(sub.studentId)}
                     className="w-3.5 h-3.5 rounded border-[#333842] bg-[#121316] text-[#D4AF37] focus:ring-0 cursor-pointer shrink-0"
-                  />
-
-                  <StudentAvatar
-                    avatarUrl={sub.studentAvatarUrl}
-                    name={sub.studentName}
-                    studentId={sub.studentId}
                   />
 
                   <div className="font-medium text-gray-200 truncate flex items-center space-x-1 min-w-0">

@@ -108,7 +108,6 @@ export interface StudentSubmissionDoc {
   submissionId: string;
   studentName: string;
   studentEmail?: string;
-  studentAvatarUrl?: string;
   state: SubmissionState;
   late: boolean;
   attachments: SubmissionAttachment[];

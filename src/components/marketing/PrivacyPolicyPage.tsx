@@ -155,14 +155,6 @@ export const PrivacyPolicyPage: React.FC<PrivacyPolicyPageProps> = ({ onNavigate
                 </tr>
                 <tr>
                   <td className="py-3 px-4 font-mono text-[11px] text-[#D4AF37]">
-                    .../auth/classroom.profile.photos
-                  </td>
-                  <td className="py-3 px-4">
-                    Displays student profile avatar images alongside student names in the grading roster UI.
-                  </td>
-                </tr>
-                <tr>
-                  <td className="py-3 px-4 font-mono text-[11px] text-[#D4AF37]">
                     .../auth/classroom.coursework.students
                   </td>
                   <td className="py-3 px-4">

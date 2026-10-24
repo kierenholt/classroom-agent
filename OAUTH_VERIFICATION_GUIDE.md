@@ -27,46 +27,32 @@ Fill in the **Branding** page in the Google Cloud Console with these exact value
 
 ## 2. Exact OAuth Scopes (`Google Auth Platform > Data Access`)
 
-Ensure only the following **6 scopes** (plus standard `openid`, `email`, `profile`) are listed in your Data Access configuration (`classroom.student-submissions.students.readonly` has been removed because `classroom.coursework.students` is a superset):
+Google Cloud Console groups your 5 scopes into two sections:
 
-1. `https://www.googleapis.com/auth/classroom.courses.readonly` *(Sensitive)*
-2. `https://www.googleapis.com/auth/classroom.rosters.readonly` *(Sensitive)*
-3. `https://www.googleapis.com/auth/classroom.profile.photos` *(Sensitive)*
-4. `https://www.googleapis.com/auth/classroom.coursework.students` *(Sensitive)*
-5. `https://www.googleapis.com/auth/drive.file` *(Non-Sensitive)*
-6. `https://www.googleapis.com/auth/drive.readonly` *(Restricted)*
+- **Non-Sensitive Scopes** *(No justification box required)*:
+  1. `https://www.googleapis.com/auth/classroom.courses.readonly`
+  2. `https://www.googleapis.com/auth/classroom.rosters.readonly`
+  3. `https://www.googleapis.com/auth/classroom.coursework.students`
+  4. `https://www.googleapis.com/auth/drive.file`
+- **Restricted Scopes** *(Requires justification below)*:
+  5. `https://www.googleapis.com/auth/drive.readonly`
 
 ---
 
-## 3. Copy-Paste Scope Justifications (`Verification Center`)
+## 3. Copy-Paste Scope Justifications (`Google Auth Platform > Data Access`)
 
-Copy and paste the text below into the corresponding justification fields in the Google Cloud Console OAuth Verification form:
+Each justification box has a **1,000-character limit** and must explain: (1) why you need that specific scope, (2) how you use it, and (3) why more limited scopes aren't sufficient.
 
-### Overall Justification: How does your application use the requested Google API scopes?
-> Classroom Agent (https://classroomagent.co.uk) is a web-based AI grading and feedback workstation built exclusively for Google Classroom educators. Teachers sign in with their Google Classroom account to open an interactive 70/30 grading workspace. All 6 requested scopes are required immediately upon sign-in because the application preloads the teacher's active Google Classroom courses and coursework assignments on login, displays the class student roster with profile avatars, renders student-submitted Google Drive files (Google Docs, Slides, Sheets, PDFs, images, and code files) inside the grading preview canvas, and writes teacher-approved grades and formatted Google Doc feedback documents back to the student's Google Classroom submission.
+### Restricted Scopes (`.../auth/drive.readonly`) — "How will the scopes be used?" *(812 / 1,000 characters)*
 
-### Why isn't a narrower scope sufficient? (General / `drive.readonly` explanation)
-> Classroom Agent must read and render student-submitted coursework attachments stored in Google Drive (e.g., essays in Google Docs, slide decks, and PDFs turned in by students via Google Classroom). Because these student files were created and uploaded by students inside Google Classroom—rather than created by the Classroom Agent app itself or opened via a standalone Google Drive file picker—the narrower `drive.file` scope cannot read or export student submission attachments (`403 Insufficient Permission`). Therefore, `https://www.googleapis.com/auth/drive.readonly` is strictly required to preview student submissions in the workspace canvas and extract text when the teacher requests an AI rubric evaluation. For creating new feedback documents, we strictly use `https://www.googleapis.com/auth/drive.file`.
+```text
+Classroom Agent requires https://www.googleapis.com/auth/drive.readonly so teachers can view and grade student-submitted coursework files stored in Google Drive:
 
-### Per-Scope Justifications
+1) Submission Preview & Cloning: Calls drive.files.get and drive.files.export to render student-submitted Google Docs, Slides, Sheets, PDFs, images, and code files inside the teacher's grading canvas, and copies student submission files when cloning assignments.
+2) Rubric Evaluation: Extracts text from student submission files when the teacher clicks "Grade Selected" to draft rubric-aligned feedback.
 
-- **`https://www.googleapis.com/auth/classroom.courses.readonly`**
-  > Used to call `courses.list(teacherId: 'me', courseStates: ['ACTIVE'])` and `courses.get` so the authenticated teacher can view and select their active Google Classroom courses in the Assignment Picker modal.
-
-- **`https://www.googleapis.com/auth/classroom.rosters.readonly`**
-  > Used to call `courses.students.list` so the teacher's grading workspace (Zone A Student Roster) displays the enrolled students' names and maps each student to their coursework submission status.
-
-- **`https://www.googleapis.com/auth/classroom.profile.photos`**
-  > Used to read `userProfile.photoUrl` from the course roster response so student profile avatars are displayed next to student names in the grading roster for quick visual identification by the teacher.
-
-- **`https://www.googleapis.com/auth/classroom.coursework.students`**
-  > Used to list and read coursework assignments and rubrics (`courses.courseWork.list`, `courses.courseWork.get`, `courses.courseWork.rubrics.list`), create new coursework assignments (`courses.courseWork.create`), list student submissions (`courses.courseWork.studentSubmissions.list`), attach teacher-approved feedback Google Docs (`courses.courseWork.studentSubmissions.modifyAttachments`), patch numerical grades (`draftGrade` and `assignedGrade` via `studentSubmissions.patch`), and return graded work to students (`studentSubmissions.return`).
-
-- **`https://www.googleapis.com/auth/drive.readonly`**
-  > Used to call `drive.files.get` and `drive.files.export` to render student-submitted Google Docs, Slides, Sheets, PDFs, and images inside the teacher's Submission Preview Canvas (Zone B), and to extract the text content of a student's submitted file when the teacher explicitly clicks "Grade Selected" to evaluate the submission against the assignment rubric.
-
-- **`https://www.googleapis.com/auth/drive.file`**
-  > Used to create formatted Google Doc feedback reports (`drive.files.create`) containing the teacher-approved rubric breakdown, comments, and next steps, which are then attached to the student's Google Classroom submission.
+Why narrower scopes (drive.file / Google Picker) aren't sufficient: Student coursework files are uploaded by students in Google Classroom, not created by our app, so drive.file fails with 403 Insufficient Permission, and batch-grading 30+ students cannot use a manual file picker per student.
+```
 
 ---
 
@@ -85,7 +71,7 @@ Google requires an **unlisted YouTube video** demonstrating the complete OAuth g
      - Slowly scroll down the consent screen showing the app name (`Classroom Agent`), logo, and all requested Classroom and Drive permissions, then click **Continue / Allow**.
 3. **Demonstrate Every Scope in the App**:
    - **Courses (`classroom.courses.readonly`) & Coursework (`classroom.coursework.students`)**: Click `+ Assignment` in the top tab bar to open the Assignment Picker modal, select a course, and select an assignment (or create a new assignment).
-   - **Roster & Photos (`classroom.rosters.readonly` + `classroom.profile.photos`)**: Point the cursor at the left-hand **Student Roster (Zone A)** showing student names, profile avatars, and Turn-In statuses.
+   - **Roster (`classroom.rosters.readonly`)**: Point the cursor at the left-hand **Student Roster (Zone A)** showing student names and Turn-In statuses.
    - **Drive Read (`drive.readonly`)**: Click on a student with a turned-in submission to show their Google Doc / PDF rendering live inside the **Submission Preview Canvas (Zone B)** and the Rubric pane at the bottom.
    - **AI Grading + Feedback Doc Creation (`drive.file`) + Grade Write-Back (`classroom.coursework.students`)**:
      - Click **Grade Selected** in the right-hand AI Co-Pilot pane.

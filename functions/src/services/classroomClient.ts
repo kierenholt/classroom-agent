@@ -252,22 +252,12 @@ export async function listCourseWorkSubmissions(
   return submissions;
 }
 
-function sanitizeGooglePhotoUrl(url?: string | null): string | undefined {
-  if (!url || typeof url !== 'string') return undefined;
-  const trimmed = url.trim();
-  if (!trimmed) return undefined;
-  if (trimmed.startsWith('//')) {
-    return `https:${trimmed}`;
-  }
-  return trimmed;
-}
-
 /**
  * Maps a raw Google Classroom StudentSubmission + Student profile into our structured live submission format.
  */
 export function mapLiveClassroomSubmission(
   sub: classroom_v1.Schema$StudentSubmission,
-  profile?: { name: string; email?: string | null; photoUrl?: string | null }
+  profile?: { name: string; email?: string | null }
 ) {
   const studentId = sub.userId || sub.id!;
   const isReturned = sub.state === 'RETURNED';
@@ -350,7 +340,6 @@ export function mapLiveClassroomSubmission(
     submissionId: sub.id || studentId,
     studentName: profile?.name || `Student ${studentId.slice(0, 6)}`,
     studentEmail: profile?.email || undefined,
-    studentAvatarUrl: sanitizeGooglePhotoUrl(profile?.photoUrl),
     state: effectiveState,
     late: sub.late || false,
     attachments,
@@ -467,13 +456,12 @@ export async function fetchLiveWorkspaceFromClassroom(
     fetchCourseWorkRubricFromClassroom(accessToken, courseId, courseWorkId),
   ]);
 
-  const studentMap = new Map<string, { name: string; email?: string | null; photoUrl?: string | null }>();
+  const studentMap = new Map<string, { name: string; email?: string | null }>();
   for (const st of students) {
     if (st.userId) {
       studentMap.set(st.userId, {
         name: st.profile?.name?.fullName || `Student ${st.userId.slice(0, 6)}`,
         email: st.profile?.emailAddress,
-        photoUrl: sanitizeGooglePhotoUrl(st.profile?.photoUrl),
       });
     }
   }
