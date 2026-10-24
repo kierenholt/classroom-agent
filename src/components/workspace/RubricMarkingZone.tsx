@@ -53,14 +53,15 @@ export const RubricMarkingZone: React.FC<RubricMarkingZoneProps> = ({
               <button
                 type="button"
                 data-testid="edit-rubric-button"
+                title="Edit Rubric"
+                aria-label="Edit Rubric"
                 onClick={() => {
                   setInitialShowCopyPicker(false);
                   setIsModalOpen(true);
                 }}
-                className="flex items-center space-x-1 text-[11px] font-medium text-[#D4AF37] hover:text-[#f3e5ab] hover:bg-[#D4AF37]/10 px-2 py-0.5 rounded transition-colors"
+                className="flex items-center text-[11px] font-medium text-[#D4AF37] hover:text-[#f3e5ab] hover:bg-[#D4AF37]/10 p-1 rounded transition-colors"
               >
-                <Edit3 className="w-3 h-3" />
-                <span>Edit Rubric</span>
+                <Edit3 className="w-3.5 h-3.5" />
               </button>
             )}
           </div>

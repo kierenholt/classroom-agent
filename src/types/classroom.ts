@@ -7,7 +7,7 @@ export interface RubricCriterion {
 
 export interface AssignmentRubric {
   id: string;
-  title: string;
+  title?: string;
   criteria: RubricCriterion[];
   updatedAt: string;
 }

@@ -649,7 +649,11 @@ export const ChatPanel: React.FC<ChatPanelProps> = ({
                 key={msg.id}
                 className={`flex flex-col ${msg.sender === 'user' ? 'items-end' : 'items-start'}`}
               >
-                <div className="flex items-center justify-between w-full max-w-[90%] text-[11px] text-gray-400 mb-1 px-1">
+                <div
+                  className={`flex items-center ${
+                    msg.sender === 'user' ? 'justify-end' : 'justify-between'
+                  } w-full max-w-[90%] text-[11px] text-gray-400 mb-1 px-1`}
+                >
                   <div className="flex items-center space-x-1.5">
                     {msg.sender === 'user' ? (
                       <>

@@ -88,10 +88,6 @@ export const gradingToolDeclarations = [
           enum: ['PUBLISHED', 'DRAFT'],
           description: 'Whether to publish the assignment immediately or save as draft (defaults to PUBLISHED).',
         },
-        rubricTitle: {
-          type: 'string',
-          description: 'Optional title for an initial grading rubric to attach to the new assignment.',
-        },
         rubricCriteria: {
           type: 'array',
           description:
@@ -118,7 +114,6 @@ export const gradingToolDeclarations = [
     parameters: {
       type: 'object',
       properties: {
-        title: { type: 'string', description: 'Title or name for this rubric' },
         criteria: {
           type: 'array',
           description: 'List of rubric criteria',
@@ -317,7 +312,6 @@ export async function executeGradingTool(
       if (Array.isArray(args.rubricCriteria) && args.rubricCriteria.length > 0) {
         savedRubric = {
           id: `rubric_${Date.now()}`,
-          title: args.rubricTitle || `${title} Rubric`,
           criteria: args.rubricCriteria,
           updatedAt: new Date().toISOString(),
         };
@@ -350,7 +344,7 @@ export async function executeGradingTool(
     }
 
     case 'set_assignment_rubric': {
-      const { title, criteria } = args;
+      const { criteria } = args;
       if (!Array.isArray(criteria) || criteria.length === 0) {
         throw new Error('Rubric must contain at least one criterion.');
       }
@@ -358,7 +352,6 @@ export async function executeGradingTool(
       const totalCriterionPoints = criteria.reduce((sum: number, c: any) => sum + (Number(c.maxPoints) || 0), 0);
       const rubricPayload = {
         id: `rubric_${Date.now()}`,
-        title: title || 'Grading Rubric',
         criteria,
         updatedAt: new Date().toISOString(),
       };

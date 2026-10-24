@@ -49,7 +49,6 @@ export async function seedTestAssignment(assignmentId: string, assignment: Recor
     if (assignment.rubric) {
       docData.rubric = {
         id: assignment.rubric.id,
-        title: assignment.rubric.title,
         criteria: (assignment.rubric.criteria || []).map((c: any) => ({
           id: c.id,
           title: c.title,
@@ -74,7 +73,6 @@ export async function seedTestAssignment(assignmentId: string, assignment: Recor
       mapValue: {
         fields: {
           id: { stringValue: assignment.rubric.id },
-          title: { stringValue: assignment.rubric.title },
           criteria: {
             arrayValue: {
               values: assignment.rubric.criteria.map((c: any) => ({

@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
-import { RefreshCw, Send, CheckCircle2, Clock, ExternalLink } from 'lucide-react';
+import { RefreshCw, Send, CheckCircle2, Clock, Edit3, Eye } from 'lucide-react';
+import { GoogleClassroomIcon } from '../common/GoogleClassroomIcon';
 import { AssignmentDoc, StudentSubmissionDoc, CriterionEvaluation } from '../../types/classroom';
 
 interface StudentEffectiveEdit {
@@ -17,6 +18,8 @@ interface StudentRosterZoneProps {
   onToggleCheckStudent: (studentId: string) => void;
   onSelectStudent: (studentId: string) => void;
   onSyncClassroom: () => Promise<void>;
+  onOpenViewAssignment?: () => void;
+  onOpenEditAssignment?: () => void;
   onSaveDraftStudents: (studentIds: string[]) => Promise<void>;
   onReturnStudents: (studentIds: string[]) => Promise<void>;
   onUpdateStudentScore: (studentId: string, newScore: number | '') => void;
@@ -36,6 +39,8 @@ export const StudentRosterZone: React.FC<StudentRosterZoneProps> = ({
   onToggleCheckStudent,
   onSelectStudent,
   onSyncClassroom,
+  onOpenViewAssignment,
+  onOpenEditAssignment,
   onReturnStudents,
   onUpdateStudentScore,
   getStudentEffectiveEdit,
@@ -85,9 +90,9 @@ export const StudentRosterZone: React.FC<StudentRosterZoneProps> = ({
               rel="noopener noreferrer"
               data-testid="open-classroom-link"
               title="Open in Google Classroom"
-              className="p-1 rounded text-gray-400 hover:text-white hover:bg-[#22262C] transition-colors"
+              className="p-1 rounded text-gray-400 hover:text-white hover:bg-[#22262C] transition-colors flex items-center justify-center"
             >
-              <ExternalLink className="w-3.5 h-3.5" />
+              <GoogleClassroomIcon className="w-3.5 h-3.5" />
             </a>
             <button
               data-testid="sync-classroom-button"
@@ -97,6 +102,24 @@ export const StudentRosterZone: React.FC<StudentRosterZoneProps> = ({
               className="p-1 rounded text-gray-400 hover:text-white hover:bg-[#22262C] transition-colors disabled:opacity-50"
             >
               <RefreshCw className={`w-3.5 h-3.5 ${isSyncing ? 'animate-spin text-[#D4AF37]' : ''}`} />
+            </button>
+            <button
+              type="button"
+              data-testid="view-assignment-button"
+              onClick={onOpenViewAssignment}
+              title="View Assignment (Rendered Markdown)"
+              className="p-1 rounded text-gray-400 hover:text-white hover:bg-[#22262C] transition-colors"
+            >
+              <Eye className="w-3.5 h-3.5" />
+            </button>
+            <button
+              type="button"
+              data-testid="edit-assignment-button"
+              onClick={onOpenEditAssignment}
+              title="Edit Assignment"
+              className="p-1 rounded text-gray-400 hover:text-white hover:bg-[#22262C] transition-colors"
+            >
+              <Edit3 className="w-3.5 h-3.5" />
             </button>
           </div>
         </div>
@@ -132,10 +155,10 @@ export const StudentRosterZone: React.FC<StudentRosterZoneProps> = ({
             data-testid="return-submission-button"
             onClick={() => onReturnStudents(checkedStudentIds)}
             disabled={isReturning || checkedStudentIds.length === 0}
-            className="flex-1 flex items-center justify-center space-x-1 py-1 px-2 rounded bg-[#22262C] hover:bg-[#2D323A] text-gray-200 border border-[#333842] font-medium transition-colors disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer"
+            className="flex-1 h-10 flex items-center justify-center space-x-1 py-1 px-2 rounded bg-[#22262C] hover:bg-[#2D323A] text-gray-200 border border-[#333842] font-medium transition-colors disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer"
           >
-            <Send className="w-3 h-3 text-[#D4AF37]" />
-            <span>
+            <Send className="w-3 h-3 text-[#D4AF37] shrink-0" />
+            <span className="text-center leading-tight">
               {isReturning
                 ? 'Returning...'
                 : checkedStudentIds.length > 0
@@ -154,10 +177,10 @@ export const StudentRosterZone: React.FC<StudentRosterZoneProps> = ({
               onReturnStudents(targetIds);
             }}
             disabled={isReturning || submissions.length === 0}
-            className="flex-1 flex items-center justify-center space-x-1 py-1 px-2 rounded bg-emerald-600 hover:bg-emerald-500 text-white font-medium transition-colors disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer"
+            className="flex-1 h-10 flex items-center justify-center space-x-1 py-1 px-2 rounded bg-emerald-600 hover:bg-emerald-500 text-white font-medium transition-colors disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer"
           >
-            <Send className="w-3 h-3" />
-            <span>{isReturning ? 'Returning...' : 'Return All'}</span>
+            <Send className="w-3 h-3 shrink-0" />
+            <span className="text-center leading-tight">{isReturning ? 'Returning...' : 'Return All'}</span>
           </button>
         </div>
       </div>

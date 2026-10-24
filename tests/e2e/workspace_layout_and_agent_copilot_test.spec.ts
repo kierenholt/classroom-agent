@@ -578,7 +578,7 @@ test.describe('Classroom Agent - Workspace and Agent Co-Pilot Tests', () => {
 
     const rubricModal = page.locator('[data-testid="rubric-edit-modal"]');
     await expect(rubricModal).toBeVisible({ timeout: 5000 });
-    await expect(page.locator('[data-testid="rubric-title-input"]')).toBeVisible();
+    await expect(page.locator('[data-testid="rubric-title-input"]')).toHaveCount(0);
     await expect(page.locator('[data-testid="rubric-total-points"]')).toBeVisible();
     await expect(page.locator('[data-testid="add-criterion-button"]')).toBeVisible();
 
@@ -799,6 +799,47 @@ test.describe('Classroom Agent - Workspace and Agent Co-Pilot Tests', () => {
     await expect(classroomLink).toHaveAttribute('rel', 'noopener noreferrer');
     const href = await classroomLink.getAttribute('href');
     expect(href).toMatch(/classroom\.google\.com/);
+
+    // Verify sync, view, and edit buttons in the assignment header
+    const syncBtn = page.locator('[data-testid="sync-classroom-button"]');
+    await expect(syncBtn).toBeVisible();
+
+    const viewBtn = page.locator('[data-testid="view-assignment-button"]');
+    await expect(viewBtn).toBeVisible();
+    await viewBtn.click();
+
+    // Verify view assignment modal appears with rendered markdown
+    const viewModal = page.locator('[data-testid="view-assignment-modal"]');
+    await expect(viewModal).toBeVisible();
+    await expect(page.locator('[data-testid="view-assignment-title"]')).not.toBeEmpty();
+    await expect(page.locator('[data-testid="view-assignment-max-points"]')).toBeVisible();
+    await expect(page.locator('[data-testid="view-assignment-description"]')).toBeVisible();
+
+    // Close view modal
+    await page.locator('[data-testid="close-view-assignment-modal"]').click();
+    await expect(viewModal).toBeHidden();
+
+    const editBtn = page.locator('[data-testid="edit-assignment-button"]');
+    await expect(editBtn).toBeVisible();
+    await editBtn.click();
+
+    // Verify edit assignment modal appears with fields populated
+    const editModal = page.locator('[data-testid="edit-assignment-modal"]');
+    await expect(editModal).toBeVisible();
+    await expect(page.locator('[data-testid="edit-assignment-title-input"]')).not.toBeEmpty();
+    await expect(page.locator('[data-testid="edit-assignment-max-points-input"]')).toBeVisible();
+    await expect(page.locator('[data-testid="edit-assignment-description-input"]')).toBeVisible();
+    await expect(page.locator('[data-testid="edit-assignment-due-date-input"]')).toBeVisible();
+
+    // Toggle Preview Markdown tab in edit modal
+    await page.locator('[data-testid="edit-modal-preview-tab"]').click();
+    await expect(page.locator('[data-testid="edit-modal-rendered-preview"]')).toBeVisible();
+    await page.locator('[data-testid="edit-modal-edit-tab"]').click();
+    await expect(page.locator('[data-testid="edit-assignment-title-input"]')).toBeVisible();
+
+    // Close the edit modal
+    await page.locator('[data-testid="close-edit-assignment-modal"]').click();
+    await expect(editModal).toBeHidden();
   });
 
   test('configureFeedbackOptions_settingsModalOpened_updatesAndPersistsFeedbackPreferences_test', async ({
@@ -2624,9 +2665,9 @@ test.describe('Classroom Agent - Workspace and Agent Co-Pilot Tests', () => {
       await expect(sourceRubricBtn).toBeVisible({ timeout: 15000 });
       await sourceRubricBtn.click();
 
-      // Verify the picker closes and the copied rubric title & criteria populate the editor
+      // Verify the picker closes and the copied rubric criteria populate the editor (with no rubric title input)
       await expect(copyPickerPanel).toBeHidden({ timeout: 10000 });
-      await expect(page.locator('[data-testid="rubric-title-input"]')).toHaveValue('Copied Rubric Verification');
+      await expect(page.locator('[data-testid="rubric-title-input"]')).toHaveCount(0);
       await expect(page.locator('[data-testid="criterion-title-input-0"]')).toHaveValue('Cloned Criterion Alpha');
       await expect(page.locator('[data-testid="criterion-title-input-1"]')).toHaveValue('Cloned Criterion Beta');
 
@@ -2649,6 +2690,101 @@ test.describe('Classroom Agent - Workspace and Agent Co-Pilot Tests', () => {
       }
       if (targetCourseId) {
         await sweepOrphanedTestAssignments(targetCourseId).catch(() => null);
+      }
+    }
+  });
+
+  test('editAssignment_updateTitleAndPoints_updatesWorkspaceHeader_test', async ({ page }) => {
+    let googleToken = '';
+    let customToken = '';
+    let createdCwId: string | null = null;
+    let targetCourseId: string | null = null;
+    try {
+      const {
+        getLiveTeacherAccessToken,
+        getLiveTestTeacherCustomToken,
+        testCourseId,
+        createLiveClassroomAssignmentFixture,
+        deleteLiveClassroomAssignmentFixture,
+      } = await import('../helpers/classroomSandboxSeeder');
+
+      targetCourseId = testCourseId;
+      [googleToken, customToken] = await Promise.all([
+        getLiveTeacherAccessToken(),
+        getLiveTestTeacherCustomToken(),
+      ]);
+
+      const initialTitle = `[E2E Test] Editable CW ${Date.now()}`;
+      const created = await createLiveClassroomAssignmentFixture(testCourseId, {
+        title: initialTitle,
+        description: 'Initial description',
+        maxPoints: 50,
+      });
+      createdCwId = created.id;
+
+      await page.addInitScript(
+        ({ gToken, cToken }) => {
+          if (gToken) window.sessionStorage.setItem('classroom_agent_google_access_token', gToken);
+          if (cToken) window.sessionStorage.setItem('classroom_agent_custom_token', cToken);
+        },
+        { gToken: googleToken, cToken: customToken }
+      );
+
+      await page.goto('/');
+
+      // Open assignment via + Assignment modal
+      const newAssignmentTabBtn = page.locator('[data-testid="new-assignment-tab-button"]');
+      await expect(newAssignmentTabBtn).toBeVisible({ timeout: 15000 });
+      await newAssignmentTabBtn.click();
+      await expect(page.locator('[data-testid="assignment-picker-modal"]')).toBeVisible({ timeout: 15000 });
+
+      const courseBtn = page.locator(`[data-testid="course-select-${targetCourseId}"]`);
+      await expect(courseBtn).toBeVisible({ timeout: 15000 });
+      await courseBtn.click();
+
+      const openBtn = page.locator(`[data-testid="open-assignment-button-${createdCwId}"]`);
+      await expect(openBtn).toBeVisible({ timeout: 15000 });
+      await openBtn.click();
+
+      // Verify workspace loads
+      await expect(page.locator('[data-testid="student-roster-list"]')).toBeVisible({ timeout: 15000 });
+
+      // Click Edit Assignment button in the top left header container
+      const editBtn = page.locator('[data-testid="edit-assignment-button"]');
+      await expect(editBtn).toBeVisible({ timeout: 10000 });
+      await editBtn.click();
+
+      const editModal = page.locator('[data-testid="edit-assignment-modal"]');
+      await expect(editModal).toBeVisible({ timeout: 10000 });
+
+      // Check current values
+      const titleInput = page.locator('[data-testid="edit-assignment-title-input"]');
+      await expect(titleInput).toHaveValue(initialTitle);
+      const pointsInput = page.locator('[data-testid="edit-assignment-max-points-input"]');
+      await expect(pointsInput).toHaveValue('50');
+
+      // Update title and points
+      const updatedTitle = `[E2E Test] Modified Title ${Date.now()}`;
+      await titleInput.fill(updatedTitle);
+      await pointsInput.fill('75');
+
+      // Save changes
+      await page.locator('[data-testid="save-edit-assignment-button"]').click();
+
+      // Modal closes
+      await expect(editModal).toBeHidden({ timeout: 15000 });
+
+      // Workspace header reflects updated title and points
+      await expect(page.locator('[data-testid="assignment-max-points"]')).toContainText('75 pts', { timeout: 10000 });
+      await expect(page.locator('h2[title*="Modified Title"]')).toBeVisible({ timeout: 10000 });
+    } finally {
+      if (targetCourseId && createdCwId) {
+        try {
+          const { deleteLiveClassroomAssignmentFixture } = await import('../helpers/classroomSandboxSeeder');
+          await deleteLiveClassroomAssignmentFixture(targetCourseId, createdCwId);
+        } catch {
+          // ignore cleanup
+        }
       }
     }
   });

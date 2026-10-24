@@ -5,6 +5,8 @@ import {
   listTeacherCourses,
   listCourseWork,
   createCourseWork,
+  patchCourseWork,
+  UpdateCourseWorkInput,
   listCourseWorkSubmissions,
   fetchLiveWorkspaceFromClassroom,
   fetchCourseWorkRubricFromClassroom,
@@ -26,6 +28,9 @@ function getUpstreamErrorStatus(err: any): number {
   const msg = String(err?.message || '');
   if (code === 401 || /invalid credentials|unauthenticated/i.test(msg)) {
     return 401;
+  }
+  if (code === 403 || /permission denied|@ProjectPermissionDenied/i.test(msg)) {
+    return 403;
   }
   return 500;
 }
@@ -106,6 +111,38 @@ classroomRouter.post('/courses/:courseId/coursework', requireAuth, async (req: A
       stack: err.stack,
     });
     res.status(getUpstreamErrorStatus(err)).json({ error: `Failed to create assignment: ${err.message}` });
+  }
+});
+
+// 2c. Update Existing Coursework (Live in Google Classroom API)
+classroomRouter.patch('/courses/:courseId/coursework/:courseWorkId', requireAuth, async (req: AuthenticatedRequest, res: Response): Promise<void> => {
+  const { courseId, courseWorkId } = req.params;
+  const { title, description, maxPoints, dueDate } = req.body || {};
+
+  if (!courseId || !courseId.trim()) {
+    res.status(400).json({ error: 'courseId is required to update coursework. Fail-fast enabled.' });
+    return;
+  }
+  if (!courseWorkId || !courseWorkId.trim()) {
+    res.status(400).json({ error: 'courseWorkId is required to update coursework. Fail-fast enabled.' });
+    return;
+  }
+
+  const updates: UpdateCourseWorkInput = {};
+  if (title !== undefined) updates.title = String(title);
+  if (description !== undefined) updates.description = String(description);
+  if (maxPoints !== undefined) updates.maxPoints = Number(maxPoints);
+  if (dueDate !== undefined) updates.dueDate = String(dueDate);
+
+  try {
+    const updated = await patchCourseWork(req.googleAccessToken!, courseId, courseWorkId, updates);
+    res.json({ success: true, courseWork: updated });
+  } catch (err: any) {
+    logger.error(`Failed to update coursework ${courseWorkId} in course ${courseId}: ${err.message}`, (req as any).executionId, {
+      error: err.message,
+      stack: err.stack,
+    });
+    res.status(getUpstreamErrorStatus(err)).json({ error: `Failed to update assignment: ${err.message}` });
   }
 });
 
@@ -292,7 +329,7 @@ classroomRouter.post(
   requireAuth,
   async (req: AuthenticatedRequest, res: Response): Promise<void> => {
     const { assignmentId } = req.params;
-    const { title, criteria } = req.body;
+    const { criteria } = req.body;
 
     if (!assignmentId) {
       res.status(400).json({ error: 'assignmentId is required. Fail-fast enabled.' });
@@ -348,7 +385,6 @@ classroomRouter.post(
 
       const rubricPayload = {
         id: existingData?.rubric?.id || `rubric_${Date.now()}`,
-        title: typeof title === 'string' && title.trim() ? title.trim() : 'Grading Rubric',
         criteria: sanitizedCriteria,
         updatedAt: new Date().toISOString(),
       };

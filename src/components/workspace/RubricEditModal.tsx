@@ -21,6 +21,8 @@ interface EditableCriterion {
   description: string;
 }
 
+export type RubricModalTab = 'create' | 'copy';
+
 export const RubricEditModal: React.FC<RubricEditModalProps> = ({
   isOpen,
   assignmentId,
@@ -41,24 +43,27 @@ export const RubricEditModal: React.FC<RubricEditModalProps> = ({
   const currentCourseId = useMemo(() => assignmentId.split('_')[0] || '', [assignmentId]);
   const currentCourseWorkId = useMemo(() => assignmentId.split('_').slice(1).join('_') || '', [assignmentId]);
 
-  const [title, setTitle] = useState('Grading Rubric');
+  const [activeTab, setActiveTab] = useState<RubricModalTab>('create');
+  const [title, setTitle] = useState<string>('Grading Rubric');
   const [criteria, setCriteria] = useState<EditableCriterion[]>([]);
   const [isSaving, setIsSaving] = useState(false);
   const [validationError, setValidationError] = useState<string | null>(null);
 
-  const [showCopyPicker, setShowCopyPicker] = useState(false);
   const [selectedCopyCourseId, setSelectedCopyCourseId] = useState<string>('');
   const [loadingCopyCwId, setLoadingCopyCwId] = useState<string | null>(null);
+  const [rubricPresenceByCwId, setRubricPresenceByCwId] = useState<Record<string, boolean>>({});
+  const [cachedRubricsByCwId, setCachedRubricsByCwId] = useState<Record<string, AssignmentRubric>>({});
+  const [isCheckingRubrics, setIsCheckingRubrics] = useState<boolean>(false);
 
   useEffect(() => {
     if (isOpen) {
       setValidationError(null);
-      setShowCopyPicker(!!initialShowCopyPicker);
+      setActiveTab(initialShowCopyPicker ? 'copy' : 'create');
       setSelectedCopyCourseId(currentCourseId);
       setLoadingCopyCwId(null);
+      setTitle(initialRubric?.title || 'Grading Rubric');
 
       if (initialRubric && initialRubric.criteria && initialRubric.criteria.length > 0) {
-        setTitle(initialRubric.title || 'Grading Rubric');
         setCriteria(
           initialRubric.criteria.map((c: RubricCriterion) => ({
             id: c.id,
@@ -68,7 +73,6 @@ export const RubricEditModal: React.FC<RubricEditModalProps> = ({
           }))
         );
       } else {
-        setTitle('Grading Rubric');
         // Start with one blank criterion card ready to fill in
         setCriteria([
           {
@@ -83,7 +87,7 @@ export const RubricEditModal: React.FC<RubricEditModalProps> = ({
   }, [isOpen, initialRubric, initialShowCopyPicker, currentCourseId]);
 
   useEffect(() => {
-    if (!isOpen || !showCopyPicker) return;
+    if (!isOpen || activeTab !== 'copy') return;
     if (courses.length === 0) {
       preloadAssignments(false);
     }
@@ -93,19 +97,98 @@ export const RubricEditModal: React.FC<RubricEditModalProps> = ({
         // Handled in UI if empty
       });
     }
-  }, [isOpen, showCopyPicker, selectedCopyCourseId, currentCourseId, courses.length, courseworkByCourseId, preloadAssignments, fetchCourseworkForCourse]);
+  }, [isOpen, activeTab, selectedCopyCourseId, currentCourseId, courses.length, courseworkByCourseId, preloadAssignments, fetchCourseworkForCourse]);
 
   const totalPoints = useMemo(() => {
     return criteria.reduce((sum, c) => sum + (Number(c.maxPoints) || 0), 0);
   }, [criteria]);
 
-  if (!isOpen) return null;
-
   const activeCopyCourseId = selectedCopyCourseId || currentCourseId;
-  const copySourceAssignments: ClassroomCoursework[] = (courseworkByCourseId[activeCopyCourseId] || []).filter(
-    (cw) => !(activeCopyCourseId === currentCourseId && cw.id === currentCourseWorkId)
-  );
+  const copySourceAssignments: ClassroomCoursework[] = useMemo(() => {
+    return (courseworkByCourseId[activeCopyCourseId] || []).filter(
+      (cw) => !(activeCopyCourseId === currentCourseId && cw.id === currentCourseWorkId)
+    );
+  }, [courseworkByCourseId, activeCopyCourseId, currentCourseId, currentCourseWorkId]);
+
   const isCopyCourseworkLoading = !!loadingCoursework[activeCopyCourseId] && copySourceAssignments.length === 0;
+
+  // Inspect coursework items in this class to find which ones actually have a rubric
+  useEffect(() => {
+    if (!isOpen || activeTab !== 'copy' || isCopyCourseworkLoading) return;
+
+    const uninspected = copySourceAssignments.filter(
+      (cw) => rubricPresenceByCwId[cw.id] === undefined
+    );
+
+    if (uninspected.length === 0) return;
+
+    let isMounted = true;
+    setIsCheckingRubrics(true);
+
+    (async () => {
+      try {
+        const headers = await getAuthHeaders();
+        const results = await Promise.all(
+          uninspected.map(async (cw) => {
+            const sourceAssignmentId = `${activeCopyCourseId}_${cw.id}`;
+            try {
+              const res = await fetch(
+                `${env.API_BASE_URL}/classroom/assignments/${encodeURIComponent(sourceAssignmentId)}/rubric`,
+                { headers }
+              );
+              if (res.ok) {
+                const data = await res.json();
+                const fetchedRubric: AssignmentRubric | null = data.rubric || null;
+                const hasRubric = !!(
+                  fetchedRubric &&
+                  Array.isArray(fetchedRubric.criteria) &&
+                  fetchedRubric.criteria.length > 0
+                );
+                return { id: cw.id, hasRubric, rubric: hasRubric ? fetchedRubric : null };
+              }
+              return { id: cw.id, hasRubric: false, rubric: null };
+            } catch {
+              return { id: cw.id, hasRubric: false, rubric: null };
+            }
+          })
+        );
+
+        if (!isMounted) return;
+
+        setRubricPresenceByCwId((prev) => {
+          const next = { ...prev };
+          results.forEach((r) => {
+            next[r.id] = r.hasRubric;
+          });
+          return next;
+        });
+
+        setCachedRubricsByCwId((prev) => {
+          const next = { ...prev };
+          results.forEach((r) => {
+            if (r.rubric) {
+              next[r.id] = r.rubric;
+            }
+          });
+          return next;
+        });
+      } finally {
+        if (isMounted) {
+          setIsCheckingRubrics(false);
+        }
+      }
+    })();
+
+    return () => {
+      isMounted = false;
+    };
+  }, [isOpen, activeTab, isCopyCourseworkLoading, activeCopyCourseId, copySourceAssignments, rubricPresenceByCwId, getAuthHeaders]);
+
+  const eligibleAssignments = useMemo(() => {
+    return copySourceAssignments.filter((cw) => rubricPresenceByCwId[cw.id] === true);
+  }, [copySourceAssignments, rubricPresenceByCwId]);
+
+  if (!isOpen) return null;
 
   const handleCopyRubricFromAssignment = async (sourceCw: ClassroomCoursework) => {
     if (!activeCopyCourseId || loadingCopyCwId) return;
@@ -113,26 +196,33 @@ export const RubricEditModal: React.FC<RubricEditModalProps> = ({
     setValidationError(null);
 
     try {
-      const headers = await getAuthHeaders();
-      const sourceAssignmentId = `${activeCopyCourseId}_${sourceCw.id}`;
-      const res = await fetch(`${env.API_BASE_URL}/classroom/assignments/${encodeURIComponent(sourceAssignmentId)}/rubric`, {
-        headers,
-      });
+      let fetchedRubric: AssignmentRubric | null = cachedRubricsByCwId[sourceCw.id] || null;
 
-      if (!res.ok) {
-        const errText = await res.text();
-        throw new Error(errText || 'Failed to load rubric from assignment');
+      if (!fetchedRubric) {
+        const headers = await getAuthHeaders();
+        const sourceAssignmentId = `${activeCopyCourseId}_${sourceCw.id}`;
+        const res = await fetch(`${env.API_BASE_URL}/classroom/assignments/${encodeURIComponent(sourceAssignmentId)}/rubric`, {
+          headers,
+        });
+
+        if (!res.ok) {
+          const errText = await res.text();
+          throw new Error(errText || 'Failed to load rubric from assignment');
+        }
+
+        const data = await res.json();
+        fetchedRubric = data.rubric || null;
       }
-
-      const data = await res.json();
-      const fetchedRubric: AssignmentRubric | null = data.rubric || null;
 
       if (!fetchedRubric || !Array.isArray(fetchedRubric.criteria) || fetchedRubric.criteria.length === 0) {
         setValidationError(`No rubric found on "${sourceCw.title}".`);
         return;
       }
 
-      setTitle(fetchedRubric.title || 'Grading Rubric');
+      if (fetchedRubric.title) {
+        setTitle(fetchedRubric.title);
+      }
+
       setCriteria(
         fetchedRubric.criteria.map((c: RubricCriterion, idx: number) => ({
           id: c.id || `crit_${Date.now()}_${idx}`,
@@ -141,7 +231,7 @@ export const RubricEditModal: React.FC<RubricEditModalProps> = ({
           description: c.description || '',
         }))
       );
-      setShowCopyPicker(false);
+      setActiveTab('create');
     } catch (err: any) {
       setValidationError(err.message || `Failed to copy rubric from "${sourceCw.title}".`);
     } finally {
@@ -184,15 +274,12 @@ export const RubricEditModal: React.FC<RubricEditModalProps> = ({
   };
 
   const handleSave = async () => {
-    if (!title.trim()) {
-      setValidationError('Rubric title cannot be empty.');
-      return;
-    }
-
     if (criteria.length === 0) {
       setValidationError('A rubric must contain at least one criterion.');
       return;
     }
+
+    const trimmedTitle = title.trim() || 'Grading Rubric';
 
     for (let i = 0; i < criteria.length; i++) {
       const c = criteria[i];
@@ -213,7 +300,7 @@ export const RubricEditModal: React.FC<RubricEditModalProps> = ({
     try {
       const headers = await getAuthHeaders();
       const payload = {
-        title: title.trim(),
+        title: trimmedTitle,
         criteria: criteria.map((c) => ({
           id: c.id,
           title: c.title.trim(),
@@ -265,31 +352,51 @@ export const RubricEditModal: React.FC<RubricEditModalProps> = ({
                 : 'Create Grading Rubric'}
             </h2>
           </div>
-          <div className="flex items-center space-x-2">
-            <button
-              type="button"
-              data-testid="toggle-copy-rubric-picker-button"
-              onClick={() => setShowCopyPicker((prev) => !prev)}
-              disabled={isSaving}
-              className={`inline-flex items-center space-x-1.5 px-2.5 py-1 rounded-md border text-xs font-medium transition-colors cursor-pointer ${
-                showCopyPicker
-                  ? 'bg-[#D4AF37]/15 border-[#D4AF37] text-[#F3E5AB]'
-                  : 'bg-[#22262C] hover:bg-[#2D323A] border-[#333842] text-gray-200'
-              }`}
-              title="Copy rubric criteria from an older assignment"
-            >
-              <Copy className="w-3.5 h-3.5 text-[#D4AF37]" />
-              <span>Copy Rubric</span>
-            </button>
-            <button
-              data-testid="close-rubric-modal-button"
-              onClick={onClose}
-              disabled={isSaving}
-              className="text-gray-400 hover:text-white p-1 rounded-md hover:bg-[#22262C] transition-colors"
-            >
-              <X className="w-4 h-4" />
-            </button>
-          </div>
+          <button
+            data-testid="close-rubric-modal-button"
+            onClick={onClose}
+            disabled={isSaving}
+            className="text-gray-400 hover:text-white p-1 rounded-md hover:bg-[#22262C] transition-colors"
+          >
+            <X className="w-4 h-4" />
+          </button>
+        </div>
+
+        {/* Tab Navigation */}
+        <div className="flex border-b border-[#333842] px-5 bg-[#16181D]">
+          <button
+            type="button"
+            data-testid="rubric-tab-create"
+            onClick={() => {
+              setValidationError(null);
+              setActiveTab('create');
+            }}
+            className={`flex items-center space-x-2 py-2.5 px-4 text-xs font-medium border-b-2 transition-colors cursor-pointer ${
+              activeTab === 'create'
+                ? 'border-[#D4AF37] text-[#D4AF37] font-semibold'
+                : 'border-transparent text-gray-400 hover:text-gray-200 hover:border-gray-600'
+            }`}
+          >
+            <Plus className="w-3.5 h-3.5" />
+            <span>Create</span>
+          </button>
+
+          <button
+            type="button"
+            data-testid="rubric-tab-copy"
+            onClick={() => {
+              setValidationError(null);
+              setActiveTab('copy');
+            }}
+            className={`flex items-center space-x-2 py-2.5 px-4 text-xs font-medium border-b-2 transition-colors cursor-pointer ${
+              activeTab === 'copy'
+                ? 'border-[#D4AF37] text-[#D4AF37] font-semibold'
+                : 'border-transparent text-gray-400 hover:text-gray-200 hover:border-gray-600'
+            }`}
+          >
+            <Copy className="w-3.5 h-3.5" />
+            <span>Copy from Assignment</span>
+          </button>
         </div>
 
         {/* Scrollable Content */}
@@ -304,26 +411,14 @@ export const RubricEditModal: React.FC<RubricEditModalProps> = ({
             </div>
           )}
 
-          {/* Copy Rubric from Older Assignment Picker Panel */}
-          {showCopyPicker && (
+          {/* Copy from Assignment Tab Content */}
+          {activeTab === 'copy' && (
             <div
               data-testid="copy-rubric-picker-panel"
-              className="p-4 bg-[#121316] border border-[#D4AF37]/40 rounded-lg space-y-3"
+              className="space-y-4"
             >
-              <div className="flex items-center justify-between">
-                <div className="flex items-center space-x-2">
-                  <Copy className="w-3.5 h-3.5 text-[#D4AF37]" />
-                  <span className="font-semibold text-gray-200">
-                    Copy Rubric from an Existing Assignment
-                  </span>
-                </div>
-                <button
-                  type="button"
-                  onClick={() => setShowCopyPicker(false)}
-                  className="text-[11px] text-gray-400 hover:text-gray-200"
-                >
-                  Hide
-                </button>
+              <div className="text-gray-400 text-xs">
+                Select an assignment to copy its rubric criteria into this rubric.
               </div>
 
               {courses.length > 1 && (
@@ -335,7 +430,7 @@ export const RubricEditModal: React.FC<RubricEditModalProps> = ({
                     data-testid="copy-rubric-course-select"
                     value={activeCopyCourseId}
                     onChange={(e) => setSelectedCopyCourseId(e.target.value)}
-                    className="w-full bg-[#1A1D21] border border-[#333842] rounded-md px-2.5 py-1.5 text-xs text-gray-200 focus:outline-none focus:border-[#D4AF37]"
+                    className="w-full bg-[#121316] border border-[#333842] rounded-md px-2.5 py-1.5 text-xs text-gray-200 focus:outline-none focus:border-[#D4AF37]"
                   >
                     {courses.map((c) => (
                       <option key={c.id} value={c.id}>
@@ -346,18 +441,22 @@ export const RubricEditModal: React.FC<RubricEditModalProps> = ({
                 </div>
               )}
 
-              <div className="space-y-1.5 max-h-44 overflow-y-auto pr-1">
-                {isCopyCourseworkLoading ? (
-                  <div className="flex items-center justify-center space-x-2 py-4 text-gray-400">
-                    <Loader2 className="w-3.5 h-3.5 animate-spin text-[#D4AF37]" />
-                    <span>Loading assignments...</span>
+              <div className="space-y-2 max-h-80 overflow-y-auto pr-1">
+                {isCopyCourseworkLoading || (isCheckingRubrics && eligibleAssignments.length === 0) ? (
+                  <div className="flex items-center justify-center space-x-2 py-8 text-gray-400">
+                    <Loader2 className="w-4 h-4 animate-spin text-[#D4AF37]" />
+                    <span>
+                      {isCopyCourseworkLoading
+                        ? 'Loading assignments...'
+                        : 'Checking assignments for rubrics...'}
+                    </span>
                   </div>
-                ) : copySourceAssignments.length === 0 ? (
-                  <div className="py-3 text-center text-gray-500">
-                    No other assignments found in this class.
+                ) : eligibleAssignments.length === 0 ? (
+                  <div className="py-6 text-center text-gray-500 bg-[#121316] rounded-lg border border-dashed border-[#333842]">
+                    No assignments with a rubric found in this class.
                   </div>
                 ) : (
-                  copySourceAssignments.map((cw) => {
+                  eligibleAssignments.map((cw) => {
                     const isLoadingThis = loadingCopyCwId === cw.id;
                     return (
                       <button
@@ -366,11 +465,11 @@ export const RubricEditModal: React.FC<RubricEditModalProps> = ({
                         data-testid={`copy-rubric-source-${cw.id}`}
                         disabled={!!loadingCopyCwId}
                         onClick={() => handleCopyRubricFromAssignment(cw)}
-                        className="w-full text-left p-2.5 rounded-md bg-[#1A1D21] hover:bg-[#22262C] border border-[#333842] hover:border-[#D4AF37]/50 transition-all flex items-center justify-between gap-2 cursor-pointer disabled:opacity-50"
+                        className="w-full text-left p-3 rounded-lg bg-[#121316] hover:bg-[#22262C] border border-[#333842] hover:border-[#D4AF37]/50 transition-all flex items-center justify-between gap-3 cursor-pointer disabled:opacity-50"
                       >
                         <div className="min-w-0">
                           <div className="font-medium text-gray-200 truncate">{cw.title}</div>
-                          <div className="flex items-center space-x-2 text-[10px] text-gray-400 font-mono mt-0.5">
+                          <div className="flex items-center space-x-2 text-[10px] text-gray-400 font-mono mt-1">
                             <span className="inline-flex items-center space-x-1">
                               <Award className="w-3 h-3 text-[#D4AF37]" />
                               <span>{cw.maxPoints ?? 100} pts</span>
@@ -401,105 +500,92 @@ export const RubricEditModal: React.FC<RubricEditModalProps> = ({
             </div>
           )}
 
-          {/* Rubric Title */}
-          <div>
-            <label className="block text-[11px] font-semibold text-gray-300 uppercase tracking-wider mb-1.5">
-              Rubric Title
-            </label>
-            <input
-              type="text"
-              data-testid="rubric-title-input"
-              value={title}
-              onChange={(e) => setTitle(e.target.value)}
-              placeholder="e.g. Essay Evaluation Rubric"
-              className="w-full bg-[#121316] border border-[#333842] rounded-md px-3 py-2 text-gray-200 placeholder-gray-500 focus:outline-none focus:border-[#D4AF37]"
-            />
-          </div>
-
-          {/* Criteria List */}
-          <div className="space-y-3">
-            <div className="flex items-center justify-between">
-              <label className="text-[11px] font-semibold text-gray-300 uppercase tracking-wider">
-                Criteria ({criteria.length})
-              </label>
-              <div
-                data-testid="rubric-total-points"
-                className="text-xs font-mono font-medium text-[#F3E5AB] bg-[#22262C] px-2.5 py-1 rounded border border-[#333842]"
-              >
-                Total: <span className="font-bold text-[#D4AF37]">{totalPoints}</span> pts
-              </div>
-            </div>
-
+          {/* Create Tab Content */}
+          {activeTab === 'create' && (
             <div className="space-y-3">
-              {criteria.map((criterion, index) => (
-                <div
-                  key={criterion.id || index}
-                  data-testid={`rubric-criterion-card-${index}`}
-                  className="p-3.5 bg-[#121316] border border-[#333842] rounded-lg space-y-2.5 relative group"
-                >
-                  <div className="flex items-center space-x-2">
-                    <span className="text-gray-500 font-mono text-[10px] w-4">
-                      #{index + 1}
-                    </span>
-                    <input
-                      type="text"
-                      data-testid={`criterion-title-input-${index}`}
-                      value={criterion.title}
-                      onChange={(e) => handleCriterionChange(index, 'title', e.target.value)}
-                      placeholder="Criterion title (e.g. Structure & Thesis)"
-                      className="flex-1 bg-[#1A1D21] border border-[#333842] rounded px-2.5 py-1.5 text-xs text-gray-200 placeholder-gray-500 focus:outline-none focus:border-[#D4AF37]"
-                    />
-                    <div className="flex items-center space-x-1 shrink-0">
-                      <input
-                        type="number"
-                        data-testid={`criterion-points-input-${index}`}
-                        value={criterion.maxPoints}
-                        onChange={(e) =>
-                          handleCriterionChange(index, 'maxPoints', Number(e.target.value))
-                        }
-                        min={1}
-                        className="w-14 bg-[#1A1D21] border border-[#333842] rounded px-2 py-1.5 text-xs font-mono text-[#F3E5AB] text-right focus:outline-none focus:border-[#D4AF37]"
-                      />
-                      <span className="text-gray-400 font-mono text-[11px]">pts</span>
-                    </div>
-                    {criteria.length > 1 && (
-                      <button
-                        type="button"
-                        data-testid={`delete-criterion-button-${index}`}
-                        onClick={() => handleDeleteCriterion(index)}
-                        title="Delete criterion"
-                        className="text-gray-500 hover:text-red-400 p-1.5 rounded transition-colors"
-                      >
-                        <Trash2 className="w-3.5 h-3.5" />
-                      </button>
-                    )}
-                  </div>
-
-                  <div>
-                    <textarea
-                      data-testid={`criterion-desc-input-${index}`}
-                      value={criterion.description}
-                      onChange={(e) => handleCriterionChange(index, 'description', e.target.value)}
-                      placeholder="Description of expectations or performance standard (optional)..."
-                      rows={2}
-                      className="w-full bg-[#1A1D21] border border-[#333842] rounded p-2 text-xs text-gray-300 placeholder-gray-500 focus:outline-none focus:border-[#D4AF37] resize-none"
-                    />
+              <div className="flex items-center justify-between">
+                  <label className="text-[11px] font-semibold text-gray-300 uppercase tracking-wider">
+                    Criteria ({criteria.length})
+                  </label>
+                  <div
+                    data-testid="rubric-total-points"
+                    className="text-xs font-mono font-medium text-[#F3E5AB] bg-[#22262C] px-2.5 py-1 rounded border border-[#333842]"
+                  >
+                    Total: <span className="font-bold text-[#D4AF37]">{totalPoints}</span> pts
                   </div>
                 </div>
-              ))}
-            </div>
 
-            {/* Add Criterion Button */}
-            <button
-              type="button"
-              data-testid="add-criterion-button"
-              onClick={handleAddCriterion}
-              className="w-full py-2 border border-dashed border-[#333842] hover:border-[#D4AF37]/50 rounded-lg text-xs font-medium text-gray-300 hover:text-[#D4AF37] hover:bg-[#D4AF37]/5 transition-all flex items-center justify-center space-x-1.5"
-            >
-              <Plus className="w-3.5 h-3.5" />
-              <span>Add Criterion</span>
-            </button>
-          </div>
+                <div className="space-y-3">
+                  {criteria.map((criterion, index) => (
+                    <div
+                      key={criterion.id || index}
+                      data-testid={`rubric-criterion-card-${index}`}
+                      className="p-3.5 bg-[#121316] border border-[#333842] rounded-lg space-y-2.5 relative group"
+                    >
+                      <div className="flex items-center space-x-2">
+                        <span className="text-gray-500 font-mono text-[10px] w-4">
+                          #{index + 1}
+                        </span>
+                        <input
+                          type="text"
+                          data-testid={`criterion-title-input-${index}`}
+                          value={criterion.title}
+                          onChange={(e) => handleCriterionChange(index, 'title', e.target.value)}
+                          placeholder="Criterion title (e.g. Structure & Thesis)"
+                          className="flex-1 bg-[#1A1D21] border border-[#333842] rounded px-2.5 py-1.5 text-xs text-gray-200 placeholder-gray-500 focus:outline-none focus:border-[#D4AF37]"
+                        />
+                        <div className="flex items-center space-x-1 shrink-0">
+                          <input
+                            type="number"
+                            data-testid={`criterion-points-input-${index}`}
+                            value={criterion.maxPoints}
+                            onChange={(e) =>
+                              handleCriterionChange(index, 'maxPoints', Number(e.target.value))
+                            }
+                            min={1}
+                            className="w-14 bg-[#1A1D21] border border-[#333842] rounded px-2 py-1.5 text-xs font-mono text-[#F3E5AB] text-right focus:outline-none focus:border-[#D4AF37]"
+                          />
+                          <span className="text-gray-400 font-mono text-[11px]">pts</span>
+                        </div>
+                        {criteria.length > 1 && (
+                          <button
+                            type="button"
+                            data-testid={`delete-criterion-button-${index}`}
+                            onClick={() => handleDeleteCriterion(index)}
+                            title="Delete criterion"
+                            className="text-gray-500 hover:text-red-400 p-1.5 rounded transition-colors"
+                          >
+                            <Trash2 className="w-3.5 h-3.5" />
+                          </button>
+                        )}
+                      </div>
+
+                      <div>
+                        <textarea
+                          data-testid={`criterion-desc-input-${index}`}
+                          value={criterion.description}
+                          onChange={(e) => handleCriterionChange(index, 'description', e.target.value)}
+                          placeholder="Description of expectations or performance standard (optional)..."
+                          rows={2}
+                          className="w-full bg-[#1A1D21] border border-[#333842] rounded p-2 text-xs text-gray-300 placeholder-gray-500 focus:outline-none focus:border-[#D4AF37] resize-none"
+                        />
+                      </div>
+                    </div>
+                  ))}
+                </div>
+
+                {/* Add Criterion Button */}
+                <button
+                  type="button"
+                  data-testid="add-criterion-button"
+                  onClick={handleAddCriterion}
+                  className="w-full py-2 border border-dashed border-[#333842] hover:border-[#D4AF37]/50 rounded-lg text-xs font-medium text-gray-300 hover:text-[#D4AF37] hover:bg-[#D4AF37]/5 transition-all flex items-center justify-center space-x-1.5"
+                >
+                  <Plus className="w-3.5 h-3.5" />
+                  <span>Add Criterion</span>
+                </button>
+              </div>
+          )}
         </div>
 
         {/* Footer */}

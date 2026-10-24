@@ -106,6 +106,13 @@ export interface CreateCourseWorkInput {
   state?: 'PUBLISHED' | 'DRAFT';
 }
 
+export interface UpdateCourseWorkInput {
+  title?: string;
+  description?: string;
+  maxPoints?: number;
+  dueDate?: string; // YYYY-MM-DD
+}
+
 /**
  * Creates a new coursework assignment in Google Classroom under the application's OAuth client ID.
  * Coursework created via this endpoint has associatedWithDeveloper=true, enabling full grade write-back and return.
@@ -330,7 +337,6 @@ export async function fetchCourseWorkRubricFromClassroom(
   courseWorkId: string
 ): Promise<{
   id: string;
-  title: string;
   criteria: Array<{ id: string; title: string; description: string; maxPoints: number }>;
   updatedAt: string;
 } | null> {
@@ -365,7 +371,6 @@ export async function fetchCourseWorkRubricFromClassroom(
 
     return {
       id: firstRubric.id || `classroom_rubric_${courseWorkId}`,
-      title: 'Classroom Rubric',
       criteria,
       updatedAt: firstRubric.updateTime || firstRubric.creationTime || new Date().toISOString(),
     };
@@ -402,6 +407,84 @@ export async function patchCourseWorkMaxPoints(
       maxPoints,
     },
   });
+  return res.data;
+}
+
+/**
+ * Updates an existing coursework assignment in Google Classroom via courses.courseWork.patch.
+ */
+export async function patchCourseWork(
+  accessToken: string,
+  courseId: string,
+  courseWorkId: string,
+  input: UpdateCourseWorkInput
+): Promise<classroom_v1.Schema$CourseWork> {
+  if (!courseId || !courseId.trim()) {
+    throw new Error('[Classroom Client] courseId is required to update coursework. Fail-fast enabled.');
+  }
+  if (!courseWorkId || !courseWorkId.trim()) {
+    throw new Error('[Classroom Client] courseWorkId is required to update coursework. Fail-fast enabled.');
+  }
+
+  const classroom = getClassroomClient(accessToken);
+  const updateMaskParts: string[] = [];
+  const requestBody: classroom_v1.Schema$CourseWork = {};
+
+  if (input.title !== undefined) {
+    if (!input.title.trim()) {
+      throw new Error('[Classroom Client] Assignment title cannot be empty. Fail-fast enabled.');
+    }
+    requestBody.title = input.title.trim();
+    updateMaskParts.push('title');
+  }
+
+  if (input.description !== undefined) {
+    requestBody.description = input.description.trim();
+    updateMaskParts.push('description');
+  }
+
+  if (input.maxPoints !== undefined) {
+    const parsedPoints = Number(input.maxPoints);
+    if (Number.isNaN(parsedPoints) || parsedPoints < 0) {
+      throw new Error('[Classroom Client] maxPoints must be a non-negative number. Fail-fast enabled.');
+    }
+    requestBody.maxPoints = parsedPoints;
+    updateMaskParts.push('maxPoints');
+  }
+
+  if (input.dueDate !== undefined) {
+    const trimmedDate = input.dueDate ? input.dueDate.trim() : '';
+    if (trimmedDate) {
+      const match = trimmedDate.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+      if (!match) {
+        throw new Error(`[Classroom Client] Invalid dueDate format "${input.dueDate}". Expected YYYY-MM-DD.`);
+      }
+      requestBody.dueDate = {
+        year: Number(match[1]),
+        month: Number(match[2]),
+        day: Number(match[3]),
+      };
+      requestBody.dueTime = {
+        hours: 23,
+        minutes: 59,
+      };
+      updateMaskParts.push('dueDate', 'dueTime');
+    } else {
+      updateMaskParts.push('dueDate', 'dueTime');
+    }
+  }
+
+  if (updateMaskParts.length === 0) {
+    throw new Error('[Classroom Client] At least one field must be provided to update coursework. Fail-fast enabled.');
+  }
+
+  const res = await classroom.courses.courseWork.patch({
+    courseId,
+    id: courseWorkId,
+    updateMask: updateMaskParts.join(','),
+    requestBody,
+  });
+
   return res.data;
 }
 

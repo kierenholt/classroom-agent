@@ -16,6 +16,13 @@ interface CreateCourseworkPayload {
   dueDate?: string;
 }
 
+export interface UpdateCourseworkPayload {
+  title?: string;
+  description?: string;
+  maxPoints?: number;
+  dueDate?: string;
+}
+
 interface ClassroomDataContextType {
   courses: ClassroomCourse[];
   courseworkByCourseId: Record<string, ClassroomCoursework[]>;
@@ -26,6 +33,7 @@ interface ClassroomDataContextType {
   preloadAssignments: (force?: boolean) => Promise<void>;
   fetchCourseworkForCourse: (courseId: string, force?: boolean) => Promise<ClassroomCoursework[]>;
   createCourseworkForCourse: (courseId: string, payload: CreateCourseworkPayload) => Promise<ClassroomCoursework>;
+  updateCourseworkForCourse: (courseId: string, courseWorkId: string, payload: UpdateCourseworkPayload) => Promise<ClassroomCoursework>;
   prefetchWorkspace: (courseId: string, courseWorkId: string) => Promise<any>;
   getCachedWorkspace: (assignmentId: string) => any | null;
   refreshAll: () => Promise<void>;
@@ -312,6 +320,61 @@ export const ClassroomDataProvider: React.FC<{ children: React.ReactNode }> = ({
     [getAuthHeaders, clearGoogleAccessToken, prefetchWorkspace]
   );
 
+  // 3b. Update coursework assignment in Google Classroom API
+  const updateCourseworkForCourse = useCallback(
+    async (
+      courseId: string,
+      courseWorkId: string,
+      payload: UpdateCourseworkPayload
+    ): Promise<ClassroomCoursework> => {
+      if (!courseId) throw new Error('[Classroom Data] courseId is required to update coursework.');
+      if (!courseWorkId) throw new Error('[Classroom Data] courseWorkId is required to update coursework.');
+
+      const headers = await getAuthHeaders();
+      const res = await fetch(
+        `${env.API_BASE_URL}/classroom/courses/${encodeURIComponent(courseId)}/coursework/${encodeURIComponent(courseWorkId)}`,
+        {
+          method: 'PATCH',
+          headers: {
+            ...headers,
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify(payload),
+        }
+      );
+
+      if (!res.ok) {
+        const errData = await res.json().catch(() => null);
+        const errText = errData?.error || (await res.text().catch(() => 'Failed to update assignment'));
+        if (res.status === 401 || /invalid credentials/i.test(String(errText))) {
+          clearGoogleAccessToken();
+        }
+        const error = new Error(String(errText));
+        (error as any).status = res.status;
+        throw error;
+      }
+
+      const data = await res.json();
+      const updated: ClassroomCoursework = data.courseWork;
+
+      // Invalidate memory workspace cache for this assignment so subsequent reads are fresh
+      const assignmentId = `${courseId}_${courseWorkId}`;
+      workspaceMemoryCache.delete(assignmentId);
+
+      setCourseworkByCourseId((prev) => {
+        const existingList = prev[courseId] || [];
+        const updatedList = existingList.map((cw) => (cw.id === updated.id ? { ...cw, ...updated } : cw));
+        return {
+          ...prev,
+          [courseId]: updatedList,
+        };
+      });
+
+      return updated;
+    },
+    [getAuthHeaders, clearGoogleAccessToken]
+  );
+
   // 4. Retrieve cached workspace
   const getCachedWorkspace = useCallback((assignmentId: string): any | null => {
     const cached = workspaceMemoryCache.get(assignmentId);
@@ -348,6 +411,7 @@ export const ClassroomDataProvider: React.FC<{ children: React.ReactNode }> = ({
         preloadAssignments,
         fetchCourseworkForCourse,
         createCourseworkForCourse,
+        updateCourseworkForCourse,
         prefetchWorkspace,
         getCachedWorkspace,
         refreshAll,

@@ -7,10 +7,13 @@ import {
   StudentSubmissionDoc,
   StudentEvaluationSidecarDoc,
   CriterionEvaluation,
+  ClassroomCoursework,
 } from '../../types/classroom';
 import { StudentRosterZone } from './StudentRosterZone';
 import { SubmissionPreviewZone } from './SubmissionPreviewZone';
 import { RubricMarkingZone } from './RubricMarkingZone';
+import { EditAssignmentModal } from './EditAssignmentModal';
+import { ViewAssignmentModal } from './ViewAssignmentModal';
 import { useAuth } from '../../context/AuthContext';
 import { useClassroomData } from '../../context/ClassroomDataContext';
 import { env } from '../../config/env';
@@ -54,6 +57,8 @@ export const AssignmentWorkspace: React.FC<AssignmentWorkspaceProps> = ({
   const [isSyncing, setIsSyncing] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
   const [isReturning, setIsReturning] = useState(false);
+  const [isEditModalOpen, setIsEditModalOpen] = useState(false);
+  const [isViewModalOpen, setIsViewModalOpen] = useState(false);
 
   const onAssignmentLoadedRef = useRef(onAssignmentLoaded);
   onAssignmentLoadedRef.current = onAssignmentLoaded;
@@ -476,6 +481,32 @@ export const AssignmentWorkspace: React.FC<AssignmentWorkspaceProps> = ({
     }
   };
 
+  const handleAssignmentUpdated = useCallback(
+    (updated: ClassroomCoursework) => {
+      setLiveAssignment((prev) => {
+        if (!prev) return null;
+        const updatedDueDateStr = updated.dueDate
+          ? `${updated.dueDate.year}-${String(updated.dueDate.month).padStart(2, '0')}-${String(updated.dueDate.day).padStart(2, '0')}`
+          : undefined;
+        return {
+          ...prev,
+          title: updated.title,
+          description: updated.description,
+          maxPoints: updated.maxPoints ?? prev.maxPoints,
+          dueDate: updatedDueDateStr,
+        };
+      });
+
+      if (onAssignmentLoadedRef.current && liveAssignment) {
+        onAssignmentLoadedRef.current({
+          courseName: liveAssignment.courseName,
+          assignmentTitle: updated.title,
+        });
+      }
+    },
+    [liveAssignment]
+  );
+
   if (loading) {
     return (
       <div className="flex-1 h-full flex items-center justify-center bg-[#121316] text-gray-400">
@@ -514,6 +545,8 @@ export const AssignmentWorkspace: React.FC<AssignmentWorkspaceProps> = ({
         }}
         onSelectStudent={(id) => onSelectStudent(id)}
         onSyncClassroom={handleSyncClassroom}
+        onOpenViewAssignment={() => setIsViewModalOpen(true)}
+        onOpenEditAssignment={() => setIsEditModalOpen(true)}
         onSaveDraftStudents={handleSaveDraftStudents}
         onReturnStudents={handleReturnStudents}
         onUpdateStudentScore={handleUpdateStudentScore}
@@ -537,6 +570,29 @@ export const AssignmentWorkspace: React.FC<AssignmentWorkspaceProps> = ({
           }}
         />
       </SubmissionPreviewZone>
+
+      {/* View Assignment Modal (Rendered Markdown) */}
+      {mergedAssignment && (
+        <ViewAssignmentModal
+          isOpen={isViewModalOpen}
+          onClose={() => setIsViewModalOpen(false)}
+          assignment={mergedAssignment}
+          onOpenEdit={() => {
+            setIsViewModalOpen(false);
+            setIsEditModalOpen(true);
+          }}
+        />
+      )}
+
+      {/* Edit Assignment Modal */}
+      {mergedAssignment && (
+        <EditAssignmentModal
+          isOpen={isEditModalOpen}
+          onClose={() => setIsEditModalOpen(false)}
+          assignment={mergedAssignment}
+          onAssignmentUpdated={handleAssignmentUpdated}
+        />
+      )}
     </div>
   );
 };
