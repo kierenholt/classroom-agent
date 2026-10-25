@@ -25,7 +25,7 @@ Classroom Agent is an AI-native grading and feedback workstation for Google Clas
 
 ## GCP & Firebase Project Configuration
 - **Project ID**: `classroom-agent-511917` (Project Number: `82833838117`)
-- **Firebase Web App ID**: `1:82833838117:web:6646420fa24876a1112fcc` (`classroom-agent-web`)
+- **Firebase Web App ID**: `1:82833838117:web:6646420fa24876a1112fcc` (`classroom-agent-web`, Google Analytics Measurement ID: `G-5MKCY251V8`)
 - **Cloud Firestore**: `(default)` Native database in `europe-west2` with real-time updates enabled (AI Sidecar for rubrics, evaluations, and agent messages)
 - **Authentication**: Firebase Auth with Google Sign-In provider (`Classroom Agent`) requesting strictly the 4 Non-Sensitive OAuth scopes (`classroom.courses.readonly`, `classroom.rosters.readonly`, `classroom.coursework.students`, and `drive.file`)
 
@@ -41,8 +41,8 @@ Classroom Agent is an AI-native grading and feedback workstation for Google Clas
 ## Implemented Architecture & Source Components
 
 ### Frontend SPA (`/src`)
-- [src/config/env.ts](file:///home/kieren/Documents/code/classroom-agent/src/config/env.ts): Fail-fast client environment validator enforcing all `VITE_*` parameters.
-- [src/config/firebase.ts](file:///home/kieren/Documents/code/classroom-agent/src/config/firebase.ts): Firebase Auth, Firestore, and Storage client initialization with emulator fallback and the 4 Non-Sensitive Google OAuth scopes (`classroom.courses.readonly`, `classroom.coursework.students`, `classroom.rosters.readonly`, `drive.file`).
+- [src/config/env.ts](file:///home/kieren/Documents/code/classroom-agent/src/config/env.ts): Fail-fast client environment validator enforcing all `VITE_*` parameters (including `VITE_FIREBASE_MEASUREMENT_ID`).
+- [src/config/firebase.ts](file:///home/kieren/Documents/code/classroom-agent/src/config/firebase.ts): Firebase App, Google Analytics (`getAnalytics(app)`), Auth, Firestore, and Storage client initialization with emulator fallback and the 4 Non-Sensitive Google OAuth scopes (`classroom.courses.readonly`, `classroom.coursework.students`, `classroom.rosters.readonly`, `drive.file`).
 - [src/context/AuthContext.tsx](file:///home/kieren/Documents/code/classroom-agent/src/context/AuthContext.tsx): Teacher authentication provider managing Firebase ID tokens and Google OAuth tokens with 55-minute TTL tracking (`classroom_agent_google_token_expiry`) and automatic invalidation (`clearGoogleAccessToken`) when tokens expire.
 - [src/context/SettingsContext.tsx](file:///home/kieren/Documents/code/classroom-agent/src/context/SettingsContext.tsx): Workspace settings context managing display preferences (`showRubricPane`), advanced preferences (`showExtractedTextToggle`, `showToolCalls`), and AI Feedback Options (`feedbackTone`, `feedbackDetailLevel`, `useRubricDuringFeedback`, `provideNextSteps`, `showScores`, exposed together as `feedbackSettings`) persisted in `localStorage`.
 - [src/context/CreditsContext.tsx](file:///home/kieren/Documents/code/classroom-agent/src/context/CreditsContext.tsx): AI credits context provisioning new teachers with `100` initial credits (`GET /api/stripe/user-credits`), subscribing in real time to `users/{uid}` via Firestore `onSnapshot`, managing the `TopUpCreditsModal` open state, and automatically verifying completed Stripe Checkout sessions (`?checkout=success&session_id=...` via `POST /api/stripe/verify-session`).
